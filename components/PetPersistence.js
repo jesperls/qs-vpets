@@ -40,7 +40,7 @@ function load(pet) {
         if (saved.exploreDrive !== undefined) pet.exploreDrive = saved.exploreDrive;
         if (saved.socialDrive !== undefined) pet.socialDrive = saved.socialDrive;
         if (saved.playDrive !== undefined) pet.playDrive = saved.playDrive;
-        if (saved.alertness !== undefined) pet.alertness = saved.alertness;
+        if (saved.alertness !== undefined) pet.alertness = saved.alertness + (0.5 - saved.alertness) * 0.5;
         if (saved.thoughts && saved.thoughts.length) pet.thoughts = saved.thoughts;
         if (saved.visitedCells) pet.visitedCells = saved.visitedCells;
         if (saved.windowPrefs) pet.windowPrefs = saved.windowPrefs;

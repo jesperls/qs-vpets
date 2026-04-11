@@ -18,7 +18,7 @@ function add(pet, type, data) {
         for (var i = 0; i < keys.length; i++) thought[keys[i]] = data[keys[i]];
     }
     pet.thoughts.push(thought);
-    if (pet.thoughts.length > 50) pet.thoughts.shift();
+    if (pet.thoughts.length > 200) pet.thoughts.shift();
 }
 
 function recent(pet, type, withinMs) {
@@ -102,6 +102,9 @@ function justWokeUp(pet) { return !!recent(pet, "well_rested", 15000); }
 function hasBeenIdleLong(pet) { return count(pet, "adventure", 120000) < 1 && count(pet, "arrived", 120000) < 1; }
 function isRoutine(pet) { return count(pet, "arrived", 120000) > 6; }
 
+// count recent movement events for activity level
+function recentMoveCount(pet) { return count(pet, "arrived", 120000); }
+
 function recordWindowPref(pet, cls, delta) {
     if (!cls) return;
     if (!pet.windowPrefs[cls]) pet.windowPrefs[cls] = 0.5;
@@ -111,6 +114,15 @@ function recordWindowPref(pet, cls, delta) {
 function getWindowPref(pet, cls) {
     if (!cls) return 0.5;
     return pet.windowPrefs[cls] !== undefined ? pet.windowPrefs[cls] : 0.5;
+}
+
+// slowly decay all preferences toward neutral (0.5)
+function decayPreferences(pet) {
+    var keys = Object.keys(pet.windowPrefs);
+    for (var i = 0; i < keys.length; i++) {
+        var v = pet.windowPrefs[keys[i]];
+        pet.windowPrefs[keys[i]] = v + (0.5 - v) * 0.02;
+    }
 }
 
 function isFamiliarArea(pet) {

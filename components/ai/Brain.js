@@ -17,11 +17,6 @@ function tick(pet, nav) {
         return;
     }
 
-    if (ai.Memory.recent(pet, "arrived", 8000)) {
-        pet.restartIdle();
-        return;
-    }
-
     switch (dominant.name) {
     case "rest":    _doRest(pet, nav, perc, dominant.value, ai); break;
     case "explore": _doExplore(pet, nav, perc, dominant.value, ai); break;
@@ -88,7 +83,7 @@ function onEvent(pet, type, data) {
 function _doRest(pet, nav, perc, urgency, ai) {
     // stretch after waking up
     if (ai.Memory.justWokeUp(pet)) {
-        pet.enterState(_pick(pet, ["swing", "deepBreath", "hop"]));
+        pet.enterState(_pick(pet, ["deepBreath", "hop", "charge"]));
         return;
     }
 
@@ -125,7 +120,7 @@ function _doExplore(pet, nav, perc, urgency, ai) {
 
     // just arrived somewhere, look around first
     if (ai.Memory.recent(pet, "adventure", 15000) || ai.Memory.recent(pet, "arrived", 20000)) {
-        pet.enterState(_pick(pet, ["lookUp", "nod", "react", "swing"]));
+        pet.enterState(_pick(pet, ["lookUp", "nod", "react", "charge"]));
         return;
     }
 
@@ -212,7 +207,6 @@ function _doSocial(pet, nav, perc, urgency, ai) {
 
 function _doPlay(pet, nav, perc, urgency, ai) {
     ai.Memory.add(pet, "feeling_playful");
-    pet.playDrive = Math.max(0, pet.playDrive - 0.12);
     var r = Math.random();
 
     if (r < 0.35) {
@@ -223,7 +217,7 @@ function _doPlay(pet, nav, perc, urgency, ai) {
     }
 
     if (r < 0.7) {
-        pet.enterState(_pick(pet, ["attack", "hop", "shoot", "swing", "pose", "trip", "charge"]));
+        pet.enterState(_pick(pet, ["attack", "hop", "shoot", "pose", "trip", "charge"]));
         return;
     }
 

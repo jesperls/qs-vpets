@@ -8,11 +8,16 @@ function perceive(pet) {
         localWp = { x: lx, y: ly, onScreen: lx > 50 && lx < sw - 50 && ly > 50 && ly < sh - 50 };
     }
 
+    // use global coordinates for multi-monitor distance
+    var petGX = pet.screenX() + pet.worldX;
+    var petGY = pet.screenY() + pet.worldY;
     var nearbyPets = [];
     var allPets = pet.petManager.pets;
     for (var i = 0; i < allPets.length; i++) {
         if (allPets[i] === pet) continue;
-        var dx = allPets[i].worldX - pet.worldX, dy = allPets[i].worldY - pet.worldY;
+        var otherGX = allPets[i].screenX() + allPets[i].worldX;
+        var otherGY = allPets[i].screenY() + allPets[i].worldY;
+        var dx = otherGX - petGX, dy = otherGY - petGY;
         var dist = Math.sqrt(dx * dx + dy * dy);
         if (dist < 300) nearbyPets.push({ pet: allPets[i], dist: dist });
     }

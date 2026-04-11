@@ -1,12 +1,9 @@
-// Drive rates tuned for hours-scale behavior.
-// Full rest/explore/rest cycle takes ~30-60 min naturally.
-
 function update(pet, perc) {
     var p = pet.personality;
 
     // Rest: ~45 min to fill while awake, drops while sitting
     if (pet.state_ === "sit" || pet.state_ === "deepsleep") {
-        pet.restDrive = Math.max(0, pet.restDrive - 0.015);
+        pet.restDrive = Math.max(0, pet.restDrive - 0.02);
     } else {
         var restRate = 0.002 + p.sleepiness * 0.003;
         if (perc.isNight) restRate *= 2.0;
@@ -15,9 +12,9 @@ function update(pet, perc) {
         pet.restDrive = Math.min(1, pet.restDrive + restRate);
     }
 
-    // Explore: ~20 min to become dominant
+    // Explore: drops while moving, builds while stationary
     if (pet.state_ === "walk" || pet.state_ === "wander" || pet.state_ === "dance") {
-        pet.exploreDrive = Math.max(0, pet.exploreDrive - 0.005);
+        pet.exploreDrive = Math.max(0, pet.exploreDrive - 0.015);
     } else {
         var exploreRate = 0.001 + p.curiosity * 0.002;
         if (perc.windowCount > 3) exploreRate *= 1.4;
@@ -26,7 +23,7 @@ function update(pet, perc) {
         pet.exploreDrive = Math.min(1, pet.exploreDrive + exploreRate);
     }
 
-    // Social: ~30 min to become urgent
+    // Social: builds over time, reduced by nearby friends
     var socialRate = perc.userBusy ? 0.002 : 0.001;
     socialRate *= (0.5 + p.sociability);
     pet.socialDrive = Math.min(1, pet.socialDrive + socialRate);
@@ -39,20 +36,13 @@ function update(pet, perc) {
     if (perc.fullscreen) homeNeed = Math.max(homeNeed, 0.3 + (1 - p.boldness) * 0.3);
     pet.comfortDrive = pet.comfortDrive * 0.95 + homeNeed * 0.05;
 
-    // Play: ~40 min to build, boosted by happiness
+    // Play: builds slowly, drops during play actions
     var playRate = 0.0005 + p.playfulness * 0.001;
     if (pet.happiness > 0.6) playRate *= 2;
     if (pet.restDrive < 0.3) playRate *= 1.5;
     pet.playDrive = Math.min(1, pet.playDrive + playRate);
     if (pet.state_ === "attack" || pet.state_ === "hop" || pet.state_ === "dance" || pet.state_ === "shoot")
-        pet.playDrive = Math.max(0, pet.playDrive - 0.03);
-
-    // Alertness
-    var baseline = perc.isNight ? 0.1 : 0.35;
-    if (perc.systemBusy) baseline += 0.1;
-    if (perc.userBusy) baseline += 0.15;
-    baseline += p.energy * 0.1;
-    pet.alertness = pet.alertness * 0.98 + Math.min(1, baseline) * 0.02;
+        pet.playDrive = Math.max(0, pet.playDrive - 0.04);
 }
 
 function evaluate(pet) {

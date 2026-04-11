@@ -14,6 +14,8 @@ Singleton {
     property bool _active: true
     property real cursorX: 0
     property real cursorY: 0
+    property real _prevCursorX: 0
+    property real _prevCursorY: 0
 
     Process {
         id: cursorProc
@@ -24,6 +26,12 @@ Singleton {
                 if (parts.length === 2) {
                     root.cursorX = parseInt(parts[0].trim()) || 0;
                     root.cursorY = parseInt(parts[1].trim()) || 0;
+                    // detect cursor movement for idle reset
+                    if (Math.abs(root.cursorX - root._prevCursorX) > 3 || Math.abs(root.cursorY - root._prevCursorY) > 3) {
+                        root.registerMouseMove();
+                    }
+                    root._prevCursorX = root.cursorX;
+                    root._prevCursorY = root.cursorY;
                 }
             }
         }

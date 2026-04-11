@@ -25,7 +25,7 @@ Item {
         "idle": "Walk", "walk": "Walk", "wander": "Walk",
         "sit": "Sleep", "deepsleep": "Laying",
         "react": "Hurt", "dance": "Charge", "drag": "Walk",
-        "attack": "Attack", "swing": "Swing", "hop": "Hop", "shoot": "Shoot",
+        "attack": "Attack", "hop": "Hop", "shoot": "Shoot",
         "charge": "Charge", "double": "Double",
         "lookUp": "LookUp", "nod": "Nod", "pose": "Pose",
         "eat": "Eat", "trip": "Trip", "wake": "Wake",
@@ -101,9 +101,21 @@ Item {
                 durs.push(parseInt(durMatches[j].match(/\d+/)[0]));
             anims[name] = { frameWidth: fw, frameHeight: fh, durations: durs, frameCount: durs.length };
         }
-        for (var n in anims) {
-            if (anims[n].copyOf && anims[anims[n].copyOf])
-                anims[n] = Object.assign({}, anims[anims[n].copyOf]);
+        // multi-pass CopyOf resolution for chained references
+        var maxPasses = 10;
+        for (var pass = 0; pass < maxPasses; pass++) {
+            var unresolved = false;
+            for (var n in anims) {
+                if (anims[n].copyOf) {
+                    var target = anims[anims[n].copyOf];
+                    if (target && !target.copyOf) {
+                        anims[n] = Object.assign({}, target);
+                    } else if (target) {
+                        unresolved = true;
+                    }
+                }
+            }
+            if (!unresolved) break;
         }
         return anims;
     }

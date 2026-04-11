@@ -1,5 +1,8 @@
 function set(pet, action, reason, priority, target) {
-    if (pet.intention && pet.intention.priority >= priority && pet.intention.action === action) return;
+    // never replace a higher-priority intention
+    if (pet.intention && pet.intention.priority > priority) return;
+    // don't refresh identical intention at same priority
+    if (pet.intention && pet.intention.priority === priority && pet.intention.action === action) return;
     pet.intention = { action: action, reason: reason, priority: priority, startTime: Date.now(), target: target || null };
 }
 
@@ -10,6 +13,9 @@ function isStale(pet) {
     var elapsed = Date.now() - pet.intention.startTime;
     // rest can persist longer when very tired
     if (pet.intention.action === "rest" && pet.intention.priority > 0.7) return elapsed > 180000;
+    // journeys get more time proportional to priority
+    if (pet.intention.action === "adventure" || pet.intention.action === "go_home" || pet.intention.action === "go_home_rest")
+        return elapsed > 120000;
     return elapsed > 60000;
 }
 

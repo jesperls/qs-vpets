@@ -93,7 +93,7 @@ Item {
             danceTimer.interval = 5000 + Math.random() * 10000;
             danceTimer.restart(); break;
         default:
-            var dur = ({ react: 600, hop: 800, attack: 1000, swing: 1200, shoot: 900,
+            var dur = ({ react: 600, hop: 800, attack: 1000, shoot: 900,
                 lookUp: 1500, nod: 800, pose: 1500, eat: 2000, trip: 1000,
                 wake: 1200, deepBreath: 2000, cringe: 800, sitDown: 1500,
                 faint: 1500, charge: 1200, double: 1000 })[s] || 800;
@@ -142,7 +142,7 @@ Item {
                 root.facingRight = !root.facingRight;
                 sprite.setDirection(root.facingRight ? 0 : Math.PI);
             } else if (r < 0.35) {
-                var fidgets = ["attack", "hop", "swing", "shoot", "nod", "lookUp"];
+                var fidgets = ["attack", "hop", "shoot", "nod", "lookUp", "charge"];
                 var pick = Brain._pick(root, fidgets);
                 sprite.setState(pick);
                 fidgetRevert.interval = 800 + Math.random() * 500;
@@ -175,6 +175,7 @@ Item {
         var perc = Perception.perceive(root);
         Drives.update(root, perc);
         Memory.trackPosition(root);
+        Memory.decayPreferences(root);
     }}
 
     readonly property real currentSpeed: {
@@ -189,8 +190,20 @@ Item {
 
     function updateMovement(dt) {
         if (currentSpeed > 0) {
-            worldX += Math.cos(moveAngle) * currentSpeed * dt;
-            worldY += Math.sin(moveAngle) * currentSpeed * dt;
+            var step = currentSpeed * dt;
+            if (onJourney) {
+                var dx = targetX - worldX, dy = targetY - worldY;
+                var dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist < step + 20) {
+                    // close enough: snap to target and arrive
+                    worldX = targetX;
+                    worldY = targetY;
+                    Nav.walkArrived(root);
+                    return;
+                }
+            }
+            worldX += Math.cos(moveAngle) * step;
+            worldY += Math.sin(moveAngle) * step;
         }
     }
 

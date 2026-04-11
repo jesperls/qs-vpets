@@ -157,12 +157,19 @@ PanelWindow {
         onClicked: { if (!didDrag) pet.enterState("react"); }
     }
 
-    // petting: hover over pet for >1s, then 3s cooldown
+    // petting: hover over pet for >1s, 3s cooldown between pets
+    property real _lastPetTime: 0
     Timer {
         interval: 200; running: dragArea.hovering && !dragArea.dragging; repeat: true
         onTriggered: {
             dragArea.hoverTime += 0.2;
-            if (dragArea.hoverTime > 1.0 && dragArea.hoverTime < 1.3) pet.onPetted();
+            if (dragArea.hoverTime > 1.0 && dragArea.hoverTime < 1.3) {
+                var now = Date.now() / 1000;
+                if (now - root._lastPetTime > 3.0) {
+                    root._lastPetTime = now;
+                    pet.onPetted();
+                }
+            }
         }
     }
 
@@ -175,10 +182,6 @@ PanelWindow {
     Connections {
         target: InputTracker
         function onIdleBegan(): void { pet.onIdleBegan(); }
-    }
-    Connections {
-        target: MusicTracker
-        function onTrackChanged(title: string, artist: string): void { pet.enterState("react"); }
     }
 
     Component.onCompleted: {
