@@ -5,7 +5,16 @@ function tick(pet, nav) {
         if (ai.Intentions.fulfill(pet, nav)) return;
     }
 
-    if (pet.alertness < 0.15) { pet.restartIdle(); return; }
+    // Drowsy: too tired to decide, drift toward resting
+    if (pet.alertness < 0.15) {
+        if (pet.restDrive > 0.3) {
+            var perc0 = ai.Perception.perceive(pet);
+            _doRest(pet, nav, perc0, pet.restDrive * (1 + pet.personality.sleepiness * 0.5), ai);
+        } else {
+            pet.restartIdle();
+        }
+        return;
+    }
 
     var perc = ai.Perception.perceive(pet);
     var drives = ai.Drives.evaluate(pet);
@@ -41,7 +50,7 @@ function onEvent(pet, type, data) {
         richData.windowW = wp.w; richData.windowH = wp.h;
         richData.fullscreen = pet.windowTracker.isFullscreen;
     }
-    if (ai && ai.Memory) ai.Memory.add(pet, type, richData);
+    if (ai && ai.Memory && type !== "window_focused") ai.Memory.add(pet, type, richData);
 
     switch (type) {
     case "cursor_near":
@@ -63,18 +72,29 @@ function onEvent(pet, type, data) {
         break;
 
     case "window_opened":
-        if (ai && ai.Drives) ai.Drives.stimulate(pet, 0.1);
-        if (pet.state_ === "idle" && Math.random() < 0.4) pet.enterState("react");
+        if (ai && ai.Drives) ai.Drives.stimulate(pet, 0.05 + pet.personality.curiosity * 0.1);
+        if (pet.state_ === "idle" && Math.random() < 0.15 + pet.personality.curiosity * 0.3)
+            pet.enterState("react");
         break;
 
     case "workspace_changed":
-        if (ai && ai.Drives) ai.Drives.stimulate(pet, 0.15);
-        if (pet.state_ === "idle" && Math.random() < 0.3) pet.enterState("react");
+        if (ai && ai.Drives) ai.Drives.stimulate(pet, 0.05 + pet.personality.boldness * 0.15);
+        if (pet.state_ === "idle" && Math.random() < 0.1 + pet.personality.curiosity * 0.25)
+            pet.enterState("react");
+        break;
+
+    case "window_focused":
+        // light stimulation — curious pets notice focus changes more
+        if (ai && ai.Drives) ai.Drives.stimulate(pet, pet.personality.curiosity * 0.05);
         break;
 
     case "user_idle":
-        pet.restDrive = Math.min(1, pet.restDrive + 0.25);
-        if (pet.state_ !== "drag" && pet.state_ !== "sit" && pet.state_ !== "deepsleep")
+        // personality filters: energetic/bold pets resist sleeping,
+        // lazy/shy pets respond immediately
+        var idleResist = pet.personality.energy * 0.4 + pet.personality.boldness * 0.2;
+        pet.restDrive = Math.min(1, pet.restDrive + 0.15 + (1 - idleResist) * 0.15);
+        if (Math.random() > idleResist
+                && pet.state_ !== "drag" && pet.state_ !== "sit" && pet.state_ !== "deepsleep")
             pet.enterState("sit");
         break;
     }

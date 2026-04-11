@@ -123,6 +123,14 @@ function decayPreferences(pet) {
         var v = pet.windowPrefs[keys[i]];
         pet.windowPrefs[keys[i]] = v + (0.5 - v) * 0.02;
     }
+    // prune visitedCells: slow decay so exploration memory lasts ~minutes not seconds
+    var cellKeys = Object.keys(pet.visitedCells);
+    for (var j = 0; j < cellKeys.length; j++) {
+        if (Math.random() < 0.15) {
+            pet.visitedCells[cellKeys[j]]--;
+            if (pet.visitedCells[cellKeys[j]] <= 0) delete pet.visitedCells[cellKeys[j]];
+        }
+    }
 }
 
 function isFamiliarArea(pet) {

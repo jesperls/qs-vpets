@@ -43,7 +43,6 @@ function fulfill(pet, nav) {
 
     case "investigate":
     case "be_near_user":
-    case "watch_work":
     case "adventure":
     case "play_walk":
     case "revisit_spot":

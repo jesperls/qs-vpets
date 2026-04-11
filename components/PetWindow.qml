@@ -93,6 +93,10 @@ PanelWindow {
     function _mapY(ly: real, adj: var): real { return Math.max(4, Math.min(adj.height - petSize - 4, root.screen.y + ly - adj.y)); }
     function _mapX(lx: real, adj: var): real { return Math.max(4, Math.min(adj.width - petSize - 4, root.screen.x + lx - adj.x)); }
     function _hop(scr: var, nx: real, ny: real): void {
+        // convert home from old screen local to new screen local
+        const oldScr = root.screen;
+        pet.homeX += oldScr.x - scr.x;
+        pet.homeY += oldScr.y - scr.y;
         root.screen = scr; pet.worldX = nx; pet.worldY = ny;
     }
 
@@ -146,7 +150,11 @@ PanelWindow {
                 const petGX = grabPetX + (mouseGX - grabGlobalX);
                 const petGY = grabPetY + (mouseGY - grabGlobalY);
                 const t = root._screenAt(petGX, petGY);
-                if (t && t !== root.screen) root.screen = t;
+                if (t && t !== root.screen) {
+                    pet.homeX += root.screen.x - t.x;
+                    pet.homeY += root.screen.y - t.y;
+                    root.screen = t;
+                }
                 pet.worldX = petGX - root.screen.x;
                 pet.worldY = petGY - root.screen.y;
             }

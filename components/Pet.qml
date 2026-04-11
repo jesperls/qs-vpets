@@ -63,6 +63,11 @@ Item {
     function enterState(s) {
         if (state_ === s) return;
         _stopAllTimers();
+        // clear journey if entering a non-movement state (prevents stale onJourney after event interrupts)
+        if (s !== "walk" && s !== "wander" && s !== "dance") {
+            onJourney = false;
+            _journeyToWindow = false;
+        }
         state_ = s;
         sprite.setState(s);
         if (s === "walk" || s === "wander" || s === "dance") sprite.setDirection(moveAngle);
@@ -92,6 +97,8 @@ Item {
         case "dance":
             danceTimer.interval = 5000 + Math.random() * 10000;
             danceTimer.restart(); break;
+        case "drag":
+            break; // no timer — drag persists until mouse release
         default:
             var dur = ({ react: 600, hop: 800, attack: 1000, shoot: 900,
                 lookUp: 1500, nod: 800, pose: 1500, eat: 2000, trip: 1000,
@@ -102,7 +109,12 @@ Item {
         }
     }
 
-    function restartIdle() { idleTimer.interval = 2000 + Math.random() * 4000; idleTimer.restart(); }
+    function restartIdle() {
+        idleTimer.interval = alertness > 0.5 ? (2000 + Math.random() * 4000)
+                           : alertness > 0.25 ? (4000 + Math.random() * 8000)
+                           : (6000 + Math.random() * 15000);
+        idleTimer.restart();
+    }
     function restartWalk() { walkTimer.interval = 2000 + Math.random() * 3000; walkTimer.restart(); }
 
     function _stopAllTimers() {
@@ -117,8 +129,6 @@ Item {
     Timer { id: actionTimer; onTriggered: root.enterState("idle") }
 
     Timer { id: sitTimer; onTriggered: {
-        root.restDrive = Math.max(0, root.restDrive - 0.35);
-        root.alertness = Math.min(1, root.alertness + 0.2);
         Memory.add(root, "well_rested");
         root.enterState("wake");
     }}
@@ -170,13 +180,15 @@ Item {
         root._hour = new Date().getHours();
         root.happiness = Math.max(0.1, root.happiness - 0.005);
     }}
-    // periodic perception + drive updates
+    // periodic perception + drive updates — staggered per pet to desync
     Timer { interval: 30000; running: true; repeat: true; onTriggered: {
         var perc = Perception.perceive(root);
         Drives.update(root, perc);
         Memory.trackPosition(root);
         Memory.decayPreferences(root);
-    }}
+    }
+        Component.onCompleted: interval = 28000 + Math.random() * 4000
+    }
 
     readonly property real currentSpeed: {
         if (state_ === "walk") {
@@ -235,7 +247,7 @@ Item {
 
     FileView {
         id: stateFile
-        path: Config.configDir + "/state.json"
+        path: Config.configDir + "/state-" + root.petData.name + ".json"
         onLoadFailed: function(err) {}
         onLoaded: Persist.load(root)
     }

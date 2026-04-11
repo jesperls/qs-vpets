@@ -1,9 +1,6 @@
-// Saves to ~/.config/qs-vpets/state.json (separate from config.json
-// so periodic writes don't trigger config reload).
-
-function stateDir(pet) {
-    return pet.config.configDir;
-}
+// Per-pet state files: ~/.config/qs-vpets/state-<name>.json
+// Eliminates the race condition where multiple pets sharing
+// one file would overwrite each other's state.
 
 function save(pet) {
     var state = {
@@ -19,22 +16,14 @@ function save(pet) {
         x: pet.worldX, y: pet.worldY,
         homeX: pet.homeX, homeY: pet.homeY,
     };
-    var allState = {};
-    try {
-        if (pet._stateFileView && pet._stateFileView.text)
-            allState = JSON.parse(pet._stateFileView.text());
-    } catch(e) {}
-    allState[pet.petData.name] = state;
-    pet._statePendingJson = JSON.stringify(allState, null, 2);
+    pet._statePendingJson = JSON.stringify(state, null, 2);
     pet._stateMkdir.running = true;
 }
 
 function load(pet) {
     try {
         if (!pet._stateFileView) return;
-        var allState = JSON.parse(pet._stateFileView.text());
-        var saved = allState[pet.petData.name];
-        if (!saved) return;
+        var saved = JSON.parse(pet._stateFileView.text());
         if (saved.happiness !== undefined) pet.happiness = saved.happiness;
         if (saved.restDrive !== undefined) pet.restDrive = saved.restDrive;
         if (saved.exploreDrive !== undefined) pet.exploreDrive = saved.exploreDrive;
