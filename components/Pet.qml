@@ -142,7 +142,7 @@ Item {
                 root.facingRight = !root.facingRight;
                 sprite.setDirection(root.facingRight ? 0 : Math.PI);
             } else if (r < 0.35) {
-                var fidgets = ["attack", "hop", "shoot", "nod", "lookUp", "charge"];
+                var fidgets = ["attack", "hop", "shoot", "nod", "pose", "charge"];
                 var pick = Brain._pick(root, fidgets);
                 sprite.setState(pick);
                 fidgetRevert.interval = 800 + Math.random() * 500;

@@ -50,7 +50,7 @@ Item {
                 "wake": ["Wake", "Hurt", "Walk"],
                 "deepBreath": ["DeepBreath", "Sleep", "Walk"],
                 "cringe": ["Cringe", "Hurt", "Walk"],
-                "lookUp": ["LookUp", "Hurt", "Walk"],
+                "lookUp": ["Pose", "Hurt", "Walk"],
                 "nod": ["Nod", "Walk"],
                 "pose": ["Pose", "Hop", "Walk"],
                 "eat": ["Eat", "Walk"],

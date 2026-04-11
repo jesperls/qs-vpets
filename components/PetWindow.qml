@@ -35,7 +35,7 @@ PanelWindow {
         petData: root.petData
     }
 
-    // 60fps when moving, 4fps when idle (saves CPU for always-on overlay)
+    // 60fps when moving, 4fps when idle
     Timer {
         interval: {
             const s = pet.state_;
@@ -135,7 +135,7 @@ PanelWindow {
                 }
                 pet.exploreDrive = Math.min(1, pet.exploreDrive + 0.3);
                 pet.alertness = Math.min(1, pet.alertness + 0.3);
-                pet.enterState("lookUp");
+                pet.enterState("pose");
             }
         }
         onPositionChanged: (mouse) => {

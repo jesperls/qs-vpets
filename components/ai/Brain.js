@@ -112,7 +112,7 @@ function _doRest(pet, nav, perc, urgency, ai) {
     }
 
     // slightly tired, just yawn
-    pet.enterState(_pick(pet, ["deepBreath", "nod", "lookUp"]));
+    pet.enterState(_pick(pet, ["deepBreath", "nod"]));
 }
 
 function _doExplore(pet, nav, perc, urgency, ai) {
@@ -120,7 +120,7 @@ function _doExplore(pet, nav, perc, urgency, ai) {
 
     // just arrived somewhere, look around first
     if (ai.Memory.recent(pet, "adventure", 15000) || ai.Memory.recent(pet, "arrived", 20000)) {
-        pet.enterState(_pick(pet, ["lookUp", "nod", "react", "charge"]));
+        pet.enterState(_pick(pet, ["pose", "nod", "react", "charge"]));
         return;
     }
 
@@ -174,7 +174,7 @@ function _doExplore(pet, nav, perc, urgency, ai) {
 
 function _doSocial(pet, nav, perc, urgency, ai) {
     if (ai.Memory.wasRecentlyPetted(pet)) {
-        pet.enterState(_pick(pet, ["lookUp", "nod", "pose"]));
+        pet.enterState(_pick(pet, ["nod", "pose"]));
         return;
     }
 
@@ -202,7 +202,7 @@ function _doSocial(pet, nav, perc, urgency, ai) {
         return;
     }
 
-    pet.enterState(_pick(pet, ["cringe", "lookUp", "react"]));
+    pet.enterState(_pick(pet, ["cringe", "react"]));
 }
 
 function _doPlay(pet, nav, perc, urgency, ai) {
@@ -229,7 +229,7 @@ function _doComfort(pet, nav, perc, urgency, ai) {
     if (ai.Memory.isFamiliarArea(pet)) {
         pet.comfortDrive = Math.max(0, pet.comfortDrive - 0.08);
         if (pet.comfortDrive < 0.15) {
-            pet.enterState(_pick(pet, ["nod", "lookUp"]));
+            pet.enterState(_pick(pet, ["nod", "pose", "deepBreath"]));
             return;
         }
     }
