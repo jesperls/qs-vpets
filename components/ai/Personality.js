@@ -1,4 +1,4 @@
-// Each trait is 0-1, influences drive rates and behavior weights.
+// Traits are 0-1, influence drive rates and behavior weights.
 
 function resolve(preset) {
     var presets = {

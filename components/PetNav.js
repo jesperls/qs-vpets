@@ -1,6 +1,3 @@
-// Navigation: journeys, targeting, home area.
-// Clamped targets for on-screen, aimAtRaw for cross-monitor.
-
 var _margin = 60;
 
 function distTo(pet, tx, ty) {

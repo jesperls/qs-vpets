@@ -1,9 +1,7 @@
 function update(pet, perc) {
     var p = pet.personality;
 
-    // ── Rest ──────────────────────────────────────────────────────
-    // Builds while awake, recovers gradually during sit/deepsleep.
-    // Recovery rate is personality-driven (sleepiness = sleep efficiency).
+    // rest: builds while awake, recovers during sleep
     if (pet.state_ === "sit" || pet.state_ === "deepsleep") {
         var restRecovery = 0.015 + p.sleepiness * 0.02;
         if (pet.state_ === "deepsleep") restRecovery *= 1.5;
@@ -16,10 +14,7 @@ function update(pet, perc) {
         pet.restDrive = Math.min(1, pet.restDrive + restRate);
     }
 
-    // ── Alertness ────────────────────────────────────────────────
-    // Decays naturally (energy = stamina), recovers during rest.
-    // This is the core drowsiness mechanism — all sleep behavior
-    // emerges from alertness interacting with other drives.
+    // alertness: decays naturally, recovers during rest
     if (pet.state_ === "sit" || pet.state_ === "deepsleep") {
         var alertRecovery = 0.005 + p.energy * 0.01;
         if (pet.state_ === "deepsleep") alertRecovery *= 1.5;
@@ -30,9 +25,7 @@ function update(pet, perc) {
         pet.alertness = Math.max(0, pet.alertness - alertDecay);
     }
 
-    // ── Explore ──────────────────────────────────────────────────
-    // Decays while moving AND while resting (sleeping pets aren't curious).
-    // Build rate scales with alertness — drowsy pets lose curiosity.
+    // explore: decays while moving, builds with alertness
     if (pet.state_ === "walk" || pet.state_ === "wander" || pet.state_ === "dance") {
         pet.exploreDrive = Math.max(0, pet.exploreDrive - 0.015);
     } else if (pet.state_ === "sit" || pet.state_ === "deepsleep") {
@@ -40,7 +33,6 @@ function update(pet, perc) {
         pet.exploreDrive = Math.max(0, pet.exploreDrive - exploreDecay);
     } else {
         var exploreRate = 0.001 + p.curiosity * 0.002;
-        // drowsy pets don't get curious
         exploreRate *= (0.3 + pet.alertness * 0.7);
         if (perc.windowCount > 3) exploreRate *= 1.4;
         if (perc.userBusy) exploreRate *= 1.8;
@@ -48,36 +40,31 @@ function update(pet, perc) {
         pet.exploreDrive = Math.min(1, pet.exploreDrive + exploreRate);
     }
 
-    // ── Social ───────────────────────────────────────────────────
+    // social
     var socialRate = perc.userBusy ? 0.002 : 0.001;
     socialRate *= (0.5 + p.sociability);
-    // resting satisfies social need slightly (dreaming of friends)
     if (pet.state_ === "sit" || pet.state_ === "deepsleep")
         socialRate = -0.003 * (1 - p.sociability);
     pet.socialDrive = Math.max(0, Math.min(1, pet.socialDrive + socialRate));
     if (perc.hasFriends) pet.socialDrive = Math.max(0, pet.socialDrive - 0.01);
 
-    // ── Comfort ──────────────────────────────────────────────────
-    // Distance-based + drowsiness amplifies need for safety.
+    // comfort: distance from home + drowsiness = vulnerability
     var homeNeed = Math.min(1, perc.distFromHome / 600);
     homeNeed *= (1.2 - p.boldness * 0.5);
     if (perc.fullscreen) homeNeed = Math.max(homeNeed, 0.3 + (1 - p.boldness) * 0.3);
-    // drowsy pets feel more exposed
     homeNeed += (1 - pet.alertness) * 0.15 * (1 - p.boldness);
     pet.comfortDrive = Math.min(1, pet.comfortDrive * 0.95 + homeNeed * 0.05);
 
-    // ── Play ─────────────────────────────────────────────────────
+    // play
     var playRate = 0.0005 + p.playfulness * 0.001;
     if (pet.happiness > 0.6) playRate *= 2;
     if (pet.restDrive < 0.3) playRate *= 1.5;
-    // tired pets don't want to play
     playRate *= (0.2 + pet.alertness * 0.8);
     pet.playDrive = Math.min(1, pet.playDrive + playRate);
     if (pet.state_ === "attack" || pet.state_ === "hop" || pet.state_ === "dance" || pet.state_ === "shoot")
         pet.playDrive = Math.max(0, pet.playDrive - 0.04);
 
-    // ── Happiness ────────────────────────────────────────────────
-    // Passive recovery when resting at home (patience = contentedness).
+    // happiness: passive recovery when resting at home
     if (perc.atHome && (pet.state_ === "sit" || pet.state_ === "deepsleep"))
         pet.happiness = Math.min(1, pet.happiness + 0.002 * (1 + p.patience * 0.5));
 }

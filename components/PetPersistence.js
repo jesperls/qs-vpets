@@ -1,7 +1,3 @@
-// Per-pet state files: ~/.config/qs-vpets/state-<name>.json
-// Eliminates the race condition where multiple pets sharing
-// one file would overwrite each other's state.
-
 function save(pet) {
     var state = {
         happiness: pet.happiness,

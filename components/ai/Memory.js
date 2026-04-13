@@ -36,28 +36,11 @@ function count(pet, type, withinMs) {
     return n;
 }
 
-function findAll(pet, type, withinMs) {
-    var cutoff = Date.now() - (withinMs || 60000);
-    var results = [];
-    for (var i = 0; i < pet.thoughts.length; i++)
-        if (pet.thoughts[i].type === type && pet.thoughts[i].time > cutoff) results.push(pet.thoughts[i]);
-    return results;
-}
-
 function lastPositiveSpot(pet) {
     for (var i = pet.thoughts.length - 1; i >= 0; i--) {
         var t = pet.thoughts[i];
         if (t.type === "petted" && t.x !== undefined)
             return { x: t.x, y: t.y, type: t.type, time: t.time };
-    }
-    return null;
-}
-
-function lastSeenWindow(pet) {
-    for (var i = pet.thoughts.length - 1; i >= 0; i--) {
-        var t = pet.thoughts[i];
-        if (t.windowClass && t.windowX !== undefined)
-            return { cls: t.windowClass, title: t.windowTitle, x: t.windowX, y: t.windowY, w: t.windowW, h: t.windowH };
     }
     return null;
 }
@@ -100,10 +83,6 @@ function wasRecentlyPetted(pet) { return !!recent(pet, "petted", 30000); }
 function wasRecentlyStartled(pet) { return !!recent(pet, "cursor_near", 15000); }
 function justWokeUp(pet) { return !!recent(pet, "well_rested", 15000); }
 function hasBeenIdleLong(pet) { return count(pet, "adventure", 120000) < 1 && count(pet, "arrived", 120000) < 1; }
-function isRoutine(pet) { return count(pet, "arrived", 120000) > 6; }
-
-// count recent movement events for activity level
-function recentMoveCount(pet) { return count(pet, "arrived", 120000); }
 
 function recordWindowPref(pet, cls, delta) {
     if (!cls) return;
@@ -136,17 +115,4 @@ function decayPreferences(pet) {
 function isFamiliarArea(pet) {
     var key = Math.floor(pet.worldX / 200) + "," + Math.floor(pet.worldY / 200);
     return (pet.visitedCells[key] || 0) > 3;
-}
-
-function explorationLevel(pet) {
-    var total = 0, visited = 0;
-    var cols = Math.ceil(pet.screenW() / 200);
-    var rows = Math.ceil(pet.screenH() / 200);
-    for (var x = 0; x < cols; x++) {
-        for (var y = 0; y < rows; y++) {
-            total++;
-            if (pet.visitedCells[x + "," + y]) visited++;
-        }
-    }
-    return total > 0 ? visited / total : 0;
 }

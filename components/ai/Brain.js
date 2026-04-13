@@ -5,7 +5,7 @@ function tick(pet, nav) {
         if (ai.Intentions.fulfill(pet, nav)) return;
     }
 
-    // Drowsy: too tired to decide, drift toward resting
+    // too drowsy to think straight
     if (pet.alertness < 0.15) {
         if (pet.restDrive > 0.3) {
             var perc0 = ai.Perception.perceive(pet);
@@ -19,6 +19,12 @@ function tick(pet, nav) {
     var perc = ai.Perception.perceive(pet);
     var drives = ai.Drives.evaluate(pet);
     var dominant = drives[0];
+
+    // nothing happening for a while, get antsy
+    if (ai.Memory.hasBeenIdleLong(pet) && pet.alertness > 0.3) {
+        pet.exploreDrive = Math.min(1, pet.exploreDrive + 0.05);
+        pet.playDrive = Math.min(1, pet.playDrive + 0.03);
+    }
 
     var chillThreshold = 0.3 + pet.personality.patience * 0.15;
     if (dominant.value < chillThreshold && Math.random() < 0.6) {
@@ -84,13 +90,11 @@ function onEvent(pet, type, data) {
         break;
 
     case "window_focused":
-        // light stimulation — curious pets notice focus changes more
+        // curious pets notice focus changes more
         if (ai && ai.Drives) ai.Drives.stimulate(pet, pet.personality.curiosity * 0.05);
         break;
 
     case "user_idle":
-        // personality filters: energetic/bold pets resist sleeping,
-        // lazy/shy pets respond immediately
         var idleResist = pet.personality.energy * 0.4 + pet.personality.boldness * 0.2;
         pet.restDrive = Math.min(1, pet.restDrive + 0.15 + (1 - idleResist) * 0.15);
         if (Math.random() > idleResist
@@ -195,6 +199,12 @@ function _doExplore(pet, nav, perc, urgency, ai) {
 function _doSocial(pet, nav, perc, urgency, ai) {
     if (ai.Memory.wasRecentlyPetted(pet)) {
         pet.enterState(_pick(pet, ["nod", "pose"]));
+        return;
+    }
+
+    // recently startled, timid pets keep their distance
+    if (ai.Memory.wasRecentlyStartled(pet) && pet.personality.boldness < 0.4) {
+        pet.enterState(_pick(pet, ["cringe", "lookUp"]));
         return;
     }
 

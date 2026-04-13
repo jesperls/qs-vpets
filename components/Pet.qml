@@ -15,7 +15,6 @@ Item {
     id: root
 
     required property var petData
-    readonly property int petSize: 32
     readonly property var personality: Personality.resolve(petData.personality ?? "curious")
 
     property string state_: "idle"
@@ -98,7 +97,7 @@ Item {
             danceTimer.interval = 5000 + Math.random() * 10000;
             danceTimer.restart(); break;
         case "drag":
-            break; // no timer — drag persists until mouse release
+            break; // drag persists until mouse release
         default:
             var dur = ({ react: 600, hop: 800, attack: 1000, shoot: 900,
                 lookUp: 1500, nod: 800, pose: 1500, eat: 2000, trip: 1000,
@@ -151,6 +150,7 @@ Item {
             if (r < 0.15) {
                 root.facingRight = !root.facingRight;
                 sprite.setDirection(root.facingRight ? 0 : Math.PI);
+                faceUserTimer._ticks = 0;
             } else if (r < 0.35) {
                 var fidgets = ["attack", "hop", "shoot", "nod", "pose", "charge"];
                 var pick = Brain._pick(root, fidgets);
@@ -163,8 +163,8 @@ Item {
     }
     Timer { id: fidgetRevert; onTriggered: if (root.state_ === "idle") sprite.setState("idle") }
 
-    // face toward user when stationary
     Timer {
+        id: faceUserTimer
         property int _ticks: 0
         interval: 400; repeat: true
         running: root.state_ === "idle" || root.state_ === "sit" || root.state_ === "deepsleep"
@@ -180,7 +180,7 @@ Item {
         root._hour = new Date().getHours();
         root.happiness = Math.max(0.1, root.happiness - 0.005);
     }}
-    // periodic perception + drive updates — staggered per pet to desync
+    // perception + drive updates, staggered per pet
     Timer { interval: 30000; running: true; repeat: true; onTriggered: {
         var perc = Perception.perceive(root);
         Drives.update(root, perc);
@@ -219,8 +219,7 @@ Item {
         }
     }
 
-    function bounceX() { Nav.bounce(root); }
-    function bounceY() { Nav.bounce(root); }
+    function bounce() { Nav.bounce(root); }
 
     function onCursorNear() { Brain.onEvent(root, "cursor_near"); }
     function onPetted() { Brain.onEvent(root, "petted"); }
@@ -251,7 +250,7 @@ Item {
         onLoadFailed: function(err) {}
         onLoaded: Persist.load(root)
     }
-    Process { id: stateMkdir; command: ["bash", "-c", "mkdir -p '" + Config.configDir + "'"]; onExited: stateFile.setText(root._statePendingJson) }
+    Process { id: stateMkdir; command: ["mkdir", "-p", Config.configDir]; onExited: stateFile.setText(root._statePendingJson) }
     Timer { interval: 30000; running: true; repeat: true; onTriggered: Persist.save(root) }
 
     Component.onCompleted: { PetManager.register(root); enterState("react"); }

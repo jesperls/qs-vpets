@@ -58,21 +58,21 @@ PanelWindow {
         if (pet.worldX < 0) {
             const adj = _adjacentScreen("left", pet.worldY);
             if (adj) _hop(adj, adj.width - s - 4, _mapY(pet.worldY, adj));
-            else { pet.worldX = 4; pet.bounceX(); }
+            else { pet.worldX = 4; pet.bounce(); }
         } else if (pet.worldX > W - s) {
             const adj = _adjacentScreen("right", pet.worldY);
             if (adj) _hop(adj, 4, _mapY(pet.worldY, adj));
-            else { pet.worldX = W - s - 4; pet.bounceX(); }
+            else { pet.worldX = W - s - 4; pet.bounce(); }
         }
 
         if (pet.worldY < 0) {
             const adj = _adjacentScreen("up", pet.worldX);
             if (adj) _hop(adj, _mapX(pet.worldX, adj), adj.height - s - 4);
-            else { pet.worldY = 4; pet.bounceY(); }
+            else { pet.worldY = 4; pet.bounce(); }
         } else if (pet.worldY > H - s) {
             const adj = _adjacentScreen("down", pet.worldX);
             if (adj) _hop(adj, _mapX(pet.worldX, adj), 4);
-            else { pet.worldY = H - s - 4; pet.bounceY(); }
+            else { pet.worldY = H - s - 4; pet.bounce(); }
         }
     }
 

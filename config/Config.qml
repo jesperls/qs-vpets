@@ -66,7 +66,7 @@ Singleton {
 
     Process {
         id: mkdirProcess
-        command: ["bash", "-c", "mkdir -p '" + root.configDir + "'"]
+        command: ["mkdir", "-p", root.configDir]
         onExited: configFile.setText(root._pendingJson)
     }
 
