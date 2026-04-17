@@ -15,7 +15,17 @@ Item {
     id: root
 
     required property var petData
-    readonly property var personality: Personality.resolve(petData.personality ?? "curious")
+    readonly property var _basePersonality: Personality.resolve(petData.personality ?? "curious")
+    readonly property var personality: {
+        if (!traits) return _basePersonality;
+        var p = {};
+        var keys = Object.keys(_basePersonality);
+        for (var i = 0; i < keys.length; i++) {
+            var k = keys[i];
+            p[k] = Math.max(0, Math.min(1, _basePersonality[k] + (traits[k] || 0)));
+        }
+        return p;
+    }
 
     property string state_: "idle"
     property real moveAngle: 0
@@ -34,7 +44,10 @@ Item {
     property var intention: null
     property var visitedCells: ({})
     property var windowPrefs: ({})
-    property int _lastTrackTime: 0
+    property var placeMemory: ({})
+    property var traits: null
+    property real mood: 0.5
+    property real _lastTrackTime: 0
     property int _hour: new Date().getHours()
     readonly property bool isNighttime: _hour >= 23 || _hour < 6
 
@@ -62,18 +75,17 @@ Item {
     function enterState(s) {
         if (state_ === s) return;
         _stopAllTimers();
-        // clear journey if entering a non-movement state (prevents stale onJourney after event interrupts)
         if (s !== "walk" && s !== "wander" && s !== "dance") {
             onJourney = false;
             _journeyToWindow = false;
         }
         state_ = s;
         sprite.setState(s);
+        if (s === "idle") _applyRestlessAnim();
         if (s === "walk" || s === "wander" || s === "dance") sprite.setDirection(moveAngle);
 
         switch (s) {
         case "idle":
-            // longer pause when less alert
             idleTimer.interval = alertness > 0.5 ? (3000 + Math.random() * 5000)
                                : alertness > 0.25 ? (5000 + Math.random() * 10000)
                                : (8000 + Math.random() * 20000);
@@ -86,26 +98,35 @@ Item {
             wanderEndTimer.interval = 5000 + Math.random() * 10000;
             wanderEndTimer.restart(); break;
         case "sit":
-            sitTimer.interval = restDrive > 0.7 ? (60000 + Math.random() * 120000)
-                              : restDrive > 0.4 ? (20000 + Math.random() * 40000)
-                              : (8000 + Math.random() * 15000);
+            var sitMult = 1 + root.personality.sleepiness * 1.2;
+            sitTimer.interval = restDrive > 0.7 ? (60000 + Math.random() * 120000) * sitMult
+                              : restDrive > 0.4 ? (20000 + Math.random() * 40000) * sitMult
+                              : (8000 + Math.random() * 15000) * sitMult;
             sitTimer.restart(); break;
         case "deepsleep":
-            sitTimer.interval = 90000 + Math.random() * 180000;
+            sitTimer.interval = (90000 + Math.random() * 180000) * (1 + root.personality.sleepiness * 1.5);
             sitTimer.restart(); break;
         case "dance":
             danceTimer.interval = 5000 + Math.random() * 10000;
             danceTimer.restart(); break;
         case "drag":
-            break; // drag persists until mouse release
+            break;
         default:
-            var dur = ({ react: 600, hop: 800, attack: 1000, shoot: 900,
+            var fallback = ({ react: 600, hop: 800, attack: 1000, shoot: 900,
                 lookUp: 1500, nod: 800, pose: 1500, eat: 2000, trip: 1000,
                 wake: 1200, deepBreath: 2000, cringe: 800, sitDown: 1500,
                 faint: 1500, charge: 1200, double: 1000 })[s] || 800;
-            actionTimer.interval = dur + Math.random() * 400;
+            actionTimer.interval = _animDuration() || fallback;
             actionTimer.restart(); break;
         }
+    }
+
+    function _animDuration() {
+        var anim = sprite._animData ? sprite._animData[sprite._animName] : null;
+        if (!anim || !anim.durations) return 0;
+        var total = 0;
+        for (var i = 0; i < anim.durations.length; i++) total += anim.durations[i];
+        return total * 50;
     }
 
     function restartIdle() {
@@ -141,7 +162,6 @@ Item {
         sprite.setDirection(root.moveAngle);
     }}
 
-    // visual fidgets during idle, doesn't interrupt AI timer
     Timer {
         interval: 4000 + Math.random() * 6000
         running: root.state_ === "idle"; repeat: true
@@ -153,15 +173,37 @@ Item {
                 faceUserTimer._ticks = 0;
             } else if (r < 0.35) {
                 var fidgets = ["attack", "hop", "shoot", "nod", "pose", "charge"];
-                var pick = Brain._pick(root, fidgets);
-                sprite.setState(pick);
-                fidgetRevert.interval = 800 + Math.random() * 500;
+                sprite.setState(Brain._pick(root, fidgets));
+                var animDur = _animDuration() || 800;
+                fidgetRevert.interval = animDur;
                 fidgetRevert.restart();
+                if (idleTimer.interval < animDur + 500) {
+                    idleTimer.interval = animDur + 500;
+                    idleTimer.restart();
+                }
             }
             interval = 3000 + Math.random() * 5000;
         }
     }
-    Timer { id: fidgetRevert; onTriggered: if (root.state_ === "idle") sprite.setState("idle") }
+    Timer {
+        id: fidgetRevert
+        onTriggered: {
+            if (root.state_ !== "idle") return;
+            sprite.setState("idle");
+            _applyRestlessAnim();
+        }
+    }
+
+    function _applyRestlessAnim() {
+        var restless = Math.max(exploreDrive, socialDrive, playDrive, restDrive * 0.6);
+        if (restless > 0.35 && alertness > 0.3 && sprite._animData && sprite._animData["Walk"]) {
+            sprite._animName = "Walk";
+            sprite._frame = 0;
+            sprite._ticksInFrame = 0;
+        }
+    }
+
+    readonly property var _restingAnims: ({ Idle: true, Walk: true, Sleep: true, Laying: true })
 
     Timer {
         id: faceUserTimer
@@ -169,24 +211,33 @@ Item {
         interval: 400; repeat: true
         running: root.state_ === "idle" || root.state_ === "sit" || root.state_ === "deepsleep"
         onTriggered: {
+            if (fidgetRevert.running) return;
+            if (!root._restingAnims[sprite._animName]) return;
             _ticks++;
             if (_ticks >= 4 && sprite._dirRow !== 0) sprite._dirRow = 0;
         }
         onRunningChanged: _ticks = 0
     }
 
-    // hourly clock + slow happiness decay
     Timer { interval: 60000; running: true; repeat: true; onTriggered: {
         root._hour = new Date().getHours();
         root.happiness = Math.max(0.1, root.happiness - 0.005);
+        root.mood = root.mood * 0.9 + root.happiness * 0.1;
     }}
-    // perception + drive updates, staggered per pet
-    Timer { interval: 30000; running: true; repeat: true; onTriggered: {
-        var perc = Perception.perceive(root);
-        Drives.update(root, perc);
-        Memory.trackPosition(root);
-        Memory.decayPreferences(root);
+
+    Timer {
+        interval: 30 * 60000; running: true; repeat: true
+        onTriggered: Brain.reflect(root)
     }
+
+    Timer {
+        interval: 30000; running: true; repeat: true
+        onTriggered: {
+            var perc = Perception.perceive(root);
+            Drives.update(root, perc);
+            Memory.decayPreferences(root);
+            Memory.decayPlaceMemory(root);
+        }
         Component.onCompleted: interval = 28000 + Math.random() * 4000
     }
 
@@ -207,7 +258,6 @@ Item {
                 var dx = targetX - worldX, dy = targetY - worldY;
                 var dist = Math.sqrt(dx * dx + dy * dy);
                 if (dist < step + 20) {
-                    // close enough: snap to target and arrive
                     worldX = targetX;
                     worldY = targetY;
                     Nav.walkArrived(root);
@@ -216,6 +266,7 @@ Item {
             }
             worldX += Math.cos(moveAngle) * step;
             worldY += Math.sin(moveAngle) * step;
+            Memory.trackPosition(root);
         }
     }
 

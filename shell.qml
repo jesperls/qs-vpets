@@ -19,6 +19,7 @@ ShellRoot {
             required property var modelData
             petData: modelData
             screen: {
+                if (!Quickshell.screens || Quickshell.screens.length === 0) return null;
                 if (modelData.monitor) {
                     const match = Quickshell.screens.find(s => s.name === modelData.monitor);
                     if (match) return match;
@@ -28,7 +29,6 @@ ShellRoot {
         }
     }
 
-    // Freeze pet list once config is loaded
     Connections {
         target: Config
         function onConfigReady(): void {

@@ -5,11 +5,12 @@ function tick(pet, nav) {
         if (ai.Intentions.fulfill(pet, nav)) return;
     }
 
-    // too drowsy to think straight
     if (pet.alertness < 0.15) {
-        if (pet.restDrive > 0.3) {
+        if (pet.restDrive > 0.3 || pet.personality.sleepiness > 0.6) {
             var perc0 = ai.Perception.perceive(pet);
-            _doRest(pet, nav, perc0, pet.restDrive * (1 + pet.personality.sleepiness * 0.5), ai);
+            var sleepUrgency = Math.max(pet.restDrive, pet.personality.sleepiness * 0.6)
+                             * (1 + pet.personality.sleepiness * 0.5);
+            _doRest(pet, nav, perc0, sleepUrgency, ai);
         } else {
             pet.restartIdle();
         }
@@ -20,10 +21,11 @@ function tick(pet, nav) {
     var drives = ai.Drives.evaluate(pet);
     var dominant = drives[0];
 
-    // nothing happening for a while, get antsy
-    if (ai.Memory.hasBeenIdleLong(pet) && pet.alertness > 0.3) {
-        pet.exploreDrive = Math.min(1, pet.exploreDrive + 0.05);
-        pet.playDrive = Math.min(1, pet.playDrive + 0.03);
+    if (ai.Memory.hasBeenIdleLong(pet) && pet.alertness > 0.3
+            && pet.personality.sleepiness < 0.6) {
+        var boost = 0.5 + pet.personality.energy * 0.5;
+        pet.exploreDrive = Math.min(1, pet.exploreDrive + 0.05 * boost);
+        pet.playDrive = Math.min(1, pet.playDrive + 0.03 * boost);
     }
 
     var chillThreshold = 0.3 + pet.personality.patience * 0.15;
@@ -61,6 +63,8 @@ function onEvent(pet, type, data) {
     switch (type) {
     case "cursor_near":
         if (ai && ai.Drives) ai.Drives.stimulate(pet, 0.15);
+        if (ai && ai.Memory) ai.Memory.recordPlaceAffect(pet, 0.1);
+        pet.mood = Math.min(1, pet.mood + 0.05);
         if (pet.state_ !== "sit" && pet.state_ !== "deepsleep" && pet.state_ !== "drag")
             pet.enterState("react");
         break;
@@ -69,8 +73,10 @@ function onEvent(pet, type, data) {
         pet.socialDrive = Math.max(0, pet.socialDrive - 0.3);
         pet.happiness = Math.min(1, pet.happiness + 0.15);
         pet.playDrive = Math.min(1, pet.playDrive + 0.1);
+        pet.mood = Math.min(1, pet.mood + 0.3);
         if (ai && ai.Drives) ai.Drives.stimulate(pet, 0.2);
         if (ai && ai.Memory) {
+            ai.Memory.recordPlaceAffect(pet, 0.5);
             var cls = pet.windowTracker.activeWindowClass;
             if (cls) ai.Memory.recordWindowPref(pet, cls, 0.1);
         }
@@ -90,13 +96,14 @@ function onEvent(pet, type, data) {
         break;
 
     case "window_focused":
-        // curious pets notice focus changes more
         if (ai && ai.Drives) ai.Drives.stimulate(pet, pet.personality.curiosity * 0.05);
         break;
 
     case "user_idle":
         var idleResist = pet.personality.energy * 0.4 + pet.personality.boldness * 0.2;
         pet.restDrive = Math.min(1, pet.restDrive + 0.15 + (1 - idleResist) * 0.15);
+        pet.mood = Math.max(0, pet.mood - 0.1);
+        if (ai && ai.Memory) ai.Memory.recordPlaceAffect(pet, -0.15);
         if (Math.random() > idleResist
                 && pet.state_ !== "drag" && pet.state_ !== "sit" && pet.state_ !== "deepsleep")
             pet.enterState("sit");
@@ -105,7 +112,6 @@ function onEvent(pet, type, data) {
 }
 
 function _doRest(pet, nav, perc, urgency, ai) {
-    // stretch after waking up
     if (ai.Memory.justWokeUp(pet)) {
         pet.enterState(_pick(pet, ["deepBreath", "hop", "charge"]));
         return;
@@ -118,7 +124,8 @@ function _doRest(pet, nav, perc, urgency, ai) {
         return;
     }
 
-    if (urgency > 0.6) {
+    var deepThreshold = 0.6 - pet.personality.sleepiness * 0.2;
+    if (urgency > deepThreshold) {
         ai.Intentions.set(pet, "rest", "exhausted", urgency);
         pet.enterState("deepsleep");
         return;
@@ -126,7 +133,7 @@ function _doRest(pet, nav, perc, urgency, ai) {
 
     if (urgency > 0.4) {
         if (Math.random() < 0.25) {
-            pet.enterState(_pick(pet, ["deepBreath", "cringe", "nod"]));
+            pet.enterState(_pick(pet, ["deepBreath", "nod", "sitDown"]));
             return;
         }
         ai.Intentions.set(pet, "rest", "tired", urgency);
@@ -135,20 +142,17 @@ function _doRest(pet, nav, perc, urgency, ai) {
         return;
     }
 
-    // slightly tired, just yawn
     pet.enterState(_pick(pet, ["deepBreath", "nod"]));
 }
 
 function _doExplore(pet, nav, perc, urgency, ai) {
     var r = Math.random();
 
-    // just arrived somewhere, look around first
     if (ai.Memory.recent(pet, "adventure", 15000) || ai.Memory.recent(pet, "arrived", 20000)) {
         pet.enterState(_pick(pet, ["pose", "nod", "react", "charge"]));
         return;
     }
 
-    // fullscreen: observe from screen edge
     if (perc.fullscreen && perc.activeWindow && r < 0.4 * pet.personality.curiosity) {
         var wx = perc.activeWindow.x, wy = perc.activeWindow.y;
         var edgeX, edgeY;
@@ -165,7 +169,6 @@ function _doExplore(pet, nav, perc, urgency, ai) {
         return;
     }
 
-    // more likely to investigate familiar/liked windows
     if (perc.activeWindow && perc.activeWindow.onScreen && !perc.fullscreen && r < 0.3) {
         var cls = pet.windowTracker.activeWindowClass;
         var pref = ai.Memory.getWindowPref(pet, cls);
@@ -177,7 +180,6 @@ function _doExplore(pet, nav, perc, urgency, ai) {
         }
     }
 
-    // most common: short local walk
     if (r < 0.65) {
         nav.walkNearby(pet);
         return;
@@ -190,9 +192,7 @@ function _doExplore(pet, nav, perc, urgency, ai) {
         return;
     }
 
-    // wander toward least-visited area
-    var angle = ai.Memory.leastVisitedDir(pet);
-    nav._setAngle(pet, angle);
+    nav._setAngle(pet, ai.Memory.leastVisitedDir(pet));
     pet.enterState("wander");
 }
 
@@ -202,7 +202,6 @@ function _doSocial(pet, nav, perc, urgency, ai) {
         return;
     }
 
-    // recently startled, timid pets keep their distance
     if (ai.Memory.wasRecentlyStartled(pet) && pet.personality.boldness < 0.4) {
         pet.enterState(_pick(pet, ["cringe", "lookUp"]));
         return;
@@ -210,19 +209,24 @@ function _doSocial(pet, nav, perc, urgency, ai) {
 
     if (perc.cursorOnScreen && Math.random() < 0.5) {
         var dx = perc.cursorX - pet.worldX, dy = perc.cursorY - pet.worldY;
-        var dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist > 100) {
+        if (Math.sqrt(dx * dx + dy * dy) > 100) {
             ai.Intentions.set(pet, "follow_cursor", "following the user", urgency);
             nav.journeyTo(pet, perc.cursorX, perc.cursorY);
             return;
         }
     }
 
-    // revisit spots where good things happened
     var goodSpot = ai.Memory.lastPositiveSpot(pet);
     if (goodSpot && Date.now() - goodSpot.time < 300000 && Math.random() < 0.35) {
         ai.Intentions.set(pet, "revisit_spot", "good memories here", urgency);
         nav.journeyTo(pet, goodSpot.x, goodSpot.y);
+        return;
+    }
+
+    var favSpot = ai.Memory.favoriteSpot(pet);
+    if (favSpot && Math.random() < 0.25) {
+        ai.Intentions.set(pet, "revisit_spot", "a comforting place", urgency);
+        nav.journeyTo(pet, favSpot.x, favSpot.y);
         return;
     }
 
@@ -232,7 +236,12 @@ function _doSocial(pet, nav, perc, urgency, ai) {
         return;
     }
 
-    pet.enterState(_pick(pet, ["cringe", "react"]));
+    if (pet.personality.boldness > 0.5) {
+        ai.Intentions.set(pet, "be_near_user", "looking for the user", urgency);
+        nav.journeyRandom(pet);
+        return;
+    }
+    pet.enterState(_pick(pet, ["lookUp", "nod", "pose"]));
 }
 
 function _doPlay(pet, nav, perc, urgency, ai) {
@@ -266,6 +275,45 @@ function _doComfort(pet, nav, perc, urgency, ai) {
     ai.Intentions.set(pet, "go_home", "homesick", urgency);
     ai.Memory.add(pet, "homesick");
     nav.journeyTo(pet, pet.homeX, pet.homeY);
+}
+
+// Reflect on recent experiences and drift trait modifiers.
+// Drifts are bounded so base personality still dominates.
+function reflect(pet) {
+    if (!pet.traits) pet.traits = ({});
+    var cutoff = Date.now() - 30 * 60000;
+
+    var petted = 0, startled = 0, adventures = 0, rests = 0, plays = 0;
+    var bold = pet.personality.boldness;
+    for (var i = pet.thoughts.length - 1; i >= 0; i--) {
+        var t = pet.thoughts[i];
+        if (t.time < cutoff) break;
+        if (t.type === "petted") petted++;
+        else if (t.type === "cursor_near" && bold < 0.4) startled++;
+        else if (t.type === "adventure") adventures++;
+        else if (t.type === "resting" || t.type === "well_rested") rests++;
+        else if (t.type === "feeling_playful") plays++;
+    }
+
+    function drift(key, delta) {
+        var cur = pet.traits[key] || 0;
+        pet.traits[key] = Math.max(-0.2, Math.min(0.2, cur + delta));
+    }
+
+    if (petted > 2) { drift("sociability", 0.01); drift("boldness", 0.005); }
+    if (petted === 0 && pet.happiness < 0.5) drift("sociability", -0.005);
+    if (adventures > 3) { drift("curiosity", 0.01); drift("boldness", 0.005); }
+    if (rests > 6) { drift("sleepiness", 0.005); drift("energy", -0.005); }
+    if (plays > 20) drift("playfulness", 0.01);
+    if (startled > petted + 3) { drift("boldness", -0.01); drift("sociability", -0.005); }
+
+    var keys = Object.keys(pet.traits);
+    for (var j = 0; j < keys.length; j++) {
+        pet.traits[keys[j]] *= 0.98;
+        if (Math.abs(pet.traits[keys[j]]) < 0.005) delete pet.traits[keys[j]];
+    }
+
+    pet._ai.Memory.add(pet, "reflected", { petted: petted, adventures: adventures, rests: rests });
 }
 
 // pick a random state, preferring ones the sprite actually has

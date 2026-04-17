@@ -23,7 +23,15 @@ PanelWindow {
     color: "transparent"
 
     mask: dragArea.dragging ? null : petMask
-    Region { id: petMask; x: pet.worldX; y: pet.worldY; width: petSize; height: petSize }
+    readonly property int _frameW: pet.sprite._currentAnim ? pet.sprite._currentAnim.frameWidth * (petSize / 32) : petSize
+    readonly property int _frameH: pet.sprite._currentAnim ? pet.sprite._currentAnim.frameHeight * (petSize / 32) : petSize
+    Region {
+        id: petMask
+        x: pet.worldX + (petSize - root._frameW) / 2
+        y: pet.worldY + (petSize - root._frameH) / 2
+        width: Math.max(petSize, root._frameW)
+        height: Math.max(petSize, root._frameH)
+    }
 
     readonly property int petScale: petData.scale ?? 2
     readonly property int petSize: 32 * petScale
@@ -35,16 +43,14 @@ PanelWindow {
         petData: root.petData
     }
 
-    // 60fps when moving, 4fps when idle
     Timer {
         interval: {
             const s = pet.state_;
-            if (s === "walk" || s === "wander" || s === "dance" || s === "drag") return 16;
+            if (s === "walk" || s === "wander" || s === "dance") return 16;
             return 250;
         }
-        running: true; repeat: true
+        running: pet.state_ !== "drag"; repeat: true
         onTriggered: {
-            if (pet.state_ === "drag") return;
             pet.updateMovement(interval / 1000);
             if (pet.currentSpeed > 0) root._handleEdges();
         }
@@ -93,10 +99,21 @@ PanelWindow {
     function _mapY(ly: real, adj: var): real { return Math.max(4, Math.min(adj.height - petSize - 4, root.screen.y + ly - adj.y)); }
     function _mapX(lx: real, adj: var): real { return Math.max(4, Math.min(adj.width - petSize - 4, root.screen.x + lx - adj.x)); }
     function _hop(scr: var, nx: real, ny: real): void {
-        // convert home from old screen local to new screen local
         const oldScr = root.screen;
-        pet.homeX += oldScr.x - scr.x;
-        pet.homeY += oldScr.y - scr.y;
+        const dx = oldScr.x - scr.x;
+        const dy = oldScr.y - scr.y;
+        pet.homeX += dx;
+        pet.homeY += dy;
+        if (pet.onJourney) {
+            const going = pet.intention && (pet.intention.action === "go_home" || pet.intention.action === "go_home_rest");
+            if (going) {
+                pet.onJourney = false;
+                pet._journeyToWindow = false;
+            } else {
+                pet.targetX += dx;
+                pet.targetY += dy;
+            }
+        }
         root.screen = scr; pet.worldX = nx; pet.worldY = ny;
     }
 

@@ -29,7 +29,16 @@ function _setAngle(pet, a) {
 
 function randomTarget(pet) {
     var w = pet.screenW(), h = pet.screenH(), m = _margin * 2;
-    return { x: m + Math.random() * Math.max(1, w - m * 2), y: m + Math.random() * Math.max(1, h - m * 2) };
+    // Up to 3 tries to avoid known-bad spots
+    var best = null;
+    for (var i = 0; i < 3; i++) {
+        var t = { x: m + Math.random() * Math.max(1, w - m * 2), y: m + Math.random() * Math.max(1, h - m * 2) };
+        if (!pet._ai || !pet._ai.Memory) return t;
+        var affect = pet._ai.Memory.avoidedSpot(pet, t.x, t.y);
+        if (affect === 0) return t;
+        if (!best || affect > best.affect) best = { x: t.x, y: t.y, affect: affect };
+    }
+    return best;
 }
 
 function journeyRandom(pet) {
@@ -80,11 +89,11 @@ function journeyToWindow(pet) {
 function walkArrived(pet) {
     if (!pet.onJourney) {
         if (pet._ai && pet._ai.Memory) pet._ai.Memory.add(pet, "arrived");
+        if (pet._ai && pet._ai.Intentions) pet._ai.Intentions.markJourneyed(pet);
         pet.enterState("idle");
         return;
     }
 
-    // re-track window if following one
     if (pet._journeyToWindow) {
         var wp = pet.windowTracker.activeWindowPos;
         if (wp) {
@@ -98,6 +107,7 @@ function walkArrived(pet) {
         pet.onJourney = false;
         pet._journeyToWindow = false;
         if (pet._ai && pet._ai.Memory) pet._ai.Memory.add(pet, "arrived");
+        if (pet._ai && pet._ai.Intentions) pet._ai.Intentions.markJourneyed(pet);
         pet.enterState("idle");
     } else {
         aimAt(pet, pet.targetX, pet.targetY);

@@ -22,7 +22,7 @@ Item {
     readonly property bool useSpriteSheet: _animData !== null && !!_animData["Walk"]
 
     readonly property var _defaultMap: ({
-        "idle": "Walk", "walk": "Walk", "wander": "Walk",
+        "idle": "Idle", "walk": "Walk", "wander": "Walk",
         "sit": "Sleep", "deepsleep": "Laying",
         "react": "Hurt", "dance": "Charge", "drag": "Walk",
         "attack": "Attack", "hop": "Hop", "shoot": "Shoot",
@@ -45,6 +45,7 @@ Item {
         var newAnim = _resolveAnim(name);
         if (_animData && !_animData[newAnim]) {
             var fallbacks = {
+                "idle": ["Idle", "Walk"],
                 "deepsleep": ["Laying", "Faint", "Sleep"],
                 "sit": ["Sleep", "Sit", "Walk"],
                 "wake": ["Wake", "Hurt", "Walk"],
@@ -123,7 +124,6 @@ Item {
     property var _currentAnim: useSpriteSheet ? (_animData ? (_animData[_animName] || _animData["Walk"] || null) : null) : null
     property int _ticksInFrame: 0
 
-    // tick speed varies by state for natural feel
     Timer {
         running: root.useSpriteSheet && root._currentAnim !== null
         interval: {
@@ -133,6 +133,7 @@ Item {
                 return Math.max(15, 30 / sf);
             }
             if (s === "sit") return Math.max(60, 250 * root.restDrive);
+            if (s === "idle" && root._animName === "Walk") return 45;
             if (s === "idle") return 120;
             return 50;
         }
@@ -159,8 +160,6 @@ Item {
         width: fw * (root.width / 32); height: fh * (root.width / 32)
         smooth: false; fillMode: Image.PreserveAspectFit
     }
-
-    // dev mode fallback when no sprite sheets available
 
     function _resetBody(): void {
         body.scale = 1.0;

@@ -58,16 +58,21 @@ Singleton {
         id: saveTimer
         interval: 500
         onTriggered: {
-            root._recentlySaved = true;
             root._pendingJson = root._serialize();
             mkdirProcess.running = true;
         }
     }
 
+    Timer { id: saveFlagReset; interval: 1500; onTriggered: root._recentlySaved = false }
+
     Process {
         id: mkdirProcess
         command: ["mkdir", "-p", root.configDir]
-        onExited: configFile.setText(root._pendingJson)
+        onExited: {
+            configFile.setText(root._pendingJson);
+            root._recentlySaved = true;
+            saveFlagReset.restart();
+        }
     }
 
     FileView {
@@ -76,9 +81,12 @@ Singleton {
         watchChanges: true
         onFileChanged: {
             if (!root._recentlySaved) root.load();
-            root._recentlySaved = false;
         }
-        onLoaded: { root.load(); root.configReady(); }
+        onLoaded: {
+            if (root._recentlySaved) return;
+            root.load();
+            root.configReady();
+        }
         onLoadFailed: err => {
             if (err !== FileViewError.FileNotFound)
                 console.warn("qs-vpets: config read failed:", err);

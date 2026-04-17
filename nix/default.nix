@@ -4,10 +4,7 @@
   makeWrapper,
   quickshell,
   hyprland,
-  jq,
   coreutils,
-  bash,
-  themeEnv ? { },
 }:
 
 stdenvNoCC.mkDerivation {
@@ -22,13 +19,8 @@ stdenvNoCC.mkDerivation {
     let
       runtimeDeps = [
         hyprland
-        jq
         coreutils
-        bash
       ];
-      envFlags = lib.concatStringsSep " " (
-        lib.mapAttrsToList (name: value: "--set ${name} \"${value}\"") themeEnv
-      );
     in
     ''
       runHook preInstall
@@ -43,7 +35,6 @@ stdenvNoCC.mkDerivation {
 
       makeWrapper ${quickshell}/bin/qs $out/bin/qs-vpets \
         --prefix PATH : "${lib.makeBinPath runtimeDeps}" \
-        ${envFlags} \
         --add-flags "-p $out/share/qs-vpets"
 
       runHook postInstall
