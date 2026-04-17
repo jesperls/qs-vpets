@@ -167,11 +167,7 @@ Item {
         running: root.state_ === "idle"; repeat: true
         onTriggered: {
             var r = Math.random();
-            if (r < 0.15) {
-                root.facingRight = !root.facingRight;
-                sprite.setDirection(root.facingRight ? 0 : Math.PI);
-                faceUserTimer._ticks = 0;
-            } else if (r < 0.35) {
+            if (r < 0.35) {
                 var fidgets = ["attack", "hop", "shoot", "nod", "pose", "charge"];
                 sprite.setState(Brain._pick(root, fidgets));
                 var animDur = _animDuration() || 800;
