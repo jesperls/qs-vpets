@@ -21,7 +21,6 @@ function save(pet) {
 
 function load(pet) {
     try {
-        if (!pet._stateFileView) return;
         var saved = JSON.parse(pet._stateFileView.text());
         if (saved.happiness !== undefined) pet.happiness = saved.happiness;
         if (saved.mood !== undefined) pet.mood = saved.mood;
@@ -35,13 +34,16 @@ function load(pet) {
         if (saved.windowPrefs) pet.windowPrefs = saved.windowPrefs;
         if (saved.placeMemory) pet.placeMemory = saved.placeMemory;
         if (saved.traits) pet.traits = saved.traits;
+        var maxX = pet.screenW() - pet.width, maxY = pet.screenH() - pet.height;
         if (saved.x !== undefined && saved.y !== undefined) {
-            pet.worldX = Math.max(40, Math.min(pet.screenW() - 80, saved.x));
-            pet.worldY = Math.max(40, Math.min(pet.screenH() - 80, saved.y));
+            pet.worldX = Math.max(0, Math.min(maxX, saved.x));
+            pet.worldY = Math.max(0, Math.min(maxY, saved.y));
         }
         if (saved.homeX !== undefined && saved.homeY !== undefined) {
-            pet.homeX = Math.max(80, Math.min(pet.screenW() - 80, saved.homeX));
-            pet.homeY = Math.max(80, Math.min(pet.screenH() - 80, saved.homeY));
+            pet.homeX = Math.max(0, Math.min(maxX, saved.homeX));
+            pet.homeY = Math.max(0, Math.min(maxY, saved.homeY));
         }
-    } catch(e) {}
+    } catch (e) {
+        console.warn("qs-vpets: failed to load pet state:", e);
+    }
 }

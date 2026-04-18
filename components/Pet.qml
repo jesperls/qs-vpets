@@ -7,7 +7,6 @@ import "ai/Brain.js" as Brain
 import "ai/Perception.js" as Perception
 import "ai/Drives.js" as Drives
 import "ai/Memory.js" as Memory
-import "ai/Intentions.js" as Intentions
 import "PetNav.js" as Nav
 import "PetPersistence.js" as Persist
 
@@ -59,12 +58,10 @@ Item {
     property real targetX: 0
     property real targetY: 0
 
-    readonly property var config: Config
     readonly property var windowTracker: WindowTracker
     readonly property var petManager: PetManager
     readonly property var systemMonitor: SystemMonitor
     readonly property var inputTracker: InputTracker
-    readonly property var _ai: ({ Perception: Perception, Drives: Drives, Memory: Memory, Intentions: Intentions })
     property alias sprite: sprite
 
     function screenW() { return parent ? parent.width : 1920; }
@@ -72,17 +69,23 @@ Item {
     function screenX() { return parent ? (parent.screen?.x ?? 0) : 0; }
     function screenY() { return parent ? (parent.screen?.y ?? 0) : 0; }
 
+    readonly property var _actionFallbackMs: ({
+        react: 600, hop: 800, attack: 1000, shoot: 900,
+        lookUp: 1500, nod: 800, pose: 1500, eat: 2000, trip: 1000,
+        wake: 1200, deepBreath: 2000, cringe: 800, sitDown: 1500,
+        faint: 1500, charge: 1200, double: 1000,
+    })
+
     function enterState(s) {
         if (state_ === s) return;
         _stopAllTimers();
-        if (s !== "walk" && s !== "wander" && s !== "dance") {
+        if (s !== "walk" && s !== "wander" && s !== "zoomies") {
             onJourney = false;
             _journeyToWindow = false;
         }
         state_ = s;
         sprite.setState(s);
-        if (s === "idle") _applyRestlessAnim();
-        if (s === "walk" || s === "wander" || s === "dance") sprite.setDirection(moveAngle);
+        if (s === "walk" || s === "wander" || s === "zoomies") sprite.setDirection(moveAngle);
 
         switch (s) {
         case "idle":
@@ -94,6 +97,7 @@ Item {
             walkTimer.interval = 2000 + Math.random() * 3000;
             walkTimer.restart(); break;
         case "wander":
+            wanderDirTimer.interval = 2000;
             wanderDirTimer.restart();
             wanderEndTimer.interval = 5000 + Math.random() * 10000;
             wanderEndTimer.restart(); break;
@@ -106,27 +110,27 @@ Item {
         case "deepsleep":
             sitTimer.interval = (90000 + Math.random() * 180000) * (1 + root.personality.sleepiness * 1.5);
             sitTimer.restart(); break;
-        case "dance":
-            danceTimer.interval = 5000 + Math.random() * 10000;
-            danceTimer.restart(); break;
+        case "zoomies":
+            wanderDirTimer.interval = 1000;
+            wanderDirTimer.restart();
+            zoomiesTimer.interval = 5000 + Math.random() * 10000;
+            zoomiesTimer.restart(); break;
         case "drag":
             break;
         default:
-            var fallback = ({ react: 600, hop: 800, attack: 1000, shoot: 900,
-                lookUp: 1500, nod: 800, pose: 1500, eat: 2000, trip: 1000,
-                wake: 1200, deepBreath: 2000, cringe: 800, sitDown: 1500,
-                faint: 1500, charge: 1200, double: 1000 })[s] || 800;
-            actionTimer.interval = _animDuration() || fallback;
+            actionTimer.interval = _animDuration() || _actionFallbackMs[s] || 800;
             actionTimer.restart(); break;
         }
     }
+
+    readonly property int _spriteTickMs: 50
 
     function _animDuration() {
         var anim = sprite._animData ? sprite._animData[sprite._animName] : null;
         if (!anim || !anim.durations) return 0;
         var total = 0;
         for (var i = 0; i < anim.durations.length; i++) total += anim.durations[i];
-        return total * 50;
+        return total * _spriteTickMs;
     }
 
     function restartIdle() {
@@ -140,7 +144,7 @@ Item {
     function _stopAllTimers() {
         idleTimer.stop(); walkTimer.stop();
         wanderDirTimer.stop(); wanderEndTimer.stop();
-        sitTimer.stop(); actionTimer.stop(); danceTimer.stop();
+        sitTimer.stop(); actionTimer.stop(); zoomiesTimer.stop();
     }
 
     Timer { id: idleTimer; onTriggered: Brain.tick(root, Nav) }
@@ -149,24 +153,25 @@ Item {
     Timer { id: actionTimer; onTriggered: root.enterState("idle") }
 
     Timer { id: sitTimer; onTriggered: {
-        Memory.add(root, "well_rested");
+        Memory.remember(root, "well_rested");
         root.enterState("wake");
     }}
 
-    Timer { id: danceTimer; onTriggered: root.enterState("idle") }
+    Timer { id: zoomiesTimer; onTriggered: root.enterState("idle") }
 
     Timer { id: wanderDirTimer; interval: 2000; repeat: true; onTriggered: {
-        var diff = (Math.random() - 0.5) * Math.PI * 0.5;
-        root.moveAngle += diff;
+        root.moveAngle += (Math.random() - 0.5) * Math.PI * 0.5;
         root.facingRight = Math.cos(root.moveAngle) >= 0;
         sprite.setDirection(root.moveAngle);
     }}
 
     Timer {
+        id: idleFidgetTimer
         interval: 4000 + Math.random() * 6000
         running: root.state_ === "idle"; repeat: true
         onTriggered: {
             var r = Math.random();
+            var restless = Math.max(exploreDrive, socialDrive, playDrive);
             if (r < 0.35) {
                 var fidgets = ["attack", "hop", "shoot", "nod", "pose", "charge"];
                 sprite.setState(Brain._pick(root, fidgets));
@@ -177,29 +182,23 @@ Item {
                     idleTimer.interval = animDur + 500;
                     idleTimer.restart();
                 }
+            } else if (restless > 0.4 && alertness > 0.4 && r < 0.6 && sprite._animData && sprite._animData["Walk"]) {
+                sprite._animName = "Walk";
+                sprite._frame = 0;
+                sprite._ticksInFrame = 0;
+                sprite._dirRow = 0;
+                fidgetRevert.interval = 1500 + Math.random() * 2000;
+                fidgetRevert.restart();
             }
             interval = 3000 + Math.random() * 5000;
         }
     }
     Timer {
         id: fidgetRevert
-        onTriggered: {
-            if (root.state_ !== "idle") return;
-            sprite.setState("idle");
-            _applyRestlessAnim();
-        }
+        onTriggered: if (root.state_ === "idle") sprite.setState("idle")
     }
 
-    function _applyRestlessAnim() {
-        var restless = Math.max(exploreDrive, socialDrive, playDrive, restDrive * 0.6);
-        if (restless > 0.35 && alertness > 0.3 && sprite._animData && sprite._animData["Walk"]) {
-            sprite._animName = "Walk";
-            sprite._frame = 0;
-            sprite._ticksInFrame = 0;
-        }
-    }
-
-    readonly property var _restingAnims: ({ Idle: true, Walk: true, Sleep: true, Laying: true })
+    readonly property var _restingAnims: ({ Idle: true, Sleep: true, Laying: true })
 
     Timer {
         id: faceUserTimer
@@ -209,8 +208,9 @@ Item {
         onTriggered: {
             if (fidgetRevert.running) return;
             if (!root._restingAnims[sprite._animName]) return;
+            if (sprite._dirRow === 0) { _ticks = 0; return; }
             _ticks++;
-            if (_ticks >= 4 && sprite._dirRow !== 0) sprite._dirRow = 0;
+            if (_ticks >= 4) sprite._dirRow = 0;
         }
         onRunningChanged: _ticks = 0
     }
@@ -226,6 +226,7 @@ Item {
         onTriggered: Brain.reflect(root)
     }
 
+    // Stagger per-pet drive updates so multi-pet setups don't synchronize.
     Timer {
         interval: 30000; running: true; repeat: true
         onTriggered: {
@@ -243,30 +244,30 @@ Item {
             return Config.walkSpeed * (0.7 + u * 0.5);
         }
         if (state_ === "wander") return Config.walkSpeed * 0.35;
-        if (state_ === "dance") return Config.walkSpeed * 1.4;
+        if (state_ === "zoomies") return Config.walkSpeed * 1.4;
         return 0;
     }
 
     function updateMovement(dt) {
-        if (currentSpeed > 0) {
-            var step = currentSpeed * dt;
-            if (onJourney) {
-                var dx = targetX - worldX, dy = targetY - worldY;
-                var dist = Math.sqrt(dx * dx + dy * dy);
-                if (dist < step + 20) {
-                    worldX = targetX;
-                    worldY = targetY;
-                    Nav.walkArrived(root);
-                    return;
-                }
+        if (currentSpeed <= 0) return;
+        var step = currentSpeed * dt;
+
+        if (onJourney) {
+            var dx = targetX - worldX, dy = targetY - worldY;
+            if (Math.sqrt(dx * dx + dy * dy) <= step) {
+                worldX = targetX;
+                worldY = targetY;
+                Nav.walkArrived(root);
+                return;
             }
-            worldX += Math.cos(moveAngle) * step;
-            worldY += Math.sin(moveAngle) * step;
-            Memory.trackPosition(root);
         }
+
+        worldX += Math.cos(moveAngle) * step;
+        worldY += Math.sin(moveAngle) * step;
+        Memory.trackPosition(root);
     }
 
-    function bounce() { Nav.bounce(root); }
+    function reflectOffWall(hitX, hitY) { Nav.reflectOffWall(root, hitX, hitY); }
 
     function onCursorNear() { Brain.onEvent(root, "cursor_near"); }
     function onPetted() { Brain.onEvent(root, "petted"); }
@@ -294,7 +295,6 @@ Item {
     FileView {
         id: stateFile
         path: Config.configDir + "/state-" + root.petData.name + ".json"
-        onLoadFailed: function(err) {}
         onLoaded: Persist.load(root)
     }
     Process { id: stateMkdir; command: ["mkdir", "-p", Config.configDir]; onExited: stateFile.setText(root._statePendingJson) }

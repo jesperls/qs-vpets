@@ -17,14 +17,14 @@ Item {
     property string _animName: "Walk"
     property int _frame: 0
     property int _dirRow: 0
-    property real danceHue: 0
+    property real zoomiesHue: 0
 
     readonly property bool useSpriteSheet: _animData !== null && !!_animData["Walk"]
 
     readonly property var _defaultMap: ({
         "idle": "Idle", "walk": "Walk", "wander": "Walk",
         "sit": "Sleep", "deepsleep": "Laying",
-        "react": "Hurt", "dance": "Charge", "drag": "Walk",
+        "react": "Hurt", "zoomies": "Charge", "drag": "Walk",
         "attack": "Attack", "hop": "Hop", "shoot": "Shoot",
         "charge": "Charge", "double": "Double",
         "lookUp": "LookUp", "nod": "Nod", "pose": "Pose",
@@ -41,7 +41,7 @@ Item {
 
     function setState(name: string): void {
         currentState = name;
-        if (name !== "dance") danceHue = 0;
+        if (name !== "zoomies") zoomiesHue = 0;
         var newAnim = _resolveAnim(name);
         if (_animData && !_animData[newAnim]) {
             var fallbacks = {
@@ -118,6 +118,7 @@ Item {
             }
             if (!unresolved) break;
         }
+        for (var n2 in anims) if (anims[n2].copyOf) delete anims[n2];
         return anims;
     }
 
@@ -128,19 +129,18 @@ Item {
         running: root.useSpriteSheet && root._currentAnim !== null
         interval: {
             var s = root.currentState;
-            if (s === "walk" || s === "wander" || s === "dance") {
+            if (s === "walk" || s === "wander" || s === "zoomies") {
                 var sf = Math.max(0.3, root.moveSpeed / 120);
                 return Math.max(15, 30 / sf);
             }
             if (s === "sit") return Math.max(60, 250 * root.restDrive);
-            if (s === "idle" && root._animName === "Walk") return 45;
-            if (s === "idle") return 120;
+            if (s === "idle") return root._animName === "Walk" ? 50 : 120;
             return 50;
         }
         repeat: true
         onTriggered: {
             var anim = root._currentAnim;
-            if (!anim || anim.durations.length === 0) return;
+            if (!anim || !anim.durations || anim.durations.length === 0) return;
             if (root.currentState === "drag") return;
             root._ticksInFrame++;
             if (root._ticksInFrame >= anim.durations[root._frame]) {
@@ -173,7 +173,7 @@ Item {
         id: body; visible: !root.useSpriteSheet; anchors.centerIn: parent
         width: parent.width; height: parent.height
         radius: (currentState === "sit") ? width * 0.25 : width * 0.2
-        color: (currentState === "dance") ? Qt.hsla(danceHue, 0.6, 0.7, 1.0)
+        color: (currentState === "zoomies") ? Qt.hsla(zoomiesHue, 0.6, 0.7, 1.0)
              : (currentState === "sit") ? Qt.darker(petColor, 1.15)
              : (currentState === "react") ? Qt.lighter(petColor, 1.3)
              : (currentState === "drag") ? Qt.lighter(petColor, 1.2) : petColor
@@ -209,5 +209,5 @@ Item {
         NumberAnimation { target: body; property: "scale"; from: 1.35; to: 0.9; duration: 120; easing.type: Easing.InQuad }
         NumberAnimation { target: body; property: "scale"; from: 0.9; to: 1.0; duration: 200; easing.type: Easing.OutBounce }
     }
-    NumberAnimation on danceHue { running: !useSpriteSheet && currentState === "dance"; loops: Animation.Infinite; from: 0; to: 1; duration: 3000 }
+    NumberAnimation on zoomiesHue { running: !useSpriteSheet && currentState === "zoomies"; loops: Animation.Infinite; from: 0; to: 1; duration: 3000 }
 }

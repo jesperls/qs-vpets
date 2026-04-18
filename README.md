@@ -43,7 +43,7 @@ qs -p .
 
 ## Configuration
 
-Config auto-creates at `~/.config/qs-vpets/config.json` on first launch. State persists separately in `state.json`.
+Config auto-creates at `~/.config/qs-vpets/config.json` on first launch. Per-pet state persists separately in `~/.config/qs-vpets/state-<pet-name>.json`.
 
 ### Pets
 
@@ -110,14 +110,14 @@ Override which PMD animation plays for each pet state:
   "name": "Shadow",
   "sprite": "absol",
   "actions": {
-    "dance": "Hop",
-    "react": "Swing",
+    "zoomies": "Hop",
+    "react": "Hurt",
     "attack": "Double"
   }
 }
 ```
 
-Keys are pet states (`idle`, `walk`, `sit`, `react`, `attack`, `hop`, `swing`, `shoot`, `dance`, etc.), values are animation names from `AnimData.xml`.
+Keys are pet states (`idle`, `walk`, `sit`, `deepsleep`, `react`, `hop`, `attack`, `shoot`, `charge`, `zoomies`, `nod`, `pose`, `lookUp`, `sitDown`, etc.), values are animation names from `AnimData.xml`.
 
 ### Behavior
 
@@ -141,4 +141,6 @@ The pet runs a simple loop: **perceive** the environment, **evaluate** which dri
 
 Everything is emergent from the drive system. There are no scripted sequences. A curious pet investigates windows because its curiosity trait amplifies the explore drive. A shy pet retreats during fullscreen because low boldness amplifies the comfort drive. The pet follows the cursor because social need is high and the cursor represents the user.
 
-State persists in `~/.config/qs-vpets/state.json` (separate from config to avoid reload loops). The pet remembers its drives, position, home, visited areas, window preferences, and recent thoughts across restarts.
+Personality isn't static either. Every 30 minutes the pet reflects on recent experiences and drifts its trait modifiers within bounded limits: a pet that gets petted often slowly becomes more sociable, one that keeps exploring becomes bolder, one that's constantly startled becomes shier. Base personality still dominates, but pets diverge over time.
+
+State persists in `~/.config/qs-vpets/state-<name>.json` per pet (separate from config to avoid reload loops). The pet remembers its drives, mood, learned trait drift, position, home, visited areas, window preferences, place-affect memory, and recent thoughts across restarts.

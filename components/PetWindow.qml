@@ -46,58 +46,66 @@ PanelWindow {
     Timer {
         interval: {
             const s = pet.state_;
-            if (s === "walk" || s === "wander" || s === "dance") return 16;
+            if (s === "walk" || s === "wander" || s === "zoomies") return 16;
             return 250;
         }
         running: pet.state_ !== "drag"; repeat: true
         onTriggered: {
             pet.updateMovement(interval / 1000);
-            if (pet.currentSpeed > 0) root._handleEdges();
+            if (pet.currentSpeed > 0) root._resolveBounds();
         }
     }
 
-    function _handleEdges(): void {
+    function _resolveBounds(): void {
         const s = root.petSize;
-        const W = root.width;
-        const H = root.height;
+        const maxX = root.width - s, maxY = root.height - s;
+        // Clamp before checking adjacency so corner crossings don't fail
+        // adjacency bounds checks on the non-primary axis.
+        const probeY = Math.max(0, Math.min(maxY, pet.worldY));
+        const probeX = Math.max(0, Math.min(maxX, pet.worldX));
+        let hitX = false, hitY = false;
 
         if (pet.worldX < 0) {
-            const adj = _adjacentScreen("left", pet.worldY);
-            if (adj) _hop(adj, adj.width - s - 4, _mapY(pet.worldY, adj));
-            else { pet.worldX = 4; pet.bounce(); }
-        } else if (pet.worldX > W - s) {
-            const adj = _adjacentScreen("right", pet.worldY);
-            if (adj) _hop(adj, 4, _mapY(pet.worldY, adj));
-            else { pet.worldX = W - s - 4; pet.bounce(); }
+            const adj = _adjacentScreen("left", probeY);
+            if (adj) { _hop(adj, adj.width - s, _mapY(probeY, adj)); return; }
+            pet.worldX = 0; hitX = true;
+        } else if (pet.worldX > maxX) {
+            const adj = _adjacentScreen("right", probeY);
+            if (adj) { _hop(adj, 0, _mapY(probeY, adj)); return; }
+            pet.worldX = maxX; hitX = true;
+        }
+        if (pet.worldY < 0) {
+            const adj = _adjacentScreen("up", probeX);
+            if (adj) { _hop(adj, _mapX(probeX, adj), adj.height - s); return; }
+            pet.worldY = 0; hitY = true;
+        } else if (pet.worldY > maxY) {
+            const adj = _adjacentScreen("down", probeX);
+            if (adj) { _hop(adj, _mapX(probeX, adj), 0); return; }
+            pet.worldY = maxY; hitY = true;
         }
 
-        if (pet.worldY < 0) {
-            const adj = _adjacentScreen("up", pet.worldX);
-            if (adj) _hop(adj, _mapX(pet.worldX, adj), adj.height - s - 4);
-            else { pet.worldY = 4; pet.bounce(); }
-        } else if (pet.worldY > H - s) {
-            const adj = _adjacentScreen("down", pet.worldX);
-            if (adj) _hop(adj, _mapX(pet.worldX, adj), 4);
-            else { pet.worldY = H - s - 4; pet.bounce(); }
-        }
+        if (hitX || hitY) pet.reflectOffWall(hitX, hitY);
     }
+
+    function _isRealScreen(s: var): bool { return s && s.width > 100 && s.height > 100 && !s.name.startsWith("Unknown"); }
 
     function _adjacentScreen(dir: string, pos: real): var {
         const cur = root.screen;
         const gx = cur.x, gy = cur.y;
+        const tol = 8;
         for (const s of Quickshell.screens) {
-            if (s === cur) continue;
+            if (s === cur || !_isRealScreen(s)) continue;
             const gp = (dir === "left" || dir === "right") ? gy + pos : gx + pos;
-            if (dir === "right" && Math.abs(s.x - (gx + cur.width)) < 2 && gp >= s.y && gp <= s.y + s.height) return s;
-            if (dir === "left" && Math.abs((s.x + s.width) - gx) < 2 && gp >= s.y && gp <= s.y + s.height) return s;
-            if (dir === "down" && Math.abs(s.y - (gy + cur.height)) < 2 && gp >= s.x && gp <= s.x + s.width) return s;
-            if (dir === "up" && Math.abs((s.y + s.height) - gy) < 2 && gp >= s.x && gp <= s.x + s.width) return s;
+            if (dir === "right" && Math.abs(s.x - (gx + cur.width)) < tol && gp >= s.y && gp <= s.y + s.height) return s;
+            if (dir === "left" && Math.abs((s.x + s.width) - gx) < tol && gp >= s.y && gp <= s.y + s.height) return s;
+            if (dir === "down" && Math.abs(s.y - (gy + cur.height)) < tol && gp >= s.x && gp <= s.x + s.width) return s;
+            if (dir === "up" && Math.abs((s.y + s.height) - gy) < tol && gp >= s.x && gp <= s.x + s.width) return s;
         }
         return null;
     }
 
-    function _mapY(ly: real, adj: var): real { return Math.max(4, Math.min(adj.height - petSize - 4, root.screen.y + ly - adj.y)); }
-    function _mapX(lx: real, adj: var): real { return Math.max(4, Math.min(adj.width - petSize - 4, root.screen.x + lx - adj.x)); }
+    function _mapY(ly: real, adj: var): real { return Math.max(0, Math.min(adj.height - petSize, root.screen.y + ly - adj.y)); }
+    function _mapX(lx: real, adj: var): real { return Math.max(0, Math.min(adj.width - petSize, root.screen.x + lx - adj.x)); }
     function _hop(scr: var, nx: real, ny: real): void {
         const oldScr = root.screen;
         const dx = oldScr.x - scr.x;
@@ -106,12 +114,22 @@ PanelWindow {
         pet.homeY += dy;
         if (pet.onJourney) {
             const going = pet.intention && (pet.intention.action === "go_home" || pet.intention.action === "go_home_rest");
+            const tx = pet.targetX + dx;
+            const ty = pet.targetY + dy;
+            const offScreen = tx < 0 || tx > scr.width - petSize || ty < 0 || ty > scr.height - petSize;
             if (going) {
                 pet.onJourney = false;
                 pet._journeyToWindow = false;
+                if (pet.intention) pet.intention.journeyed = true;
+                pet.enterState("idle");
+            } else if (offScreen) {
+                pet.onJourney = false;
+                pet._journeyToWindow = false;
+                pet.intention = null;
+                pet.enterState("idle");
             } else {
-                pet.targetX += dx;
-                pet.targetY += dy;
+                pet.targetX = tx;
+                pet.targetY = ty;
             }
         }
         root.screen = scr; pet.worldX = nx; pet.worldY = ny;
@@ -149,6 +167,8 @@ PanelWindow {
         onReleased: {
             if (dragging) {
                 dragging = false; hoverTime = 0;
+                pet.worldX = Math.max(0, Math.min(root.width - petSize, pet.worldX));
+                pet.worldY = Math.max(0, Math.min(root.height - petSize, pet.worldY));
                 const dx = pet.worldX - pet.homeX, dy = pet.worldY - pet.homeY;
                 if (Math.sqrt(dx*dx + dy*dy) > pet.homeRadius * 1.5) {
                     pet.homeX = pet.worldX;
@@ -211,17 +231,20 @@ PanelWindow {
 
     Component.onCompleted: {
         Qt.callLater(() => {
-            var margin = 100;
+            const maxX = root.width - petSize, maxY = root.height - petSize;
             if (pet.worldX === 0 && pet.worldY === 0) {
-                pet.worldX = margin + Math.random() * Math.max(1, root.width - margin * 2);
-                pet.worldY = margin + Math.random() * Math.max(1, root.height - margin * 2);
+                pet.worldX = Math.random() * maxX;
+                pet.worldY = Math.random() * maxY;
+            } else {
+                pet.worldX = Math.max(0, Math.min(maxX, pet.worldX));
+                pet.worldY = Math.max(0, Math.min(maxY, pet.worldY));
             }
             if (pet.homeX === 0 && pet.homeY === 0) {
                 pet.homeX = pet.worldX;
                 pet.homeY = pet.worldY;
             }
-            pet.homeX = Math.max(margin, Math.min(root.width - margin, pet.homeX));
-            pet.homeY = Math.max(margin, Math.min(root.height - margin, pet.homeY));
+            pet.homeX = Math.max(0, Math.min(maxX, pet.homeX));
+            pet.homeY = Math.max(0, Math.min(maxY, pet.homeY));
         });
     }
 }
