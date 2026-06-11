@@ -3,7 +3,6 @@
   stdenvNoCC,
   makeWrapper,
   quickshell,
-  hyprland,
   coreutils,
 }:
 
@@ -17,8 +16,9 @@ stdenvNoCC.mkDerivation {
 
   installPhase =
     let
+      # hyprctl comes from the running session so it always matches the
+      # compositor; only coreutils is bundled.
       runtimeDeps = [
-        hyprland
         coreutils
       ];
     in

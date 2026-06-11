@@ -142,6 +142,12 @@ Item {
             var anim = root._currentAnim;
             if (!anim || !anim.durations || anim.durations.length === 0) return;
             if (root.currentState === "drag") return;
+            // _frame can outlive a switch to a shorter fallback anim;
+            // durations[_frame] would be undefined and freeze the loop
+            if (root._frame >= anim.frameCount) {
+                root._frame = 0;
+                root._ticksInFrame = 0;
+            }
             root._ticksInFrame++;
             if (root._ticksInFrame >= anim.durations[root._frame]) {
                 root._ticksInFrame = 0;
