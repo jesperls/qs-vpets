@@ -31,8 +31,13 @@ ShellRoot {
 
     Connections {
         target: Config
+        // fires on first load and on every external config edit; only touch
+        // petList when the pets actually changed, since reassigning it tears
+        // down and respawns every pet window
         function onConfigReady(): void {
-            root.petList = Config.pets.map(p => Object.assign({}, p));
+            const next = Config.pets.map(p => Object.assign({}, p));
+            if (JSON.stringify(next) !== JSON.stringify(root.petList))
+                root.petList = next;
         }
     }
 }

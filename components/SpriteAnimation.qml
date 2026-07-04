@@ -27,10 +27,16 @@ Item {
         "react": "Hurt", "zoomies": "Charge", "drag": "Walk",
         "attack": "Attack", "hop": "Hop", "shoot": "Shoot",
         "charge": "Charge", "double": "Double",
+        "strike": "Strike", "quickStrike": "QuickStrike",
+        "multiStrike": "MultiStrike", "spAttack": "SpAttack", "swing": "Swing",
         "lookUp": "LookUp", "nod": "Nod", "pose": "Pose",
         "eat": "Eat", "trip": "Trip", "wake": "Wake",
         "deepBreath": "DeepBreath", "cringe": "Cringe",
-        "sitDown": "Sit", "faint": "Faint"
+        "sitDown": "Sit", "faint": "Faint",
+        "rotate": "Rotate", "twirl": "Twirl",
+        "tumble": "Tumble", "tumbleBack": "TumbleBack", "pain": "Pain",
+        "hide": "Withdraw", "sink": "Sink", "float": "Float",
+        "leapForth": "LeapForth", "hitGround": "HitGround"
     })
 
     readonly property var _singleRowAnims: ({"Sleep": true, "Laying": true, "Eat": true, "Sit": true})
@@ -55,9 +61,19 @@ Item {
                 "nod": ["Nod", "Walk"],
                 "pose": ["Pose", "Hop", "Walk"],
                 "eat": ["Eat", "Walk"],
-                "trip": ["Trip", "Hurt", "Walk"],
+                "trip": ["Trip", "LostBalance", "Hurt", "Walk"],
                 "sitDown": ["Sit", "Sleep", "Walk"],
                 "faint": ["Faint", "Sleep", "Walk"],
+                "rotate": ["Rotate", "Twirl", "Charge", "Walk"],
+                "twirl": ["Twirl", "Rotate", "Walk"],
+                "tumble": ["Tumble", "Trip", "Hurt", "Walk"],
+                "tumbleBack": ["TumbleBack", "Tumble", "Hurt", "Walk"],
+                "pain": ["Pain", "Hurt", "Walk"],
+                "hide": ["Withdraw", "Sink", "Cringe", "Hurt", "Walk"],
+                "sink": ["Sink", "Withdraw", "Cringe", "Walk"],
+                "float": ["Float", "Pose", "Idle", "Walk"],
+                "leapForth": ["LeapForth", "Attack", "Walk"],
+                "hitGround": ["HitGround", "TumbleBack", "Hurt", "Walk"],
             };
             var chain = fallbacks[name] || [newAnim, "Walk"];
             newAnim = "Walk";
@@ -83,7 +99,12 @@ Item {
     FileView {
         id: animFile
         path: root.spriteDir ? root.spriteDir + "/AnimData.xml" : ""
-        onLoaded: root._animData = root._parseAnimData(text())
+        onLoaded: {
+            root._animData = root._parseAnimData(text());
+            // a state entered before the parse finished skipped the fallback
+            // chains; re-resolve it against the real animation list
+            root.setState(root.currentState);
+        }
     }
 
     function _parseAnimData(xml: string): var {
@@ -100,7 +121,9 @@ Item {
             var durs = [];
             for (var j = 0; j < durMatches.length; j++)
                 durs.push(parseInt(durMatches[j].match(/\d+/)[0]));
-            anims[name] = { frameWidth: fw, frameHeight: fh, durations: durs, frameCount: durs.length };
+            // sheet: which -Anim.png holds the frames; CopyOf anims have no
+            // PNG of their own and inherit their target's on resolution
+            anims[name] = { frameWidth: fw, frameHeight: fh, durations: durs, frameCount: durs.length, sheet: name };
         }
         // multi-pass CopyOf resolution for chained references
         var maxPasses = 10;
@@ -156,15 +179,37 @@ Item {
         }
     }
 
-    Image {
-        visible: root.useSpriteSheet && root._currentAnim !== null
+    // One frame of the sheet shown through a clipping viewport. The full
+    // sheet loads once and frame changes just move it, so sourceSize is the
+    // real image size (with sourceClipRect it would be a single frame's,
+    // collapsing the row/column counts to 1 and freezing the animation).
+    Item {
+        id: viewport
+        visible: root.useSpriteSheet && root._currentAnim !== null && sheet.status === Image.Ready
         anchors.centerIn: parent
-        property int fw: root._currentAnim ? root._currentAnim.frameWidth : 1
-        property int fh: root._currentAnim ? root._currentAnim.frameHeight : 1
-        source: root.spriteDir ? root.spriteDir + "/" + root._animName + "-Anim.png" : ""
-        sourceClipRect: Qt.rect(root._frame * fw, root._dirRow * fh, fw, fh)
-        width: fw * (root.width / 32); height: fh * (root.width / 32)
-        smooth: false; fillMode: Image.PreserveAspectFit
+        readonly property real px: root.width / 32
+        readonly property int fw: root._currentAnim ? root._currentAnim.frameWidth : 1
+        readonly property int fh: root._currentAnim ? root._currentAnim.frameHeight : 1
+        width: fw * px; height: fh * px
+        clip: true
+
+        Image {
+            id: sheet
+            source: root.spriteDir && root._currentAnim
+                  ? root.spriteDir + "/" + root._currentAnim.sheet + "-Anim.png" : ""
+            smooth: false
+            width: sourceSize.width * viewport.px
+            height: sourceSize.height * viewport.px
+            // PMD sheets vary: most anims have 8 direction rows, some (Sleep,
+            // Sink, Tumble, ...) only 1. Clamp so a stale frame or row can
+            // never point outside the sheet.
+            readonly property int cols: viewport.fw > 0 && sourceSize.width > 0
+                ? Math.max(1, Math.floor(sourceSize.width / viewport.fw)) : 1
+            readonly property int rows: viewport.fh > 0 && sourceSize.height > 0
+                ? Math.max(1, Math.floor(sourceSize.height / viewport.fh)) : 1
+            x: -Math.min(root._frame, cols - 1) * viewport.fw * viewport.px
+            y: -Math.min(root._dirRow, rows - 1) * viewport.fh * viewport.px
+        }
     }
 
     function _resetBody(): void {
@@ -172,11 +217,12 @@ Item {
         body.opacity = (currentState === "drag") ? 0.75 : 1.0;
         body.width = (currentState === "sit") ? root.width * 1.15 : root.width;
         body.height = (currentState === "sit") ? root.height * 0.75 : root.height;
-        root.rotation = 0;
     }
 
     Rectangle {
-        id: body; visible: !root.useSpriteSheet; anchors.centerIn: parent
+        // last-resort stand-in if a sheet PNG fails to load: a visible blob
+        // beats an invisible pet
+        id: body; visible: !root.useSpriteSheet || sheet.status === Image.Error; anchors.centerIn: parent
         width: parent.width; height: parent.height
         radius: (currentState === "sit") ? width * 0.25 : width * 0.2
         color: (currentState === "zoomies") ? Qt.hsla(zoomiesHue, 0.6, 0.7, 1.0)

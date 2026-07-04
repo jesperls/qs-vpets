@@ -9,7 +9,6 @@ Singleton {
 
     property real cpuUsage: 0
     property real memUsage: 0
-    // High load: cpu > 70% or mem > 85%
     readonly property bool isUnderLoad: cpuUsage > 0.7 || memUsage > 0.85
 
     property real _lastCpuTotal: 0

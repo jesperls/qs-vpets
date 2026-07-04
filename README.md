@@ -117,7 +117,7 @@ Override which PMD animation plays for each pet state:
 }
 ```
 
-Keys are pet states (`idle`, `walk`, `sit`, `deepsleep`, `react`, `hop`, `attack`, `shoot`, `charge`, `zoomies`, `nod`, `pose`, `lookUp`, `sitDown`, etc.), values are animation names from `AnimData.xml`.
+Keys are pet states (`idle`, `walk`, `sit`, `deepsleep`, `react`, `hop`, `attack`, `shoot`, `charge`, `strike`, `quickStrike`, `multiStrike`, `spAttack`, `swing`, `leapForth`, `zoomies`, `nod`, `pose`, `lookUp`, `sitDown`, `rotate`, `twirl`, `tumble`, `tumbleBack`, `pain`, `hide`, `sink`, `float`, etc.), values are animation names from `AnimData.xml`. States whose animation a sheet lacks fall back through sensible chains (e.g. `hide` → `Withdraw` → `Sink` → `Cringe` → `Hurt`), and behavior pools only offer states the sprite can actually show, so sparse sheets stay fully functional.
 
 ### Behavior
 

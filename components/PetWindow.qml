@@ -41,6 +41,8 @@ PanelWindow {
         x: pet.worldX; y: pet.worldY
         width: root.petSize; height: root.petSize
         petData: root.petData
+        petScreen: root.screen
+        petWindow: root
     }
 
     Timer {
@@ -89,10 +91,13 @@ PanelWindow {
 
     function _isRealScreen(s: var): bool { return s && s.width > 100 && s.height > 100 && !s.name.startsWith("Unknown"); }
 
+    // Find a screen adjacent to the current one in the given direction whose
+    // perpendicular range covers `pos`. Tolerance is generous so mixed
+    // portrait/landscape layouts with small seams still connect.
     function _adjacentScreen(dir: string, pos: real): var {
         const cur = root.screen;
         const gx = cur.x, gy = cur.y;
-        const tol = 8;
+        const tol = 48;
         for (const s of Quickshell.screens) {
             if (s === cur || !_isRealScreen(s)) continue;
             const gp = (dir === "left" || dir === "right") ? gy + pos : gx + pos;
@@ -106,39 +111,37 @@ PanelWindow {
 
     function _mapY(ly: real, adj: var): real { return Math.max(0, Math.min(adj.height - petSize, root.screen.y + ly - adj.y)); }
     function _mapX(lx: real, adj: var): real { return Math.max(0, Math.min(adj.width - petSize, root.screen.x + lx - adj.x)); }
+
+    // Home and journey targets are global, so hopping screens is just a
+    // coordinate-frame switch; journeys continue unchanged.
     function _hop(scr: var, nx: real, ny: real): void {
-        const oldScr = root.screen;
-        const dx = oldScr.x - scr.x;
-        const dy = oldScr.y - scr.y;
-        pet.homeX += dx;
-        pet.homeY += dy;
-        if (pet.onJourney) {
-            const going = pet.intention && (pet.intention.action === "go_home" || pet.intention.action === "go_home_rest");
-            const tx = pet.targetX + dx;
-            const ty = pet.targetY + dy;
-            const offScreen = tx < 0 || tx > scr.width - petSize || ty < 0 || ty > scr.height - petSize;
-            if (going) {
-                pet.onJourney = false;
-                pet._journeyToWindow = false;
-                if (pet.intention) pet.intention.journeyed = true;
-                pet.enterState("idle");
-            } else if (offScreen) {
-                pet.onJourney = false;
-                pet._journeyToWindow = false;
-                pet.intention = null;
-                pet.enterState("idle");
-            } else {
-                pet.targetX = tx;
-                pet.targetY = ty;
-            }
-        }
-        root.screen = scr; pet.worldX = nx; pet.worldY = ny;
+        root.screen = scr;
+        pet.worldX = nx;
+        pet.worldY = ny;
+    }
+
+    // Remapping to another output recreates the surface; enter/exit events
+    // for the old surface never arrive, so clear hover state by hand or the
+    // petting timer keeps running on a ghost hover.
+    onScreenChanged: {
+        dragArea.hovering = false;
+        dragArea.hoverTime = 0;
     }
 
     function _screenAt(gx: real, gy: real): var {
         for (const s of Quickshell.screens)
             if (gx >= s.x && gx < s.x + s.width && gy >= s.y && gy < s.y + s.height) return s;
         return null;
+    }
+
+    // Place the pet at a global position, switching screens if needed.
+    // Used when restoring persisted state.
+    function moveToGlobal(gx: real, gy: real): void {
+        const t = _screenAt(gx, gy);
+        if (t && t !== root.screen) root.screen = t;
+        const scr = root.screen;
+        pet.worldX = Math.max(0, Math.min(scr.width - petSize, gx - scr.x));
+        pet.worldY = Math.max(0, Math.min(scr.height - petSize, gy - scr.y));
     }
 
     MouseArea {
@@ -148,52 +151,61 @@ PanelWindow {
         acceptedButtons: Qt.LeftButton
 
         property bool dragging: false
-        property real grabGlobalX: 0
-        property real grabGlobalY: 0
+        property real grabX: 0
+        property real grabY: 0
         property real grabPetX: 0
         property real grabPetY: 0
+        // where the pet would be if it could leave this screen mid-drag
+        property real rawPetX: 0
+        property real rawPetY: 0
         property bool didDrag: false
         property bool hovering: false
         property real hoverTime: 0
 
         onPressed: (mouse) => {
             dragging = true; didDrag = false;
-            grabGlobalX = root.screen.x + mouse.x;
-            grabGlobalY = root.screen.y + mouse.y;
-            grabPetX = pet.worldX + root.screen.x;
-            grabPetY = pet.worldY + root.screen.y;
+            grabX = mouse.x;
+            grabY = mouse.y;
+            grabPetX = pet.worldX;
+            grabPetY = pet.worldY;
+            rawPetX = pet.worldX;
+            rawPetY = pet.worldY;
             pet.enterState("drag");
         }
-        onReleased: {
-            if (dragging) {
-                dragging = false; hoverTime = 0;
-                pet.worldX = Math.max(0, Math.min(root.width - petSize, pet.worldX));
-                pet.worldY = Math.max(0, Math.min(root.height - petSize, pet.worldY));
-                const dx = pet.worldX - pet.homeX, dy = pet.worldY - pet.homeY;
-                if (Math.sqrt(dx*dx + dy*dy) > pet.homeRadius * 1.5) {
-                    pet.homeX = pet.worldX;
-                    pet.homeY = pet.worldY;
-                }
-                pet.exploreDrive = Math.min(1, pet.exploreDrive + 0.3);
-                pet.alertness = Math.min(1, pet.alertness + 0.3);
-                pet.enterState("pose");
+        // Settle the drop, switching screens only now: remapping the window
+        // mid-drag recreates the layer surface, which kills the pointer grab
+        // (release never arrives, "dragging" wedges on, and hover keeps
+        // moving the pet).
+        function finishDrag(): void {
+            if (!dragging) return;
+            dragging = false; hoverTime = 0;
+            const cgx = root.screen.x + rawPetX + petSize / 2;
+            const cgy = root.screen.y + rawPetY + petSize / 2;
+            const t = root._screenAt(cgx, cgy);
+            if (t && t !== root.screen) root.screen = t;
+            pet.worldX = Math.max(0, Math.min(root.screen.width - petSize, cgx - petSize / 2 - root.screen.x));
+            pet.worldY = Math.max(0, Math.min(root.screen.height - petSize, cgy - petSize / 2 - root.screen.y));
+            const gx = root.screen.x + pet.worldX, gy = root.screen.y + pet.worldY;
+            const dx = gx - pet.homeGX, dy = gy - pet.homeGY;
+            if (Math.sqrt(dx*dx + dy*dy) > pet.homeRadius * 1.5) {
+                pet.homeGX = gx;
+                pet.homeGY = gy;
             }
+            pet.exploreDrive = Math.min(1, pet.exploreDrive + 0.3);
+            pet.alertness = Math.min(1, pet.alertness + 0.3);
+            pet.enterState("pose");
         }
+        onReleased: finishDrag()
+        onCanceled: finishDrag()
         onPositionChanged: (mouse) => {
             if (dragging) {
                 didDrag = true;
-                const mouseGX = root.screen.x + mouse.x;
-                const mouseGY = root.screen.y + mouse.y;
-                const petGX = grabPetX + (mouseGX - grabGlobalX);
-                const petGY = grabPetY + (mouseGY - grabGlobalY);
-                const t = root._screenAt(petGX, petGY);
-                if (t && t !== root.screen) {
-                    pet.homeX += root.screen.x - t.x;
-                    pet.homeY += root.screen.y - t.y;
-                    root.screen = t;
-                }
-                pet.worldX = petGX - root.screen.x;
-                pet.worldY = petGY - root.screen.y;
+                rawPetX = grabPetX + (mouse.x - grabX);
+                rawPetY = grabPetY + (mouse.y - grabY);
+                // the sprite waits at this screen's edge while the grab is
+                // held; it hops to the drop screen on release
+                pet.worldX = Math.max(0, Math.min(root.width - petSize, rawPetX));
+                pet.worldY = Math.max(0, Math.min(root.height - petSize, rawPetY));
             }
             InputTracker.registerMouseMove();
         }
@@ -227,6 +239,7 @@ PanelWindow {
     Connections {
         target: InputTracker
         function onIdleBegan(): void { pet.onIdleBegan(); }
+        function onIdleEnded(): void { pet.onIdleEnded(); }
     }
 
     Component.onCompleted: {
@@ -239,12 +252,10 @@ PanelWindow {
                 pet.worldX = Math.max(0, Math.min(maxX, pet.worldX));
                 pet.worldY = Math.max(0, Math.min(maxY, pet.worldY));
             }
-            if (pet.homeX === 0 && pet.homeY === 0) {
-                pet.homeX = pet.worldX;
-                pet.homeY = pet.worldY;
+            if (pet.homeGX === 0 && pet.homeGY === 0) {
+                pet.homeGX = root.screen.x + pet.worldX;
+                pet.homeGY = root.screen.y + pet.worldY;
             }
-            pet.homeX = Math.max(0, Math.min(maxX, pet.homeX));
-            pet.homeY = Math.max(0, Math.min(maxY, pet.homeY));
         });
     }
 }

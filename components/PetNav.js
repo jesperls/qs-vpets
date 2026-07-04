@@ -1,24 +1,26 @@
 .import "ai/Memory.js" as Memory
-.import "ai/Intentions.js" as Intentions
+.import "ai/Brain.js" as Brain
 
-var ARRIVAL_TOLERANCE = 80;
-var WINDOW_BOTTOM_OFFSET = 20;
+// Navigation in global (multi-monitor) coordinates. A journey aims straight
+// at its global target; when the straight line leaves the current screen the
+// pet walks off the edge and PetWindow hops it to the adjacent monitor, after
+// which the same global target still applies. If a wall blocks the way twice,
+// the pet gives up (Brain.onBlocked) — trying and failing is fine, dithering
+// forever is not.
 
-function distTo(pet, tx, ty) {
-    var dx = pet.worldX - tx, dy = pet.worldY - ty;
+var ARRIVAL_TOLERANCE = 60;
+var MAX_BLOCKS = 2;
+
+function globalX(pet) { return pet.screenX() + pet.worldX; }
+function globalY(pet) { return pet.screenY() + pet.worldY; }
+
+function distToGlobal(pet, gx, gy) {
+    var dx = globalX(pet) - gx, dy = globalY(pet) - gy;
     return Math.sqrt(dx * dx + dy * dy);
 }
 
-function inHomeArea(pet) { return distTo(pet, pet.homeX, pet.homeY) < pet.homeRadius; }
-
-function _clamp(pet, x, y) {
-    var maxX = pet.screenW() - pet.width, maxY = pet.screenH() - pet.height;
-    return { x: Math.max(0, Math.min(maxX, x)), y: Math.max(0, Math.min(maxY, y)) };
-}
-
-function aimAt(pet, tx, ty) {
-    var t = _clamp(pet, tx, ty);
-    _setAngle(pet, Math.atan2(t.y - pet.worldY, t.x - pet.worldX));
+function inHomeArea(pet) {
+    return distToGlobal(pet, pet.homeGX, pet.homeGY) < pet.homeRadius;
 }
 
 function _setAngle(pet, a) {
@@ -27,103 +29,95 @@ function _setAngle(pet, a) {
     pet.sprite.setDirection(a);
 }
 
-function randomTarget(pet) {
-    var maxX = pet.screenW() - pet.width, maxY = pet.screenH() - pet.height;
-    var best = null;
-    for (var i = 0; i < 3; i++) {
-        var t = { x: Math.random() * maxX, y: Math.random() * maxY };
-        var affect = Memory.avoidedSpot(pet, t.x, t.y);
-        if (affect === 0) return t;
-        if (!best || affect > best.affect) best = { x: t.x, y: t.y, affect: affect };
-    }
-    return best;
+function _aimLeg(pet) {
+    _setAngle(pet, Math.atan2(pet.targetGY - globalY(pet), pet.targetGX - globalX(pet)));
 }
 
-function journeyRandom(pet) {
-    var t = randomTarget(pet);
+function journeyToGlobal(pet, gx, gy) {
     pet.onJourney = true;
-    pet._journeyToWindow = false;
-    pet.targetX = t.x;
-    pet.targetY = t.y;
-    aimAt(pet, t.x, t.y);
+    pet.journeyBlocked = 0;
+    pet.targetGX = gx;
+    pet.targetGY = gy;
+    if (pet.intention) pet.intention.travel = true;
+    _aimLeg(pet);
     pet.enterState("walk");
 }
 
-function walkNearby(pet) {
-    var range = 80 + Math.random() * 120;
-    var angle = Math.random() * 2 * Math.PI;
-    var t = _clamp(pet, pet.worldX + Math.cos(angle) * range, pet.worldY + Math.sin(angle) * range);
+function resumeJourney(pet) {
+    pet.journeyBlocked = 0;
+    _aimLeg(pet);
+    pet.enterState("walk");
+}
+
+function wanderStart(pet, angle) {
     pet.onJourney = false;
-    _setAngle(pet, Math.atan2(t.y - pet.worldY, t.x - pet.worldX));
-    pet.enterState("walk");
+    _setAngle(pet, angle !== undefined ? angle : Math.random() * 2 * Math.PI);
+    pet.enterState("wander");
 }
 
-function journeyTo(pet, x, y) {
+function fleeFrom(pet, gx, gy, dist) {
+    var away = Math.atan2(globalY(pet) - gy, globalX(pet) - gx);
+    away += (Math.random() - 0.5) * 0.6;
+    var tx = globalX(pet) + Math.cos(away) * dist;
+    var ty = globalY(pet) + Math.sin(away) * dist;
+    // keep the flight on the current screen
+    var sx = pet.screenX(), sy = pet.screenY();
+    tx = Math.max(sx, Math.min(sx + pet.screenW() - pet.width, tx));
+    ty = Math.max(sy, Math.min(sy + pet.screenH() - pet.height, ty));
     pet.onJourney = true;
-    pet._journeyToWindow = false;
-    var t = _clamp(pet, x, y);
-    pet.targetX = t.x;
-    pet.targetY = t.y;
-    _setAngle(pet, Math.atan2(y - pet.worldY, x - pet.worldX));
+    pet.journeyBlocked = 0;
+    pet.targetGX = tx;
+    pet.targetGY = ty;
+    _aimLeg(pet);
     pet.enterState("walk");
 }
 
-function journeyToWindow(pet) {
-    var wp = pet.windowTracker.activeWindowPos;
-    if (!wp) { journeyRandom(pet); return; }
-    var wx = wp.x + wp.w / 2 - pet.screenX();
-    var wy = wp.y + wp.h - pet.screenY() - WINDOW_BOTTOM_OFFSET;
-    var t = _clamp(pet, wx, wy);
-    pet.onJourney = true;
-    pet._journeyToWindow = true;
-    pet.targetX = t.x;
-    pet.targetY = t.y;
-    _setAngle(pet, Math.atan2(wy - pet.worldY, wx - pet.worldX));
-    pet.enterState("walk");
+function randomDir(pet) {
+    _setAngle(pet, Math.random() * 2 * Math.PI);
 }
 
+// Called at the end of each walk leg (walkTimer) and on target snap.
 function walkArrived(pet) {
     if (!pet.onJourney) {
-        Memory.remember(pet, "arrived");
-        if (pet.intention && pet.intention.action === "play_walk") Intentions.markJourneyed(pet);
+        Memory.remember(pet, "strolled");
         pet.enterState("idle");
         return;
     }
 
-    if (pet._journeyToWindow) {
-        var wp = pet.windowTracker.activeWindowPos;
-        if (wp) {
-            var t = _clamp(pet, wp.x + wp.w / 2 - pet.screenX(), wp.y + wp.h - pet.screenY() - WINDOW_BOTTOM_OFFSET);
-            pet.targetX = t.x;
-            pet.targetY = t.y;
-        }
-    }
-
-    if (distTo(pet, pet.targetX, pet.targetY) < ARRIVAL_TOLERANCE) {
+    // moving goals (cursor, windows, other pets) refresh their target
+    if (!Brain.retarget(pet)) {
         pet.onJourney = false;
-        pet._journeyToWindow = false;
-        Memory.remember(pet, "arrived");
-        Intentions.markJourneyed(pet);
-        pet.enterState("idle");
-    } else {
-        aimAt(pet, pet.targetX, pet.targetY);
-        pet.restartWalk();
+        Brain.onBlocked(pet);
+        return;
     }
-}
 
-function randomDir(pet) {
-    var t = randomTarget(pet);
-    _setAngle(pet, Math.atan2(t.y - pet.worldY, t.x - pet.worldX));
+    if (distToGlobal(pet, pet.targetGX, pet.targetGY) < ARRIVAL_TOLERANCE) {
+        pet.onJourney = false;
+        Brain.onArrived(pet);
+        return;
+    }
+
+    _aimLeg(pet);
+    pet.restartWalk();
 }
 
 function reflectOffWall(pet, hitX, hitY) {
     var a = pet.moveAngle;
     if (hitX) a = Math.PI - a;
     if (hitY) a = -a;
+
     if (pet.onJourney) {
-        pet.onJourney = false;
-        pet._journeyToWindow = false;
-        Intentions.clear(pet);
+        pet.journeyBlocked = (pet.journeyBlocked || 0) + 1;
+        // Is the target beyond this wall? Then a straight line can't get there.
+        var beyondX = hitX && Math.abs(pet.targetGX - globalX(pet)) > 40
+                   && Math.sign(pet.targetGX - globalX(pet)) === Math.sign(Math.cos(pet.moveAngle));
+        var beyondY = hitY && Math.abs(pet.targetGY - globalY(pet)) > 40
+                   && Math.sign(pet.targetGY - globalY(pet)) === Math.sign(Math.sin(pet.moveAngle));
+        if (pet.journeyBlocked > MAX_BLOCKS || beyondX || beyondY) {
+            pet.onJourney = false;
+            Brain.onBlocked(pet);
+            return;
+        }
     }
     _setAngle(pet, a);
 }

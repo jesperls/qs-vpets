@@ -10,8 +10,10 @@ Singleton {
     id: root
 
     signal idleBegan
+    signal idleEnded
 
     property bool _active: true
+    readonly property bool userActive: _active
     property real cursorX: 0
     property real cursorY: 0
     property real _prevCursorX: 0
@@ -36,7 +38,8 @@ Singleton {
             }
         }
     }
-    Timer { interval: 2000; running: true; repeat: true; onTriggered: cursorProc.running = true }
+    // poll less while idle: pets only need fresh cursor data when it's moving
+    Timer { interval: root._active ? 2000 : 10000; running: true; repeat: true; onTriggered: cursorProc.running = true }
 
     Timer {
         id: idleTimer
@@ -46,7 +49,7 @@ Singleton {
     }
 
     function registerMouseMove(): void {
-        if (!root._active) root._active = true;
+        if (!root._active) { root._active = true; root.idleEnded(); }
         idleTimer.restart();
     }
 
@@ -56,8 +59,7 @@ Singleton {
             const n = event.name;
             if (["activewindow", "workspace", "focusedmon", "openwindow",
                  "closewindow", "movewindow", "fullscreen"].includes(n)) {
-                if (!root._active) root._active = true;
-                idleTimer.restart();
+                root.registerMouseMove();
             }
         }
     }

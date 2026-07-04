@@ -80,7 +80,9 @@ Singleton {
         path: root.configPath
         watchChanges: true
         onFileChanged: {
-            if (!root._recentlySaved) root.load();
+            if (root._recentlySaved) return;
+            root.load();
+            root.configReady();
         }
         onLoaded: {
             if (root._recentlySaved) return;

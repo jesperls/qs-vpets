@@ -1,109 +1,129 @@
-var HOME_NEED_MIN_DIST = 250;
-var HOME_NEED_RAMP = 600;
-var COMFORT_INERTIA = 0.93;
-var COMFORT_INERTIA_FS = 0.85;
-var PLAY_DISCHARGE = 0.04;
-var FRIEND_SOCIAL_RELIEF = 0.01;
+// Continuous internal state: five drives plus alertness, boredom, mood and
+// happiness. Everything integrates against real elapsed seconds (dt), so
+// timer cadence never changes behavior tuning.
+//
+// Rough timescales (personality shifts these):
+//   restDrive:   builds over 2-7h awake, drains over 4-6h of sleeping
+//   alertness:   fades over 5-13h awake (faster at night), recovers over a
+//                night's sleep — a real day/night arc, with lazy pets adding
+//                siestas on top
+//   explore:     reaches "itchy feet" in 20-60min, relieved by journeys
+//   social:      builds over 30-90min, relieved by petting / pet interactions
+//   play:        builds over 20-60min of alert time, discharged by play states
+//   boredom:     ~30min of nothing-happening, reset by events and arrivals
+//   mood:        fast valence, relaxes toward happiness in ~10min
+//   happiness:   slow baseline, relaxes toward 0.45 over hours
 
-function update(pet, perc) {
+function clamp01(v) { return Math.max(0, Math.min(1, v)); }
+
+function _relax(current, target, dt, tau) {
+    return current + (target - current) * (1 - Math.exp(-dt / tau));
+}
+
+function integrate(pet, perc, dt) {
     var p = pet.personality;
-    var resting = pet.state_ === "sit" || pet.state_ === "deepsleep";
-    var moving = pet.state_ === "walk" || pet.state_ === "wander" || pet.state_ === "zoomies";
+    var s = pet.state_;
+    var resting = s === "sit" || s === "deepsleep";
+    var deep = s === "deepsleep";
+    var moving = s === "walk" || s === "wander" || s === "zoomies";
+    var playing = s === "zoomies" || s === "attack" || s === "hop" || s === "shoot" || s === "charge";
 
+    // --- rest ---
     if (resting) {
-        var restRecovery = 0.015 + p.sleepiness * 0.02;
-        if (pet.state_ === "deepsleep") restRecovery *= 1.5;
-        pet.restDrive = Math.max(0, pet.restDrive - restRecovery);
+        // sleepy pets nap longer: their rest need drains slower
+        var drain = (0.00007 - p.sleepiness * 0.00003) * (deep ? 1.3 : 1);
+        pet.restDrive = clamp01(pet.restDrive - drain * dt);
     } else {
-        var restRate = 0.0012 + p.sleepiness * 0.002;
-        if (perc.isNight) restRate *= 2.0;
-        if (perc.systemBusy) restRate *= 1.3;
-        if (p.patience < 0.3) restRate *= 1.2;
-        pet.restDrive = Math.min(1, pet.restDrive + restRate);
+        var build = 0.00004 + p.sleepiness * 0.00008;
+        if (perc.isNight) build *= 1.8;
+        if (perc.systemBusy) build *= 1.2;
+        if (moving) build *= 1.3;
+        pet.restDrive = clamp01(pet.restDrive + build * dt);
     }
 
+    // --- alertness ---
     if (resting) {
-        var alertRecovery = 0.005 + p.energy * 0.01;
-        if (pet.state_ === "deepsleep") alertRecovery *= 1.5;
-        pet.alertness = Math.min(1, pet.alertness + alertRecovery);
+        // recovery takes most of a night's sleep, so waking feels earned,
+        // not like a timer going off
+        var recover = (0.00005 + p.energy * 0.00005) * (deep ? 1.5 : 1);
+        pet.alertness = clamp01(pet.alertness + recover * dt);
     } else {
-        var alertDecay = 0.003 + (1 - p.energy) * 0.005;
-        if (perc.isNight) alertDecay *= 2.5;
-        pet.alertness = Math.max(0, pet.alertness - alertDecay);
+        var fade = 0.00002 + (1 - p.energy) * 0.00004;
+        if (perc.isNight) fade *= 2.5;
+        pet.alertness = clamp01(pet.alertness - fade * dt);
     }
 
+    // --- explore ---
     if (moving) {
-        pet.exploreDrive = Math.max(0, pet.exploreDrive - 0.015);
+        pet.exploreDrive = clamp01(pet.exploreDrive - 0.0005 * dt);
     } else if (resting) {
-        pet.exploreDrive = Math.max(0, pet.exploreDrive - (0.005 + p.patience * 0.005));
+        pet.exploreDrive = clamp01(pet.exploreDrive - 0.0001 * dt);
     } else {
-        var exploreRate = 0.0006 + p.curiosity * 0.0018;
-        exploreRate *= (0.3 + pet.alertness * 0.7);
-        if (perc.windowCount > 3) exploreRate *= 1.4;
-        if (perc.userBusy) exploreRate *= 1.8;
-        if (p.boldness > 0.7) exploreRate *= 1.3;
-        if (perc.hour >= 11 && perc.hour <= 15) exploreRate *= 1.3;
-        pet.exploreDrive = Math.min(1, pet.exploreDrive + exploreRate);
+        var er = 0.0001 + p.curiosity * 0.00025;
+        er *= 0.3 + pet.alertness * 0.7;
+        if (perc.windowCount > 3) er *= 1.3;
+        if (perc.userBusy) er *= 1.5;   // user's busy, pet entertains itself
+        pet.exploreDrive = clamp01(pet.exploreDrive + er * dt);
     }
 
+    // --- social ---
     if (resting) {
-        pet.socialDrive = Math.max(0, pet.socialDrive - 0.002 * (1 - p.sociability));
+        pet.socialDrive = clamp01(pet.socialDrive - 0.00005 * dt);
     } else {
-        var socialRate = (perc.userBusy ? 0.004 : 0.0025) * (0.5 + p.sociability);
-        if ((perc.hour >= 7 && perc.hour <= 10) || (perc.hour >= 18 && perc.hour <= 22))
-            socialRate *= 1.4;
-        pet.socialDrive = Math.min(1, pet.socialDrive + socialRate);
+        var sr = (0.00008 + p.sociability * 0.0003);
+        if ((perc.hour >= 7 && perc.hour <= 10) || (perc.hour >= 18 && perc.hour <= 22)) sr *= 1.3;
+        pet.socialDrive = clamp01(pet.socialDrive + sr * dt);
     }
-    if (perc.hasFriends) pet.socialDrive = Math.max(0, pet.socialDrive - FRIEND_SOCIAL_RELIEF);
+    // company is quietly satisfying
+    if (perc.nearest && perc.nearest.dist < 250)
+        pet.socialDrive = clamp01(pet.socialDrive - 0.0002 * (0.5 + perc.nearest.affinity) * dt);
 
-    var homeNeed = Math.min(1, Math.max(0, perc.distFromHome - HOME_NEED_MIN_DIST) / HOME_NEED_RAMP);
-    homeNeed *= (1.0 - p.boldness * 0.6);
-    if (perc.fullscreen) {
-        homeNeed = Math.max(homeNeed, 0.35 + (1 - p.boldness) * 0.4) + 0.1;
+    // --- play ---
+    if (playing) {
+        pet.playDrive = clamp01(pet.playDrive - 0.004 * dt);
+    } else {
+        var pr = 0.00006 + p.playfulness * 0.0003;
+        pr *= 0.2 + pet.alertness * 0.8;
+        if (pet.happiness > 0.6) pr *= 1.4;
+        pet.playDrive = clamp01(pet.playDrive + pr * dt);
     }
+
+    // --- boredom ---
+    if (resting) {
+        pet.boredom = clamp01(pet.boredom - 0.0005 * dt);
+    } else {
+        pet.boredom = clamp01(pet.boredom + 0.00025 * (0.5 + p.energy * 0.8) * dt);
+    }
+
+    // --- comfort (homesickness), fast-tracking toward current need ---
+    var homeNeed = clamp01((perc.distFromHome - 250) / 600) * (1 - p.boldness * 0.6);
+    if (perc.fullscreen)
+        homeNeed = Math.max(homeNeed, 0.35 + (1 - p.boldness) * 0.4);
     homeNeed += (1 - pet.alertness) * 0.1 * (1 - p.boldness);
-    var comfortInertia = perc.fullscreen ? COMFORT_INERTIA_FS : COMFORT_INERTIA;
-    pet.comfortDrive = Math.min(1, pet.comfortDrive * comfortInertia + homeNeed * (1 - comfortInertia));
+    pet.comfortDrive = clamp01(_relax(pet.comfortDrive, homeNeed, dt, 45));
 
-    var playRate = 0.0012 + p.playfulness * 0.0022;
-    if (pet.happiness > 0.6) playRate *= 2;
-    if (pet.restDrive < 0.3) playRate *= 1.5;
-    playRate *= (0.2 + pet.alertness * 0.8);
-    if (perc.hour >= 11 && perc.hour <= 17) playRate *= 1.2;
-    pet.playDrive = Math.min(1, pet.playDrive + playRate);
-    if (pet.state_ === "attack" || pet.state_ === "hop" || pet.state_ === "zoomies" || pet.state_ === "shoot")
-        pet.playDrive = Math.max(0, pet.playDrive - PLAY_DISCHARGE);
-
+    // --- mood and happiness ---
+    pet.mood = clamp01(_relax(pet.mood, pet.happiness, dt, 600));
+    pet.happiness = clamp01(_relax(pet.happiness, 0.45, dt, 14400));
     if (perc.atHome && resting)
-        pet.happiness = Math.min(1, pet.happiness + 0.002 * (1 + p.patience * 0.5));
+        pet.happiness = clamp01(pet.happiness + 0.00004 * (1 + p.patience) * dt);
 }
 
-var DRIVE_NOISE = 0.1;
-var ACTIVE_FLOOR = 0.25;
-
-function evaluate(pet) {
-    var p = pet.personality;
-    var fs = pet.windowTracker.isFullscreen;
-    var apathy = Math.max(0, p.sleepiness - 0.5) * 0.7 + (1 - p.energy) * 0.2;
-    var active = Math.max(ACTIVE_FLOOR, 1 - apathy);
-
-    // Drive values combine raw drive level with personality multipliers,
-    // apathy-scaled activity, and fullscreen dampening for active drives.
-    var drives = [
-        { name: "rest",    value: pet.restDrive    * (1 + p.sleepiness   * 1.4) },
-        { name: "explore", value: pet.exploreDrive * (1 + p.curiosity    * 0.8) * active * (fs ? 0.40 : 1) },
-        { name: "social",  value: pet.socialDrive  * (1 + p.sociability  * 2.5) * active * (fs ? 0.35 : 1) },
-        { name: "comfort", value: pet.comfortDrive * (1.2 - p.boldness   * 0.4)          * (fs ? 1.30 : 1) },
-        { name: "play",    value: pet.playDrive    * (1 + p.playfulness  * 0.9) * active * (fs ? 0.50 : 1) },
-    ];
-    for (var i = 0; i < drives.length; i++)
-        drives[i].value += (Math.random() - 0.5) * DRIVE_NOISE;
-    drives.sort(function(a, b) { return b.value - a.value; });
-    return drives;
-}
-
+// Sudden arousal from an event: perks the pet up and piques interest.
 function stimulate(pet, amount) {
-    pet.alertness = Math.min(1, pet.alertness + amount);
-    pet.exploreDrive = Math.min(1, pet.exploreDrive + amount * 0.3);
-    pet.playDrive = Math.min(1, pet.playDrive + amount * 0.15);
+    pet.alertness = clamp01(pet.alertness + amount);
+    pet.exploreDrive = clamp01(pet.exploreDrive + amount * 0.3);
+    pet.playDrive = clamp01(pet.playDrive + amount * 0.15);
+    pet.boredom = clamp01(pet.boredom - amount);
+}
+
+// Something happened; life is less boring.
+function eventful(pet, amount) {
+    pet.boredom = clamp01(pet.boredom - amount);
+}
+
+// Joy with diminishing returns: an already-content pet barely notices one more
+// treat, so happiness settles into a band instead of pinning at 1.0.
+function happier(pet, amount) {
+    pet.happiness = clamp01(pet.happiness + amount * (1 - pet.happiness));
 }
