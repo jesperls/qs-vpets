@@ -9,24 +9,36 @@ Singleton {
 
     property real cpuUsage: 0
     property real memUsage: 0
-    readonly property bool isUnderLoad: cpuUsage > 0.7 || memUsage > 0.85
+    readonly property bool isUnderLoad: cpuUsage > 0.72 || memUsage > 0.86
 
     property real _lastCpuTotal: 0
     property real _lastCpuIdle: 0
 
     Timer {
-        interval: 5000; running: true; repeat: true; triggeredOnStart: true
-        onTriggered: { cpuFile.reload(); memFile.reload(); }
+        interval: 6000
+        running: true
+        repeat: true
+        triggeredOnStart: true
+        onTriggered: {
+            cpuFile.reload();
+            memFile.reload();
+        }
     }
 
     FileView {
         id: cpuFile
         path: "/proc/stat"
+        printErrors: false
         onLoaded: {
             const m = text().match(/^cpu\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)/);
             if (!m) return;
-            const stats = []; for (var i = 1; i <= 7; i++) stats.push(parseInt(m[i], 10));
-            const total = stats.reduce(function(a, b) { return a + b; }, 0);
+            let total = 0;
+            const stats = [];
+            for (let i = 1; i <= 7; i++) {
+                const v = parseInt(m[i], 10) || 0;
+                stats.push(v);
+                total += v;
+            }
             const idle = stats[3] + (stats[4] || 0);
             const dt = total - root._lastCpuTotal;
             const di = idle - root._lastCpuIdle;
@@ -39,6 +51,7 @@ Singleton {
     FileView {
         id: memFile
         path: "/proc/meminfo"
+        printErrors: false
         onLoaded: {
             const txt = text();
             const total = parseInt((txt.match(/MemTotal:\s*(\d+)/) || [])[1] || "1", 10);

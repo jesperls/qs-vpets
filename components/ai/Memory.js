@@ -1,151 +1,476 @@
 .import "Personality.js" as Personality
+.import "Topology.js" as Topology
 
-// Episodic thoughts, spatial memory (global coordinates), window preferences,
-// and relationships with other pets. Everything here decays; nothing is
-// permanent except what keeps getting reinforced.
+// Dual-tier memory: inner monologue stream + salient episodic memory + sleep dream consolidation.
 
 var VISITED_CELL_SIZE = 200;
-var PLACE_CELL_SIZE = 400;
-var THOUGHTS_LIMIT = 250;
-var FAVORITE_AFFECT_MIN = 0.2;
+var PLACE_CELL_SIZE = 380;
+var THOUGHTS_LIMIT = 80;
+var EPISODES_LIMIT = 140;
+var JOURNAL_LIMIT = 24;
+var FAVORITE_AFFECT_MIN = 0.18;
 var FAVORITE_VISITS_MIN = 2;
-var AVOID_AFFECT_MAX = -0.3;
-var PETTED_WINDOW_MS = 30000;
-var WOKE_WINDOW_MS = 45000;
-var CELL_DECAY_CHANCE = 0.15;
-var PREF_DECAY_TO_NEUTRAL = 0.02;
-var PLACE_DECAY = 0.995;
-var PLACE_PURGE_AFFECT = 0.02;
-var PLACE_PURGE_CHANCE = 0.05;
-var REL_AFFINITY_DECAY = 0.999;  // per decay pass, toward 0.5
-var RECENT_DEFAULT_MS = 30000;
-
-function remember(pet, type, data) {
-    var thought = {
-        type: type,
-        time: Date.now(),
-        x: Math.round(pet.screenX() + pet.worldX),
-        y: Math.round(pet.screenY() + pet.worldY),
-        state: pet.state_,
-        mood: Math.round(pet.mood * 100) / 100,
-        drives: {
-            rest: Math.round(pet.restDrive * 100) / 100,
-            explore: Math.round(pet.exploreDrive * 100) / 100,
-            social: Math.round(pet.socialDrive * 100) / 100,
-            play: Math.round(pet.playDrive * 100) / 100,
-        },
-    };
-    if (data) {
-        var keys = Object.keys(data);
-        for (var i = 0; i < keys.length; i++) thought[keys[i]] = data[keys[i]];
-    }
-    pet.thoughts.push(thought);
-    if (pet.thoughts.length > THOUGHTS_LIMIT) pet.thoughts.shift();
-}
-
-function recent(pet, type, withinMs) {
-    var cutoff = Date.now() - (withinMs || RECENT_DEFAULT_MS);
-    for (var i = pet.thoughts.length - 1; i >= 0; i--) {
-        if (pet.thoughts[i].time <= cutoff) return null;
-        if (pet.thoughts[i].type === type) return pet.thoughts[i];
-    }
-    return null;
-}
-
-function wasRecentlyPetted(pet) { return !!recent(pet, "petted", PETTED_WINDOW_MS); }
-function justWokeUp(pet) { return !!recent(pet, "well_rested", WOKE_WINDOW_MS); }
-
-// --- window preferences ---
-
-function windowFamiliarity(pet, cls) {
-    var n = 0;
-    for (var i = 0; i < pet.thoughts.length; i++)
-        if (pet.thoughts[i].windowClass === cls) n++;
-    return n;
-}
-
-function recordWindowPref(pet, cls, delta) {
-    if (!cls) return;
-    var cur = pet.windowPrefs[cls] !== undefined ? pet.windowPrefs[cls] : 0.5;
-    pet.windowPrefs[cls] = Math.max(0, Math.min(1, cur + delta));
-}
-
-function getWindowPref(pet, cls) {
-    if (!cls) return 0.5;
-    return pet.windowPrefs[cls] !== undefined ? pet.windowPrefs[cls] : 0.5;
-}
-
-// --- spatial memory (global coordinates) ---
+var AVOID_AFFECT_MAX = -0.28;
+var RHYTHM_ALPHA = 0.005;
 
 function _cellKey(x, y, size) {
     return Math.floor(x / size) + "," + Math.floor(y / size);
 }
 
-function trackPosition(pet) {
-    if (pet.state_ !== "walk" && pet.state_ !== "wander" && pet.state_ !== "zoomies") return;
-    var now = Date.now();
-    if (now - (pet._lastTrackTime || 0) < 5000) return;
-    pet._lastTrackTime = now;
-    var key = _cellKey(pet.screenX() + pet.worldX, pet.screenY() + pet.worldY, VISITED_CELL_SIZE);
-    pet.visitedCells[key] = (pet.visitedCells[key] || 0) + 1;
+function _now(pet) {
+    return (pet && pet._simNow) ? pet._simNow : Date.now();
 }
 
-function visitsAt(pet, gx, gy) {
-    return pet.visitedCells[_cellKey(gx, gy, VISITED_CELL_SIZE)] || 0;
+// Record a personality-voiced inner monologue entry (deduplicated within short windows).
+function thinkAloud(pet, kind, text, opts) {
+    if (!pet.thoughts) pet.thoughts = [];
+    var now = _now(pet);
+    var minGap = (opts && opts.minGapMs !== undefined) ? opts.minGapMs : 12000;
+    for (var i = pet.thoughts.length - 1; i >= Math.max(0, pet.thoughts.length - 6); i--) {
+        var prev = pet.thoughts[i];
+        if (prev.kind === kind && now - prev.time < minGap) return null;
+    }
+    var entry = {
+        kind: kind,
+        text: text,
+        time: now,
+        mood: Math.round(pet.mood * 100) / 100,
+        state: pet.state_,
+        plan: pet.activePlan ? pet.activePlan.name : (pet.intention ? pet.intention.name : "")
+    };
+    pet.thoughts.push(entry);
+    if (pet.thoughts.length > THOUGHTS_LIMIT) pet.thoughts.shift();
+    pet.lastThoughtText = text;
+    pet.lastThoughtTime = now;
+    return entry;
 }
 
-// Pick an exploration target: sample points across all screens, prefer
-// less-visited cells that aren't dreaded, discount far-away ones a little.
-// This is what makes pets organically roam onto other monitors.
-function explorationTarget(pet) {
-    var screens = pet.allScreens();
-    if (!screens || screens.length === 0) return null;
-    var gx = pet.screenX() + pet.worldX, gy = pet.screenY() + pet.worldY;
-    var margin = 60;
-    var best = null, bestScore = -Infinity;
-    var samples = 7;
-    for (var i = 0; i < samples; i++) {
-        var s = screens[Math.floor(Math.random() * screens.length)];
-        var tx = s.x + margin + Math.random() * Math.max(1, s.width - margin * 2);
-        var ty = s.y + margin + Math.random() * Math.max(1, s.height - margin * 2);
-        var visits = visitsAt(pet, tx, ty);
-        var dist = Math.sqrt((tx - gx) * (tx - gx) + (ty - gy) * (ty - gy));
-        if (dist < 150) continue;
-        var affect = placeAffectAt(pet, tx, ty);
-        if (affect < AVOID_AFFECT_MAX && Math.random() < 0.8) continue;
-        var score = -visits - dist / 2500 + affect * 2 + Math.random() * 1.5;
-        if (score > bestScore) {
-            bestScore = score;
-            best = { gx: tx, gy: ty, visits: visits, otherScreen: s.x !== pet.screenX() || s.y !== pet.screenY() };
+// Encode a salient lived episode for queries and later sleep consolidation.
+function recordEpisode(pet, type, opts) {
+    if (!pet.episodes) pet.episodes = [];
+    var o = opts || {};
+    var now = _now(pet);
+    var valence = o.valence !== undefined ? o.valence : 0;
+    var salience = o.salience !== undefined
+        ? o.salience
+        : Math.min(1, 0.25 + Math.abs(valence) * 0.75 + (o.novelty || 0) * 0.3);
+
+    var ep = {
+        type: type,
+        time: now,
+        hour: pet._hour !== undefined ? pet._hour : new Date(now).getHours(),
+        gx: Math.round(pet.screenX() + pet.worldX),
+        gy: Math.round(pet.screenY() + pet.worldY),
+        valence: Math.round(valence * 100) / 100,
+        salience: Math.round(salience * 100) / 100,
+        consolidated: false,
+        windowClass: o.windowClass || "",
+        withPet: o.withPet || "",
+        otherScreen: !!o.otherScreen,
+        music: !!o.music,
+        note: o.note || ""
+    };
+    pet.episodes.push(ep);
+    if (pet.episodes.length > EPISODES_LIMIT) {
+        // Drop oldest already-consolidated low-salience episode first so core memories survive.
+        var dropIdx = 0;
+        for (var i = 0; i < pet.episodes.length - 1; i++) {
+            if (pet.episodes[i].consolidated && pet.episodes[i].salience < 0.6) {
+                dropIdx = i;
+                break;
+            }
+        }
+        pet.episodes.splice(dropIdx, 1);
+    }
+    return ep;
+}
+
+// Backwards-compatible convenience wrapper that records an episode and optional monologue.
+function remember(pet, type, data) {
+    var d = data || {};
+    return recordEpisode(pet, type, d);
+}
+
+function recent(pet, type, withinMs) {
+    if (!pet.episodes) return null;
+    var cutoff = _now(pet) - (withinMs || 30000);
+    for (var i = pet.episodes.length - 1; i >= 0; i--) {
+        var ep = pet.episodes[i];
+        if (ep.time <= cutoff) return null;
+        if (ep.type === type) return ep;
+    }
+    return null;
+}
+
+function countRecent(pet, types, withinMs) {
+    if (!pet.episodes) return 0;
+    var cutoff = _now(pet) - withinMs;
+    var set = Array.isArray(types) ? types : [types];
+    var n = 0;
+    for (var i = pet.episodes.length - 1; i >= 0; i--) {
+        if (pet.episodes[i].time < cutoff) break;
+        if (set.indexOf(pet.episodes[i].type) !== -1) n++;
+    }
+    return n;
+}
+
+function wasRecentlyPetted(pet) { return !!recent(pet, "petted", 35000); }
+function justWokeUp(pet) { return !!recent(pet, "well_rested", 45000); }
+
+function addJournalEntry(pet, text, kind) {
+    if (!pet.journal) pet.journal = [];
+    for (var i = 0; i < pet.journal.length; i++) {
+        if (pet.journal[i].text === text) return;
+    }
+    var now = _now(pet);
+    pet.journal.push({ time: now, kind: kind || "milestone", text: text });
+    if (pet.journal.length > JOURNAL_LIMIT) pet.journal.shift();
+}
+
+// Replay unconsolidated episodes during sleep ("dreaming") -> crystallize character & quirks!
+function consolidateSleep(pet) {
+    if (!pet.episodes || pet.episodes.length === 0) return null;
+
+    var unconsolidated = [];
+    for (var i = 0; i < pet.episodes.length; i++) {
+        if (!pet.episodes[i].consolidated) unconsolidated.push(pet.episodes[i]);
+    }
+    if (unconsolidated.length === 0) return null;
+
+    // Consolidate up to 18 episodes per dream cycle so long naps process rich days gradually.
+    unconsolidated.sort(function(a, b) { return b.salience - a.salience; });
+    var batch = unconsolidated.slice(0, 18);
+
+    var signals = {
+        energy: 0, curiosity: 0, playfulness: 0, sleepiness: 0,
+        boldness: 0, sociability: 0, patience: 0, composure: 0
+    };
+    var quirkInc = {};
+    function bumpQuirk(k, v) { quirkInc[k] = (quirkInc[k] || 0) + v; }
+
+    var dreamCandidate = batch[0];
+    var positiveCount = 0;
+    var negativeCount = 0;
+
+    for (var j = 0; j < batch.length; j++) {
+        var ep = batch[j];
+        ep.consolidated = true;
+        if (ep.valence > 0.1) positiveCount++;
+        if (ep.valence < -0.1) negativeCount++;
+
+        switch (ep.type) {
+        case "petted":
+        case "stroked":
+            signals.sociability += 0.009;
+            signals.boldness += 0.004;
+            signals.composure += 0.005;
+            bumpQuirk("velcro_companion", 0.055);
+            break;
+        case "fed_snack":
+            signals.sociability += 0.008;
+            signals.patience += 0.004;
+            bumpQuirk("velcro_companion", 0.04);
+            break;
+        case "bid_answered":
+            signals.sociability += 0.012;
+            signals.boldness += 0.008;
+            signals.playfulness += 0.006;
+            bumpQuirk("velcro_companion", 0.07);
+            break;
+        case "bid_ignored":
+            signals.patience += 0.006;
+            signals.sociability -= 0.004;
+            bumpQuirk("cozy_hermit", 0.03);
+            break;
+        case "adventure":
+        case "scout_complete":
+            signals.curiosity += 0.010;
+            signals.boldness += 0.007;
+            signals.energy += 0.004;
+            if (ep.otherScreen) bumpQuirk("screen_hopper", 0.085);
+            break;
+        case "supervised_code":
+            signals.patience += 0.009;
+            signals.composure += 0.007;
+            signals.curiosity += 0.004;
+            bumpQuirk("terminal_supervisor", 0.09);
+            break;
+        case "perched_window":
+            signals.boldness += 0.005;
+            signals.curiosity += 0.005;
+            bumpQuirk("window_percher", 0.08);
+            break;
+        case "music_groove":
+            signals.playfulness += 0.009;
+            signals.energy += 0.005;
+            bumpQuirk("melomaniac", 0.095);
+            break;
+        case "night_vigil":
+            signals.composure += 0.006;
+            signals.sleepiness -= 0.007;
+            bumpQuirk("night_watch", 0.11);
+            break;
+        case "tossed_fun":
+            signals.boldness += 0.011;
+            signals.playfulness += 0.009;
+            signals.composure += 0.006;
+            bumpQuirk("sky_acrobat", 0.12);
+            break;
+        case "tossed_rough":
+        case "startled":
+            signals.boldness -= 0.010;
+            signals.composure -= 0.008;
+            signals.sociability -= 0.004;
+            bumpQuirk("cozy_hermit", 0.045);
+            break;
+        case "played_with":
+        case "chase_bout":
+        case "sparred":
+            signals.playfulness += 0.005;
+            signals.sociability += 0.007;
+            signals.energy += 0.003;
+            bumpQuirk("pack_spark", 0.030 + pet.personality.playfulness * 0.050);
+            break;
+        case "rested_with":
+            signals.sociability += 0.007;
+            signals.patience += 0.006;
+            bumpQuirk("pack_spark", 0.035);
+            break;
+        case "sanctuary_nap":
+            signals.patience += 0.007;
+            signals.sleepiness += 0.005;
+            signals.composure += 0.006;
+            bumpQuirk("cozy_hermit", 0.075);
+            if (pet.personality.sleepiness > 0.52) bumpQuirk("daydreamer", 0.04);
+            break;
+        case "resting":
+            if (pet.personality.sleepiness > 0.62) bumpQuirk("daydreamer", 0.035);
+            if (pet.personality.patience > 0.65 && pet.personality.energy < 0.40) bumpQuirk("cozy_hermit", 0.03);
+            break;
+        case "well_rested":
+            signals.composure += 0.004;
+            if (pet.personality.sleepiness > 0.54) bumpQuirk("daydreamer", 0.06);
+            break;
+        case "foraged":
+            signals.composure += 0.003;
+            signals.curiosity += 0.003;
+            break;
+        case "annoyed":
+        case "annoyed_by":
+        case "rebuffed":
+            signals.patience -= 0.006;
+            signals.sociability -= 0.005;
+            break;
+        }
+    }
+
+    var batchScale = 1 / Math.max(1, Math.sqrt(batch.length / 4));
+    var sKeys = Object.keys(signals);
+    for (var si = 0; si < sKeys.length; si++) {
+        signals[sKeys[si]] *= batchScale;
+    }
+    var quirkScale = 1 / Math.max(1, Math.sqrt(batch.length / 6));
+    var qIncKeys = Object.keys(quirkInc);
+    for (var qi = 0; qi < qIncKeys.length; qi++) {
+        quirkInc[qIncKeys[qi]] *= quirkScale;
+    }
+
+    var prevQuirks = (pet.quirks || []).slice();
+    var consolidated = Personality.consolidateCore(
+        pet.coreDrift, pet.recentDrift, signals, pet.maturity
+    );
+    pet.coreDrift = consolidated.core;
+    pet.recentDrift = consolidated.recent;
+
+    var qRes = Personality.updateQuirks(pet.quirkProgress, prevQuirks, quirkInc);
+    pet.quirkProgress = qRes.progress;
+    pet.quirks = qRes.active;
+
+    for (var nq = 0; nq < pet.quirks.length; nq++) {
+        var qid = pet.quirks[nq];
+        if (prevQuirks.indexOf(qid) === -1 && Personality.QUIRK_DEFS[qid]) {
+            addJournalEntry(
+                pet,
+                "Developed habit: " + Personality.QUIRK_DEFS[qid].label,
+                "quirk"
+            );
+        }
+    }
+
+    var dreamEmote = "💭";
+    var dreamLine = "Dreaming quietly";
+    if (dreamCandidate) {
+        switch (dreamCandidate.type) {
+        case "petted":
+        case "stroked":
+        case "bid_answered":
+            dreamEmote = "♥";
+            dreamLine = "Dreaming of warm headpats";
+            break;
+        case "fed_snack":
+        case "foraged":
+            dreamLine = "Dreaming about sweet berries";
+            break;
+        case "music_groove":
+            dreamEmote = "♪";
+            dreamLine = "Ear twitching to a remembered melody";
+            break;
+        case "adventure":
+        case "scout_complete":
+            dreamLine = "Dreaming of wide horizons";
+            break;
+        case "tossed_fun":
+            dreamLine = "Dreaming of soaring across the screen";
+            break;
+        case "played_with":
+        case "chase_bout":
+            dreamLine = "Paws twitching in sleep";
+            break;
+        case "startled":
+        case "tossed_rough":
+            dreamEmote = "...";
+            dreamLine = "Shivered briefly in sleep, then settled";
+            break;
+        }
+    }
+
+    thinkAloud(pet, "dream", dreamLine, { minGapMs: 90000 });
+    return {
+        emote: dreamEmote,
+        line: dreamLine,
+        count: batch.length,
+        netValence: positiveCount - negativeCount
+    };
+}
+
+// --- Window & Code Class Affinity ---
+
+var CODE_CLASSES = [
+    "kitty", "alacritty", "foot", "wezterm", "ghostty", "neovide",
+    "code", "codium", "zed", "emacs", "jetbrains", "cursor", "antigravity"
+];
+
+function isCodeWindow(cls) {
+    if (!cls) return false;
+    var low = cls.toLowerCase();
+    for (var i = 0; i < CODE_CLASSES.length; i++) {
+        if (low.indexOf(CODE_CLASSES[i]) !== -1) return true;
+    }
+    return false;
+}
+
+function windowFamiliarity(pet, cls) {
+    if (!cls || !pet.episodes) return 0;
+    var n = 0;
+    for (var i = 0; i < pet.episodes.length; i++) {
+        if (pet.episodes[i].windowClass === cls) n++;
+    }
+    return n;
+}
+
+function recordWindowPref(pet, cls, delta) {
+    if (!cls) return;
+    if (!pet.windowPrefs) pet.windowPrefs = ({});
+    var cur = pet.windowPrefs[cls] !== undefined ? pet.windowPrefs[cls] : 0.5;
+    pet.windowPrefs[cls] = Personality.clamp01(cur + delta);
+}
+
+function getWindowPref(pet, cls) {
+    if (!cls || !pet.windowPrefs) return 0.5;
+    return pet.windowPrefs[cls] !== undefined ? pet.windowPrefs[cls] : 0.5;
+}
+
+function favoriteWindowClass(pet) {
+    if (!pet.windowPrefs) return "";
+    var best = "", bestVal = 0.56;
+    var keys = Object.keys(pet.windowPrefs);
+    for (var i = 0; i < keys.length; i++) {
+        if (pet.windowPrefs[keys[i]] > bestVal) {
+            bestVal = pet.windowPrefs[keys[i]];
+            best = keys[i];
         }
     }
     return best;
 }
 
-function decayPreferences(pet) {
-    var prefKeys = Object.keys(pet.windowPrefs);
-    for (var i = 0; i < prefKeys.length; i++) {
-        var v = pet.windowPrefs[prefKeys[i]];
-        pet.windowPrefs[prefKeys[i]] = v + (0.5 - v) * PREF_DECAY_TO_NEUTRAL;
-    }
-    var cellKeys = Object.keys(pet.visitedCells);
-    for (var j = 0; j < cellKeys.length; j++) {
-        if (Math.random() < CELL_DECAY_CHANCE) {
-            if (--pet.visitedCells[cellKeys[j]] <= 0) delete pet.visitedCells[cellKeys[j]];
-        }
-    }
+// --- Spatial Novelty & Emotional Place Memory ---
+
+function trackPosition(pet) {
+    if (pet.state_ !== "walk" && pet.state_ !== "wander" && pet.state_ !== "zoomies") return;
+    var now = _now(pet);
+    if (now - (pet._lastTrackTime || 0) < 4500) return;
+    pet._lastTrackTime = now;
+    if (!pet.visitedCells) pet.visitedCells = ({});
+    var key = _cellKey(pet.screenX() + pet.worldX, pet.screenY() + pet.worldY, VISITED_CELL_SIZE);
+    pet.visitedCells[key] = (pet.visitedCells[key] || 0) + 1;
 }
 
-// --- place affect (emotional memory of locations, global coords) ---
+function visitsAt(pet, gx, gy) {
+    if (!pet.visitedCells) return 0;
+    return pet.visitedCells[_cellKey(gx, gy, VISITED_CELL_SIZE)] || 0;
+}
+
+function explorationTarget(pet) {
+    var screens = Topology.reachableScreens(pet);
+    if (!screens || screens.length === 0) return null;
+    var gx = pet.screenX() + pet.worldX, gy = pet.screenY() + pet.worldY;
+    var pw = pet.width || 64, ph = pet.height || 64;
+    var best = null, bestScore = -Infinity;
+    var hopper = Personality.hasQuirk(pet, "screen_hopper");
+
+    var minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (var si = 0; si < screens.length; si++) {
+        minX = Math.min(minX, screens[si].x);
+        maxX = Math.max(maxX, screens[si].x + screens[si].width);
+        minY = Math.min(minY, screens[si].y);
+        maxY = Math.max(maxY, screens[si].y + screens[si].height);
+    }
+    var worldSpan = Math.max(1600, Math.hypot(maxX - minX, maxY - minY));
+    var minExploreDist = Math.min(160, Math.max(64, Math.min(pet.screenW(), pet.screenH()) * 0.2));
+
+    for (var i = 0; i < 10; i++) {
+        var s = screens[Math.floor(Math.random() * screens.length)];
+        var padX = Math.min(64, Math.max(12, s.width * 0.06));
+        var topPad = Math.max(s.topInset || 0, 16) + 8;
+        var botPad = Math.max(s.bottomInset || 0, 12) + ph + 8;
+        var tx = Topology.clamp(
+            s.x + padX + Math.random() * Math.max(1, s.width - pw - padX * 2),
+            s.x,
+            s.x + s.width - pw
+        );
+        var ty = Topology.clamp(
+            s.y + topPad + Math.random() * Math.max(1, s.height - topPad - botPad),
+            s.y,
+            s.y + s.height - ph
+        );
+        var visits = visitsAt(pet, tx, ty);
+        var dist = Math.hypot(tx - gx, ty - gy);
+        if (dist < minExploreDist) continue;
+        var affect = placeAffectAt(pet, tx, ty);
+        if (affect < AVOID_AFFECT_MAX && Math.random() < 0.85) continue;
+        var otherScreen = s.x !== pet.screenX() || s.y !== pet.screenY();
+        var distPenalty = dist / Math.max(2200, worldSpan * (hopper ? 1.15 : 0.72));
+        var score = -visits * 1.1 - distPenalty + affect * 2.2
+                  + (otherScreen && hopper ? 0.8 : 0) + Math.random() * 1.3;
+        if (score > bestScore) {
+            bestScore = score;
+            best = { gx: tx, gy: ty, visits: visits, otherScreen: otherScreen, screenName: s.name || "" };
+        }
+    }
+    return best;
+}
 
 function recordPlaceAffect(pet, valence) {
     if (!pet.placeMemory) pet.placeMemory = ({});
-    var key = _cellKey(pet.screenX() + pet.worldX, pet.screenY() + pet.worldY, PLACE_CELL_SIZE);
-    var e = pet.placeMemory[key] || { affect: 0, visits: 0, lastVisit: 0 };
-    var weight = Math.min(0.3, 1.0 / (e.visits + 2));
-    e.affect = e.affect * (1 - weight) + valence * weight;
+    var gx = pet.screenX() + pet.worldX, gy = pet.screenY() + pet.worldY;
+    var key = _cellKey(gx, gy, PLACE_CELL_SIZE);
+    var e = pet.placeMemory[key] || { affect: 0, visits: 0, lastVisit: 0, gx: Math.round(gx), gy: Math.round(gy) };
+    var weight = Math.min(0.32, 1.0 / (e.visits + 2));
+    e.affect = Math.max(-1, Math.min(1, e.affect * (1 - weight) + valence * weight));
+    e.gx = Math.round((e.gx !== undefined ? e.gx : gx) * (1 - weight) + gx * weight);
+    e.gy = Math.round((e.gy !== undefined ? e.gy : gy) * (1 - weight) + gy * weight);
     e.visits++;
-    e.lastVisit = Date.now();
+    e.lastVisit = _now(pet);
     pet.placeMemory[key] = e;
 }
 
@@ -157,43 +482,69 @@ function placeAffectAt(pet, gx, gy) {
 
 function favoriteSpot(pet) {
     if (!pet.placeMemory) return null;
+    var reachable = Topology.reachableScreens(pet);
+    var pw = pet.width || 64, ph = pet.height || 64;
     var best = null, bestScore = FAVORITE_AFFECT_MIN;
     var keys = Object.keys(pet.placeMemory);
     for (var i = 0; i < keys.length; i++) {
         var e = pet.placeMemory[keys[i]];
         if (e.affect > bestScore && e.visits >= FAVORITE_VISITS_MIN) {
-            bestScore = e.affect;
             var parts = keys[i].split(",");
             var half = PLACE_CELL_SIZE / 2;
+            var candGX = e.gx !== undefined ? e.gx : (parseInt(parts[0], 10) * PLACE_CELL_SIZE + half);
+            var candGY = e.gy !== undefined ? e.gy : (parseInt(parts[1], 10) * PLACE_CELL_SIZE + half);
+            var scr = Topology.screenAt(reachable, candGX + pw * 0.5, candGY + ph * 0.5)
+                   || Topology.screenAt(reachable, candGX, candGY);
+            if (!scr) continue;
+            bestScore = e.affect;
             best = {
-                gx: parseInt(parts[0]) * PLACE_CELL_SIZE + half,
-                gy: parseInt(parts[1]) * PLACE_CELL_SIZE + half,
-                affect: e.affect,
+                gx: Topology.clamp(candGX, scr.x, scr.x + scr.width - pw),
+                gy: Topology.clamp(candGY, scr.y, scr.y + scr.height - ph),
+                affect: e.affect
             };
         }
     }
     return best;
 }
 
-function decayPlaceMemory(pet) {
-    if (!pet.placeMemory) return;
-    var keys = Object.keys(pet.placeMemory);
-    for (var i = 0; i < keys.length; i++) {
-        var e = pet.placeMemory[keys[i]];
-        e.affect *= PLACE_DECAY;
-        if (Math.abs(e.affect) < PLACE_PURGE_AFFECT && Math.random() < PLACE_PURGE_CHANCE)
-            delete pet.placeMemory[keys[i]];
+function decayMemories(pet) {
+    if (pet.windowPrefs) {
+        var pKeys = Object.keys(pet.windowPrefs);
+        for (var i = 0; i < pKeys.length; i++) {
+            var v = pet.windowPrefs[pKeys[i]];
+            var nextPref = v + (0.5 - v) * 0.00015;
+            if (Math.abs(nextPref - 0.5) < 0.005) delete pet.windowPrefs[pKeys[i]];
+            else pet.windowPrefs[pKeys[i]] = nextPref;
+        }
+    }
+    if (pet.visitedCells) {
+        var cKeys = Object.keys(pet.visitedCells);
+        for (var j = 0; j < cKeys.length; j++) {
+            if (Math.random() < 0.015 && --pet.visitedCells[cKeys[j]] <= 0) {
+                delete pet.visitedCells[cKeys[j]];
+            }
+        }
+    }
+    if (pet.placeMemory) {
+        var mKeys = Object.keys(pet.placeMemory);
+        for (var k = 0; k < mKeys.length; k++) {
+            var e = pet.placeMemory[mKeys[k]];
+            e.affect *= e.visits >= 4 ? 0.99996 : 0.99992;
+            if (Math.abs(e.affect) < 0.02 && Math.random() < 0.02) delete pet.placeMemory[mKeys[k]];
+        }
+    }
+    if (pet.relationships) {
+        var rKeys = Object.keys(pet.relationships);
+        for (var r = 0; r < rKeys.length; r++) {
+            var rel = pet.relationships[rKeys[r]];
+            var anchor = rel.familiarity > 0.5 ? 0.99997 : 0.99990;
+            rel.affinity = 0.5 + (rel.affinity - 0.5) * anchor;
+            rel.familiarity *= 0.99996;
+        }
     }
 }
 
-// --- learned user rhythm ---
-//
-// A 24-bucket EWMA of "was the user at the keyboard this hour". Converges over
-// a few days, so pets slowly learn the user's schedule: they sink into deeper
-// sleep during hours the user is reliably away and stay lighter when the user
-// tends to be around.
-
-var RHYTHM_ALPHA = 0.005;   // per ~5s observation; time constant of a few days
+// --- Learned User Presence Rhythm (24h EWMA) ---
 
 function observeUser(pet, perc) {
     if (!pet.userRhythm) pet.userRhythm = ({});
@@ -201,43 +552,47 @@ function observeUser(pet, perc) {
     pet.userRhythm[perc.hour] = cur + ((perc.userIdle ? 0 : 1) - cur) * RHYTHM_ALPHA;
 }
 
-// 0..1, defaults to 0.5 until the pet has lived here a while
 function usualUserActivity(pet, hour) {
     if (!pet.userRhythm) return 0.5;
     var v = pet.userRhythm[hour];
     return v !== undefined ? v : 0.5;
 }
 
-// --- relationships with other pets ---
+// --- Inter-Pet Relationships ---
 
-// Returns the relationship record for another pet, creating it lazily.
-// otherPersonality (optional) seeds first impressions from compatibility.
 function relationWith(pet, name, otherPersonality) {
     if (!pet.relationships) pet.relationships = ({});
     var r = pet.relationships[name];
     if (!r) {
         var prior = 0.5;
-        if (otherPersonality)
-            prior = 0.5 + Personality.compatibility(pet.personality, otherPersonality) * 0.15;
-        r = { affinity: prior, familiarity: 0, lastInteract: 0 };
+        if (otherPersonality) {
+            prior = 0.5 + Personality.compatibility(pet.personality, otherPersonality) * 0.16;
+        }
+        r = {
+            affinity: Personality.clamp01(prior),
+            familiarity: 0,
+            playCount: 0,
+            napCount: 0,
+            friction: 0,
+            lastInteract: 0
+        };
         pet.relationships[name] = r;
     }
     return r;
 }
 
-function adjustRelation(pet, name, affinityDelta, familiarityDelta) {
+function adjustRelation(pet, name, affinityDelta, familiarityDelta, kind) {
     var r = relationWith(pet, name);
-    r.affinity = Math.max(0, Math.min(1, r.affinity + affinityDelta));
-    r.familiarity = Math.max(0, Math.min(1, r.familiarity + (familiarityDelta || 0)));
-    r.lastInteract = Date.now();
-}
-
-function decayRelationships(pet) {
-    if (!pet.relationships) return;
-    var keys = Object.keys(pet.relationships);
-    for (var i = 0; i < keys.length; i++) {
-        var r = pet.relationships[keys[i]];
-        r.affinity = 0.5 + (r.affinity - 0.5) * REL_AFFINITY_DECAY;
-        r.familiarity *= 0.9995;
+    var prevTag = Personality.relationshipTag(r);
+    r.affinity = Personality.clamp01(r.affinity + affinityDelta);
+    r.familiarity = Personality.clamp01(r.familiarity + (familiarityDelta || 0));
+    if (kind === "play") r.playCount = (r.playCount || 0) + 1;
+    else if (kind === "nap") r.napCount = (r.napCount || 0) + 1;
+    else if (kind === "friction") r.friction = (r.friction || 0) + 1;
+    r.lastInteract = _now(pet);
+    var nextTag = Personality.relationshipTag(r);
+    if (nextTag !== prevTag && (nextTag === "Friends" || nextTag === "Play Partners" || nextTag === "Nap Buddies" || nextTag === "Soulmates" || nextTag === "Grumpy Allies")) {
+        addJournalEntry(pet, "Became " + nextTag + " with " + name + ".", "social");
     }
+    return r;
 }

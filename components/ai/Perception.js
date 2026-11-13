@@ -1,92 +1,218 @@
 .import "Memory.js" as Memory
+.import "Topology.js" as Topology
 
-// Builds the pet's view of the world for one decision. All positions are in
-// global (multi-monitor) coordinates unless suffixed "local".
+var NEARBY_PET_DIST = 8000;
 
-var NEARBY_PET_DIST = 6000; // pets sense each other across monitors
+function _now(pet) {
+    return (pet && pet._simNow) ? pet._simNow : Date.now();
+}
+
+function screenForPoint(pet, gx, gy) {
+    var screens = pet.allScreens ? pet.allScreens() : [];
+    return Topology.screenAt(screens, gx, gy) || Topology.nearestScreen(screens, gx, gy);
+}
 
 function perceive(pet) {
-    var now = Date.now();
-    var sx = pet.screenX(), sy = pet.screenY();
-    var sw = pet.screenW(), sh = pet.screenH();
+    var now = _now(pet);
+    var curScr = Topology.currentScreen(pet);
+    var sx = curScr.x, sy = curScr.y;
+    var sw = curScr.width, sh = curScr.height;
     var petGX = sx + pet.worldX;
     var petGY = sy + pet.worldY;
+    var petW = pet.width || 64;
+    var petH = pet.height || 64;
+    var reachable = Topology.reachableScreens(pet);
 
-    // --- active window ---
-    var wp = pet.windowTracker.activeWindowPos;
+    var wt = pet.windowTracker || {};
+    var wp = wt.activeWindowPos || null;
     var win = null;
-    if (wp) {
+    if (wp && wp.w > 40 && wp.h > 40) {
         var cx = wp.x + wp.w / 2, cy = wp.y + wp.h / 2;
-        var lx = cx - sx, ly = cy - sy;
-        win = {
-            gx: cx, gy: cy, w: wp.w, h: wp.h,
-            top: wp.y, bottom: wp.y + wp.h,
-            cls: pet.windowTracker.activeWindowClass,
-            title: pet.windowTracker.activeWindowTitle,
-            localX: lx, localY: ly,
-            onMyScreen: lx > 50 && lx < sw - 50 && ly > 50 && ly < sh - 50,
-            dist: Math.sqrt((cx - petGX) * (cx - petGX) + (cy - petGY) * (cy - petGY)),
-        };
+        var winScr = Topology.screenAt(reachable, cx, cy);
+        if (winScr) {
+            var cls = wt.activeWindowClass || "";
+            var bInset = winScr.bottomInset || 0;
+            var minLedgeY = winScr.y + Math.max((winScr.topInset || 0) + 4, petH * 0.4);
+            var canPerchTop = wp.y >= minLedgeY && wp.w >= 180 && !wt.isFullscreen;
+            var maxWinX = winScr.x + winScr.width - petW - 8;
+            var maxWinY = winScr.y + winScr.height - bInset - petH - 8;
+
+            var minBelowX = Math.max(winScr.x + 8, wp.x + 16);
+            var maxBelowX = Math.max(minBelowX, Math.min(maxWinX, wp.x + wp.w - petW - 16));
+            var preferRight = petGX >= cx;
+            var rawBelowX = wp.x + wp.w * (preferRight ? 0.74 : 0.26) - petW * 0.5;
+            var watchBelowGX = Math.max(minBelowX, Math.min(maxBelowX, rawBelowX));
+            var watchBelowGY = Math.max(winScr.y + 8, Math.min(maxWinY, wp.y + wp.h - Math.round(petH * 0.12)));
+            var canSitBelow = !wt.isFullscreen && wp.w >= 180 && wp.h >= 180 && watchBelowGY > wp.y + 110;
+
+            var leftRoom = wp.x - winScr.x >= petW + 24;
+            var rightRoom = (winScr.x + winScr.width) - (wp.x + wp.w) >= petW + 24;
+            var loafX;
+            if (leftRoom && (!rightRoom || !preferRight)) {
+                loafX = wp.x - petW - 14;
+            } else if (rightRoom) {
+                loafX = wp.x + wp.w + 14;
+            } else {
+                loafX = preferRight ? (wp.x + wp.w - petW - 24) : (wp.x + 24);
+            }
+            var loafBesideGX = Math.max(winScr.x + 8, Math.min(maxWinX, loafX));
+            var loafBesideGY = Math.max(winScr.y + 8, Math.min(maxWinY, wp.y + wp.h - Math.round(petH * 0.18)));
+
+            win = {
+                address: wp.address || "",
+                gx: cx,
+                gy: cy,
+                x: wp.x,
+                y: wp.y,
+                w: wp.w,
+                h: wp.h,
+                top: wp.y,
+                bottom: wp.y + wp.h,
+                screenX: winScr.x,
+                screenY: winScr.y,
+                screenW: winScr.width,
+                screenH: winScr.height,
+                bottomInset: bInset,
+                cls: cls,
+                isCode: Memory.isCodeWindow(cls),
+                title: wt.activeWindowTitle || "",
+                onMyScreen: cx >= sx && cx < sx + sw && cy >= sy && cy < sy + sh,
+                canPerchTop: canPerchTop,
+                perchGX: cx,
+                perchGY: Math.max(winScr.y, wp.y - petH * 0.85),
+                canSitBelow: canSitBelow,
+                watchBelowGX: watchBelowGX,
+                watchBelowGY: watchBelowGY,
+                loafBesideGX: loafBesideGX,
+                loafBesideGY: loafBesideGY,
+                dist: Math.hypot(cx - petGX, cy - petGY)
+            };
+        }
     }
 
-    // --- cursor ---
-    var cgx = pet.inputTracker.cursorX, cgy = pet.inputTracker.cursorY;
+    var perches = [];
+    var rawWins = wt.visibleWindows || [];
+    var myScreenFullscreen = false;
+    for (var w = 0; w < rawWins.length; w++) {
+        var rw = rawWins[w];
+        if (!rw) continue;
+        var rcx = rw.x + rw.w * 0.5, rcy = rw.y + rw.h * 0.5;
+        var isTrueFs = rw.trueFullscreen !== undefined ? !!rw.trueFullscreen : !!rw.fullscreen;
+        if (isTrueFs && rcx >= sx && rcx < sx + sw && rcy >= sy && rcy < sy + sh) {
+            myScreenFullscreen = true;
+        }
+        if (rw.fullscreen || rw.w < 200 || rw.h < 120) continue;
+        var wScreen = Topology.screenAt(reachable, rcx, rcy);
+        if (!wScreen) continue;
+        if (rw.y < wScreen.y + Math.max((wScreen.topInset || 0) + 4, petH * 0.4)) continue;
+        var px = rw.x + rw.w * 0.5;
+        var py = Math.max(wScreen.y, rw.y - petH * 0.85);
+        perches.push({
+            address: rw.address || "",
+            cls: rw.cls || "",
+            isCode: Memory.isCodeWindow(rw.cls || ""),
+            x: rw.x,
+            y: rw.y,
+            w: rw.w,
+            h: rw.h,
+            gx: px,
+            gy: py,
+            focused: !!rw.focused,
+            dist: Math.hypot(px - petGX, py - petGY)
+        });
+    }
+    if (!myScreenFullscreen && wt.isFullscreen && (!win || win.onMyScreen)) {
+        myScreenFullscreen = true;
+    }
+
+    var it = pet.inputTracker || { cursorX: 0, cursorY: 0, cursorSpeed: 0, userActive: true, cursorKnown: true };
+    var cgx = it.cursorX || 0, cgy = it.cursorY || 0;
+    var cursorScr = Topology.screenAt(reachable, cgx, cgy);
     var cursor = {
-        gx: cgx, gy: cgy,
-        localX: cgx - sx, localY: cgy - sy,
+        gx: cgx,
+        gy: cgy,
+        localX: cgx - sx,
+        localY: cgy - sy,
         onMyScreen: cgx >= sx && cgx < sx + sw && cgy >= sy && cgy < sy + sh,
-        dist: Math.sqrt((cgx - petGX) * (cgx - petGX) + (cgy - petGY) * (cgy - petGY)),
-        active: pet.inputTracker.userActive,
+        reachable: it.cursorKnown !== false && (reachable.length === 0 || cursorScr !== null),
+        dist: Math.hypot(cgx - petGX, cgy - petGY),
+        speed: it.cursorSpeed || 0,
+        active: !!it.userActive
     };
 
-    // --- other pets ---
+    var mt = pet.mediaTracker || { isPlaying: false, trackTitle: "", trackArtist: "" };
+
     var others = [];
-    var allPets = pet.petManager.pets;
+    var allPets = (pet.petManager && pet.petManager.pets) ? pet.petManager.pets : [];
     for (var i = 0; i < allPets.length; i++) {
         var o = allPets[i];
-        if (o === pet) continue;
+        if (!o || o === pet) continue;
         var ogx = o.screenX() + o.worldX;
         var ogy = o.screenY() + o.worldY;
-        var dx = ogx - petGX, dy = ogy - petGY;
-        var dist = Math.sqrt(dx * dx + dy * dy);
+        var dist = Math.hypot(ogx - petGX, ogy - petGY);
         if (dist > NEARBY_PET_DIST) continue;
+        if (reachable.length > 1 && !Topology.screenAt(reachable, ogx + (o.width || 64) * 0.5, ogy + (o.height || 64) * 0.5)) {
+            continue;
+        }
         var rel = Memory.relationWith(pet, o.petData.name, o.personality);
+        var oPlan = o.activePlan ? o.activePlan.name : "";
         others.push({
             pet: o,
             name: o.petData.name,
-            gx: ogx, gy: ogy,
+            gx: ogx,
+            gy: ogy,
             dist: dist,
             state: o.state_,
-            resting: o.state_ === "sit" || o.state_ === "deepsleep",
-            playing: o.state_ === "zoomies" || (o.intention && o.intention.name === "play_with"),
+            resting: o.state_ === "loaf" || o.state_ === "sit" || o.state_ === "deepsleep",
+            playing: o.state_ === "zoomies" || oPlan === "play_tag" || oPlan === "flee_tag" || oPlan === "social_play",
+            grooving: oPlan === "music_groove",
+            attending: (o.attentionUntil || 0) > now,
+            attentionGX: o.attentionGX || 0,
+            attentionGY: o.attentionGY || 0,
+            gazeRow: (o.sprite && o.sprite._dirRow !== undefined) ? o.sprite._dirRow : 0,
             sameScreen: o.screenX() === sx && o.screenY() === sy,
             affinity: rel.affinity,
             familiarity: rel.familiarity,
-            sinceInteract: now - rel.lastInteract,
+            sinceInteract: now - (rel.lastInteract || 0)
         });
     }
     others.sort(function(a, b) { return a.dist - b.dist; });
 
-    var dHome = Math.sqrt((petGX - pet.homeGX) * (petGX - pet.homeGX)
-                        + (petGY - pet.homeGY) * (petGY - pet.homeGY));
+    var dHome = Math.hypot(petGX - pet.homeGX, petGY - pet.homeGY);
+    var homeReachable = reachable.length === 0 || Topology.screenAt(reachable, pet.homeGX, pet.homeGY) !== null;
 
     return {
         now: now,
-        hour: pet._hour,
-        isNight: pet.isNighttime,
-        systemBusy: pet.systemMonitor.isUnderLoad,
-        userBusy: pet.windowTracker.isUserBusy,
-        userIdle: !pet.inputTracker.userActive,
-        windowCount: pet.windowTracker.windowCount,
-        fullscreen: pet.windowTracker.isFullscreen,
+        hour: pet._hour !== undefined ? pet._hour : new Date(now).getHours(),
+        isNight: !!pet.isNighttime,
+        systemBusy: !!(pet.systemMonitor && pet.systemMonitor.isUnderLoad),
+        userBusy: !!wt.isUserBusy,
+        userIdle: !it.userActive,
+        windowCount: wt.windowCount || 0,
+        fullscreen: myScreenFullscreen,
         win: win,
+        perches: perches,
         cursor: cursor,
-        petGX: petGX, petGY: petGY,
-        screen: { x: sx, y: sy, w: sw, h: sh },
+        mediaPlaying: !!mt.isPlaying,
+        mediaTitle: mt.trackTitle || "",
+        mediaArtist: mt.trackArtist || "",
+        petGX: petGX,
+        petGY: petGY,
+        petW: petW,
+        petH: petH,
+        screen: {
+            x: sx,
+            y: sy,
+            w: sw,
+            h: sh,
+            topInset: curScr.topInset || 0,
+            bottomInset: curScr.bottomInset || 0
+        },
         distFromHome: dHome,
         atHome: dHome < pet.homeRadius,
+        homeReachable: homeReachable,
         others: others,
         nearest: others.length > 0 ? others[0] : null,
-        placeAffectHere: Memory.placeAffectAt(pet, petGX, petGY),
+        placeAffectHere: Memory.placeAffectAt(pet, petGX, petGY)
     };
 }

@@ -1,3 +1,7 @@
-PetWindow PetWindow.qml
-Pet Pet.qml
-SpriteAnimation SpriteAnimation.qml
+PetWindow 1.0 PetWindow.qml
+Pet 1.0 Pet.qml
+SpriteAnimation 1.0 SpriteAnimation.qml
+EmoteBubble 1.0 EmoteBubble.qml
+PetInspector 1.0 PetInspector.qml
+ResidentRecord 1.0 ResidentRecord.qml
+SanctuaryWindow 1.0 SanctuaryWindow.qml

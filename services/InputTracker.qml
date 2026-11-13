@@ -9,55 +9,122 @@ import "../config"
 Singleton {
     id: root
 
+    readonly property bool hasHyprland: (Quickshell.env("HYPRLAND_INSTANCE_SIGNATURE") || "").length > 0
+
     signal idleBegan
     signal idleEnded
+    signal cursorWiggled(gx: real, gy: real)
 
     property bool _active: true
     readonly property bool userActive: _active
+    property bool cursorKnown: hasHyprland
     property real cursorX: 0
     property real cursorY: 0
+    property real cursorSpeed: 0
     property real _prevCursorX: 0
     property real _prevCursorY: 0
+    property double _prevSampleMs: 0
+    property bool fastTracking: false
+
+    property real _lastVecX: 0
+    property real _lastVecY: 0
+    property int _wiggleFlips: 0
+    property double _wiggleStartMs: 0
+    property real _wiggleAnchorX: 0
+    property real _wiggleAnchorY: 0
+    property double _lastWiggleEmitMs: 0
+
+    function _ingestSample(nx: real, ny: real): void {
+        const now = Date.now();
+        const dt = root._prevSampleMs > 0 ? Math.max(0.012, (now - root._prevSampleMs) / 1000) : 1;
+        const dx = nx - root._prevCursorX;
+        const dy = ny - root._prevCursorY;
+        const dist = Math.hypot(dx, dy);
+        if (dt >= 0.012) {
+            root.cursorSpeed = root._prevSampleMs > 0 ? (dist / dt) : 0;
+            if (root._prevSampleMs > 0 && dt < 0.75 && dist >= 28 && dist <= 340) {
+                const dot = dx * root._lastVecX + dy * root._lastVecY;
+                if (dot < -400) {
+                    if (now - root._wiggleStartMs > 2200
+                            || Math.hypot(nx - root._wiggleAnchorX, ny - root._wiggleAnchorY) > 320) {
+                        root._wiggleFlips = 1;
+                        root._wiggleStartMs = now;
+                        root._wiggleAnchorX = nx;
+                        root._wiggleAnchorY = ny;
+                    } else {
+                        root._wiggleFlips += 1;
+                        if (root._wiggleFlips >= 3 && now - root._lastWiggleEmitMs > 18000) {
+                            root._lastWiggleEmitMs = now;
+                            root._wiggleFlips = 0;
+                            root.cursorWiggled(nx, ny);
+                        }
+                    }
+                }
+                root._lastVecX = dx;
+                root._lastVecY = dy;
+            }
+            root._prevCursorX = nx;
+            root._prevCursorY = ny;
+            root._prevSampleMs = now;
+        }
+        root.cursorX = nx;
+        root.cursorY = ny;
+        root.cursorKnown = true;
+        if (dist > 4) root.registerMouseMove();
+    }
+
+    function updateFromPointer(gx: real, gy: real): void {
+        root._ingestSample(gx, gy);
+        root.registerMouseMove();
+    }
 
     Process {
         id: cursorProc
         command: ["hyprctl", "cursorpos"]
         stdout: SplitParser {
             onRead: function(data) {
-                var parts = data.split(",");
-                if (parts.length === 2) {
-                    root.cursorX = parseInt(parts[0].trim()) || 0;
-                    root.cursorY = parseInt(parts[1].trim()) || 0;
-                    // detect cursor movement for idle reset
-                    if (Math.abs(root.cursorX - root._prevCursorX) > 3 || Math.abs(root.cursorY - root._prevCursorY) > 3) {
-                        root.registerMouseMove();
-                    }
-                    root._prevCursorX = root.cursorX;
-                    root._prevCursorY = root.cursorY;
-                }
+                const parts = data.split(",");
+                if (parts.length !== 2) return;
+                const nx = parseInt(parts[0].trim(), 10);
+                const ny = parseInt(parts[1].trim(), 10);
+                if (!Number.isFinite(nx) || !Number.isFinite(ny)) return;
+                root._ingestSample(nx, ny);
             }
         }
     }
-    // poll less while idle: pets only need fresh cursor data when it's moving
-    Timer { interval: root._active ? 2000 : 10000; running: true; repeat: true; onTriggered: cursorProc.running = true }
+
+    Timer {
+        interval: !root._active ? 10000 : (root.fastTracking ? 220 : 900)
+        running: root.hasHyprland
+        repeat: true
+        triggeredOnStart: true
+        onTriggered: if (!cursorProc.running) cursorProc.running = true
+    }
 
     Timer {
         id: idleTimer
-        interval: Config.idleTimeout * 1000
+        interval: Math.max(30, Config.idleTimeout) * 1000
         running: true
-        onTriggered: { root._active = false; root.idleBegan(); }
+        onTriggered: {
+            root._active = false;
+            root.cursorSpeed = 0;
+            root.idleBegan();
+        }
     }
 
     function registerMouseMove(): void {
-        if (!root._active) { root._active = true; root.idleEnded(); }
+        if (!root._active) {
+            root._active = true;
+            root.idleEnded();
+        }
         idleTimer.restart();
     }
 
     Connections {
-        target: Hyprland
+        target: root.hasHyprland ? Hyprland : null
         function onRawEvent(event: HyprlandEvent): void {
             const n = event.name;
-            if (["activewindow", "workspace", "focusedmon", "openwindow",
+            if (["activewindow", "workspace", "workspacev2", "focusedmon", "openwindow",
                  "closewindow", "movewindow", "fullscreen"].includes(n)) {
                 root.registerMouseMove();
             }

@@ -1,146 +1,77 @@
 # qs-vpets
 
-Desktop virtual pets for Hyprland/Wayland, built with [Quickshell](https://git.outfoxxed.me/outfoxxed/quickshell).
+Interactive pixel-art desktop companions for Hyprland/Wayland built on [Quickshell](https://quickshell.outfoxxed.me/), featuring multi-timescale cognition, sleep memory consolidation, an emergent Sanctuary rotation & GUI Pen, and 25 pixel-verified [PMD Collab](https://sprites.pmdcollab.org/#/) species.
 
-Pixel-art pets that live on your desktop. They walk around your monitors, investigate your windows, nap when you're idle, follow your cursor when they want attention, and develop preferences over time. Each pet has persistent memory and a personality that shapes how it behaves over hours-long sessions.
+## Highlights
 
-Uses [PMD Collab](https://sprites.pmdcollab.org/#/) sprite sheets (Pokemon Mystery Dungeon format).
+- **Sanctuary Pen GUI & Emergent Leave/Return Rotation (`qs-vpets pen`)**:
+  - Adopt 10–25+ companions without screen clutter: set `maxActiveRoaming` (default `3`) and per-pet roaming policy (`Auto Rotate`, `Always Out`, or `Stay in Pen`).
+  - Companions in the Sanctuary consume zero Wayland windows while resting, eating snacks, consolidating dreams, and building friendships with pen-mates.
+  - Roaming companions emergently pad off the edge of the screen into the Sanctuary when sleepy, while rested/nocturnal/music-loving companions stroll back onto the screen to take their turn.
+  - Full floating **Pokémon Sanctuary** window (`qs-vpets pen`) with live animated pasture strip, inline companion renaming (preserving memories & friendships), full stats/traits/quirks/milestones, direct care actions, and a searchable 25-species adoption catalog.
+- **25 Pixel-Verified PMDCollab Species & Authentic Ethology**:
+  - Every species has bespoke standing, loafing, vocal, gait, biome, and signature behavior profiles (`EventSleep` 8-direction belly loafing, Zorua shadow *Illusion* pranks, Umbreon moonlight ring pulses, Rowlet head-tilts, Litwick candle glow, Munchlax snack naps, Mew playful floats, Toxapex shell-bunkering, and silent frame-0 standing on vocal sheets so pets never bark or cheer in loops).
+- **Direct Desktop Interactivity**:
+  - **Stroke / Hover Petting, Cursor Wiggle Play, & Carry/Toss Physics**: Brush the cursor across a pet for headpats, wiggle the cursor nearby to bait playful pounces, or carry pets across monitors.
+  - **Window Watching, Ledge Perching, Urgent Window Alerts & MPRIS Music**: Pets sit North below active code windows to watch upward, hop onto window titlebars, perk up at urgent window alerts, and sway together to music.
+  - **Live Pangu Palette Sync**: Automatically adopts `~/.cache/pangu/colors.json` when running alongside Pangu.
 
-## Features
+## Bundled Species (25)
 
-- **Drive-based AI** with 5 competing needs (rest, explore, social, comfort, play) that create emergent behavior
-- **8 personality presets** that meaningfully change how the pet acts (lazy pets nap constantly, curious pets investigate everything)
-- **Persistent memory** across restarts: drives, thoughts, visited areas, window preferences, home position
-- **Cross-monitor roaming** with proper multi-monitor support (tested with mixed portrait/landscape)
-- **Environment awareness**: reacts to window focus, fullscreen apps, workspace changes, user idle, cursor position
-- **Window preference learning**: the pet remembers which windows it was petted near and gravitates toward them
-- **Fullscreen awareness**: naturally retreats from fullscreen content (games, videos) based on personality
-- **Rich thought log**: every event captures position, drive state, window context for future decision-making
-- **Sprite fallback chains**: missing animations gracefully fall back, never causes invisible sprites
+`absol`, `charizard`, `cyndaquil`, `eevee`, `ferrothorn`, `gengar`, `giratina`, `grovyle`, `infernape`, `litwick`, `mew`, `mudkip`, `munchlax`, `phantump`, `pikachu`, `riolu`, `rowlet`, `shiftry`, `sprigatito`, `toxapex`, `umbreon`, `vulpix`, `whimsicott`, `wooper`, `zorua`.
 
-## Install (Nix)
+Sprite sheets and animations courtesy of the [PMD Sprite Repository (SpriteCollab)](https://sprites.pmdcollab.org/#/) community artists; per-species artist attributions are included in `assets/sprites/<species>/credits.txt`.
+
+## Install (Nix / Home Manager)
 
 ```nix
-# flake.nix inputs
-qs-vpets = {
+# flake.nix
+inputs.qs-vpets = {
   url = "github:jesperls/qs-vpets";
   inputs.nixpkgs.follows = "nixpkgs";
+  inputs.home-manager.follows = "home-manager";
 };
 
 # home-manager module
 { inputs, ... }: {
   imports = [ inputs.qs-vpets.homeManagerModules.default ];
-  programs.qs-vpets.enable = true;
+
+  programs.qs-vpets = {
+    enable = true;
+    systemd.target = "hyprland-session.target";
+    behavior = {
+      maxActiveRoaming = 3;
+      showEmotes = true;
+      enablePerching = true;
+      enableMusicReact = true;
+    };
+  };
 }
 ```
 
-## Development
+Leave `programs.qs-vpets.pets = null` (the default) to adopt, rename, and manage your roster interactively through `qs-vpets pen` (`~/.config/qs-vpets/config.json`). Memories, friendships, and personality growth persist in `~/.local/state/qs-vpets/`.
 
-```bash
-nix develop
-qs -p .
+## CLI & IPC Control
+
+```sh
+qs-vpets                        # Start overlay
+qs-vpets pen                    # Toggle the floating Pokémon Sanctuary / Pet Pen GUI
+qs-vpets status                 # Live JSON dump of roaming & Sanctuary companions
+qs-vpets roam <name> <mode>     # Set mode: auto | always | penned | out | in
+qs-vpets rename <old> <new>     # Rename a companion (preserves memories & friendships)
+qs-vpets inspect [name]         # Toggle right-click inspector card (or open Pen)
+qs-vpets pet [name]             # Stroke/pat a companion
+qs-vpets feed [name]            # Give a berry snack
+qs-vpets play [name]            # Trigger a playful bout
+qs-vpets summon [name]          # Call a companion to cursor (or out from Sanctuary)
+qs-vpets spawn <species> [name] # Adopt a new companion into your Sanctuary
+qs-vpets toggle                 # Hide/show all desktop pets
 ```
 
-## Configuration
+## Verification
 
-Config auto-creates at `~/.config/qs-vpets/config.json` on first launch. Per-pet state persists separately in `~/.config/qs-vpets/state-<pet-name>.json`.
-
-### Pets
-
-```json
-{
-  "pets": [
-    {
-      "name": "Mochi",
-      "sprite": "charizard",
-      "personality": "energetic",
-      "scale": 2,
-      "monitor": ""
-    }
-  ]
-}
+```sh
+node tests/test_sprites.js && node tests/test_cognition.js
+nix fmt -- --ci
+nix flake check -L
 ```
-
-| Field | Description |
-|-------|-------------|
-| `name` | Unique name, used as key for state persistence |
-| `sprite` | Folder name in `assets/sprites/` (must contain `AnimData.xml` + sprite sheets) |
-| `personality` | One of: `lazy`, `energetic`, `curious`, `chill`, `brave`, `shy`, `playful`, `grumpy` |
-| `scale` | Sprite scale multiplier (default: 2) |
-| `monitor` | Monitor name to start on (empty = primary, pet roams freely after spawn) |
-| `actions` | Optional action-to-sprite overrides (see below) |
-
-### Personalities
-
-Each personality is a set of 7 traits (0-1) that influence drive rates and decision weights:
-
-| Preset | Character |
-|--------|-----------|
-| `lazy` | Naps constantly, low energy, very patient |
-| `energetic` | Always moving, playful, impatient |
-| `curious` | Investigates windows, explores everywhere |
-| `chill` | Idles a lot, relaxed, rarely acts on low drives |
-| `brave` | Bold explorer, doesn't retreat from fullscreen easily |
-| `shy` | Stays near home, retreats quickly, low social need |
-| `playful` | Lots of animations, zoomies, bouncy walks |
-| `grumpy` | Fidgets a lot, low social/play, sleepy |
-
-### Sprites
-
-Any [PMD Collab](https://sprites.pmdcollab.org/#/) sprite works. Drop the folder into `assets/sprites/`:
-
-```
-assets/sprites/<name>/
-├── AnimData.xml
-├── Walk-Anim.png
-├── Sleep-Anim.png
-├── Attack-Anim.png
-├── Hop-Anim.png
-└── ...
-```
-
-The pet automatically discovers available animations from `AnimData.xml` and only uses ones that exist. Missing animations fall back through a chain (e.g. `Laying -> Faint -> Sleep -> Walk`).
-
-### Action Overrides
-
-Override which PMD animation plays for each pet state:
-
-```json
-{
-  "name": "Shadow",
-  "sprite": "absol",
-  "actions": {
-    "zoomies": "Hop",
-    "react": "Hurt",
-    "attack": "Double"
-  }
-}
-```
-
-Keys are pet states (`idle`, `walk`, `sit`, `deepsleep`, `react`, `hop`, `attack`, `shoot`, `charge`, `strike`, `quickStrike`, `multiStrike`, `spAttack`, `swing`, `leapForth`, `zoomies`, `nod`, `pose`, `lookUp`, `sitDown`, `rotate`, `twirl`, `tumble`, `tumbleBack`, `pain`, `hide`, `sink`, `float`, etc.), values are animation names from `AnimData.xml`. States whose animation a sheet lacks fall back through sensible chains (e.g. `hide` → `Withdraw` → `Sink` → `Cringe` → `Hurt`), and behavior pools only offer states the sprite can actually show, so sparse sheets stay fully functional.
-
-### Behavior
-
-```json
-{
-  "behavior": {
-    "idleTimeout": 300,
-    "walkSpeed": 120
-  }
-}
-```
-
-| Field | Default | Description |
-|-------|---------|-------------|
-| `idleTimeout` | 300 | Seconds of no input before user is considered idle |
-| `walkSpeed` | 120 | Base walk speed in pixels/second |
-
-## How It Works
-
-The pet runs a simple loop: **perceive** the environment, **evaluate** which drive is strongest, **decide** what to do about it. Drives build and decay over time based on personality traits and environmental factors. The pet commits to **intentions** (go home, investigate window, follow cursor) that persist across multiple decision cycles.
-
-Everything is emergent from the drive system. There are no scripted sequences. A curious pet investigates windows because its curiosity trait amplifies the explore drive. A shy pet retreats during fullscreen because low boldness amplifies the comfort drive. The pet follows the cursor because social need is high and the cursor represents the user.
-
-Personality isn't static either. Every 30 minutes the pet reflects on recent experiences and drifts its trait modifiers within bounded limits: a pet that gets petted often slowly becomes more sociable, one that keeps exploring becomes bolder, one that's constantly startled becomes shier. Base personality still dominates, but pets diverge over time.
-
-State persists in `~/.config/qs-vpets/state-<name>.json` per pet (separate from config to avoid reload loops). The pet remembers its drives, mood, learned trait drift, position, home, visited areas, window preferences, place-affect memory, and recent thoughts across restarts.

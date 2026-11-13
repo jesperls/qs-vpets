@@ -1,11 +1,10 @@
 {
-  description = "Desktop virtual pets for Hyprland/Wayland via Quickshell";
+  description = "Interactive desktop virtual pets with emergent personalities for Hyprland/Wayland via Quickshell";
 
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
-
-    quickshell = {
-      url = "git+https://git.outfoxxed.me/outfoxxed/quickshell";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    home-manager = {
+      url = "github:nix-community/home-manager";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
@@ -14,42 +13,82 @@
     {
       self,
       nixpkgs,
-      ...
-    }@inputs:
+      home-manager,
+    }:
     let
-      forAllSystems =
-        fn: nixpkgs.lib.genAttrs nixpkgs.lib.platforms.linux (system: fn nixpkgs.legacyPackages.${system});
+      inherit (nixpkgs) lib;
+      systems = [
+        "x86_64-linux"
+        "aarch64-linux"
+      ];
+      forAllSystems = lib.genAttrs systems;
+      version = self.shortRev or self.dirtyShortRev or "0.2.0";
+      packageFor = pkgs: pkgs.callPackage ./nix { inherit version; };
+      pkgsFor = system: nixpkgs.legacyPackages.${system};
     in
     {
-      packages = forAllSystems (pkgs: rec {
-        qs-vpets = pkgs.callPackage ./nix {
-          quickshell = inputs.quickshell.packages.${pkgs.stdenv.hostPlatform.system}.default.override {
-            withX11 = false;
-            withI3 = false;
+      overlays.default = final: _: {
+        qs-vpets = packageFor final;
+      };
+
+      packages = forAllSystems (
+        system:
+        let
+          pkgs = pkgsFor system;
+        in
+        rec {
+          qs-vpets = packageFor pkgs;
+          default = qs-vpets;
+        }
+      );
+
+      homeManagerModules.default = import ./nix/hm-module.nix { inherit packageFor; };
+
+      checks = forAllSystems (
+        system:
+        import ./nix/checks.nix {
+          inherit lib self home-manager;
+          pkgs = pkgsFor system;
+          qs-vpets = self.packages.${system}.qs-vpets;
+        }
+      );
+
+      formatter = forAllSystems (system: (pkgsFor system).nixfmt-tree);
+
+      apps = forAllSystems (
+        system:
+        let
+          pkg = self.packages.${system}.qs-vpets;
+        in
+        {
+          default = {
+            type = "app";
+            program = lib.getExe pkg;
+            meta.description = "Run qs-vpets";
           };
-        };
-        default = qs-vpets;
-      });
+        }
+      );
 
-      devShells = forAllSystems (pkgs: {
-        default = pkgs.mkShellNoCC {
-          packages = [
-            inputs.quickshell.packages.${pkgs.stdenv.hostPlatform.system}.default
-          ];
-
-          shellHook = ''
-            echo "--------------------------------------------"
-            echo "qs-vpets Development Environment"
-            echo "  Run:  qs -p ."
-            echo "  Exit: Ctrl-D"
-            echo "--------------------------------------------"
-
-            export QS_DEBUG=1
-            alias qsr="qs -p ."
-          '';
-        };
-      });
-
-      homeManagerModules.default = import ./nix/hm-module.nix self;
+      devShells = forAllSystems (
+        system:
+        let
+          pkgs = pkgsFor system;
+          pkg = self.packages.${system}.qs-vpets;
+        in
+        {
+          default = pkgs.mkShell {
+            packages = pkg.runtimeInputs ++ [
+              pkg
+              pkgs.nodejs
+              pkgs.python3
+              pkgs.qt6.qtdeclarative
+              pkgs.nixfmt-tree
+            ];
+            QML2_IMPORT_PATH = "${pkg.qmlEnv}/lib/qt-6/qml";
+            QML_IMPORT_PATH = "${pkg.qmlEnv}/lib/qt-6/qml";
+            QT_PLUGIN_PATH = "${pkg.qmlEnv}/lib/qt-6/plugins";
+          };
+        }
+      );
     };
 }

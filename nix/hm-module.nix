@@ -1,4 +1,4 @@
-self:
+{ packageFor }:
 {
   config,
   pkgs,
@@ -6,40 +6,249 @@ self:
   ...
 }:
 let
-  inherit (pkgs.stdenv.hostPlatform) system;
   cfg = config.programs.qs-vpets;
-  finalPkg = self.packages.${system}.default;
+  configDir = "${config.xdg.configHome}/qs-vpets";
+  stateDir = "${config.xdg.stateHome}/qs-vpets";
+
+  petSubmodule = lib.types.submodule {
+    options = {
+      name = lib.mkOption {
+        type = lib.types.str;
+        description = "Unique display name and memory key for this pet.";
+      };
+      sprite = lib.mkOption {
+        type = lib.types.enum [
+          "absol"
+          "charizard"
+          "cyndaquil"
+          "eevee"
+          "ferrothorn"
+          "gengar"
+          "giratina"
+          "grovyle"
+          "infernape"
+          "litwick"
+          "mew"
+          "mudkip"
+          "munchlax"
+          "phantump"
+          "pikachu"
+          "riolu"
+          "rowlet"
+          "shiftry"
+          "sprigatito"
+          "toxapex"
+          "umbreon"
+          "vulpix"
+          "whimsicott"
+          "wooper"
+          "zorua"
+        ];
+        default = "zorua";
+        description = "Bundled PMD Collab species sprite sheet.";
+      };
+      personality = lib.mkOption {
+        type = lib.types.enum [
+          "emergent"
+          "lazy"
+          "energetic"
+          "curious"
+          "chill"
+          "brave"
+          "shy"
+          "playful"
+          "grumpy"
+          "nocturnal"
+        ];
+        default = "emergent";
+        description = "Starting temperament seed before lived experience shapes character.";
+      };
+      scale = lib.mkOption {
+        type = lib.types.ints.between 1 5;
+        default = 2;
+        description = "Integer pixel-art scale multiplier.";
+      };
+      monitor = lib.mkOption {
+        type = lib.types.str;
+        default = "";
+        description = "Initial monitor name to spawn on (empty uses primary).";
+      };
+      roamMode = lib.mkOption {
+        type = lib.types.enum [
+          "auto"
+          "always"
+          "penned"
+        ];
+        default = "auto";
+        description = "Whether this companion rotates automatically, always roams, or stays in the Sanctuary pen.";
+      };
+      actions = lib.mkOption {
+        type = lib.types.attrsOf lib.types.str;
+        default = { };
+        description = "Optional state-to-PMD animation overrides.";
+      };
+    };
+  };
+
+  behaviorOverrides = lib.filterAttrs (_: v: v != null) {
+    inherit (cfg.behavior)
+      idleTimeout
+      walkSpeed
+      showEmotes
+      enablePerching
+      enableMusicReact
+      maxActiveRoaming
+      ;
+  };
+
+  hasDeclarativeConfig = cfg.pets != null || behaviorOverrides != { };
+
+  declarativePayload = pkgs.writeText "qs-vpets-overrides.json" (
+    builtins.toJSON (
+      (lib.optionalAttrs (cfg.pets != null) { pets = cfg.pets; })
+      // (lib.optionalAttrs (behaviorOverrides != { }) { behavior = behaviorOverrides; })
+    )
+  );
+
+  applyConfig = pkgs.writeShellApplication {
+    name = "qs-vpets-apply-config";
+    runtimeInputs = [ pkgs.python3 ];
+    text = ''
+      cfg_dir="''${QS_VPETS_CONFIG_DIR:-${lib.escapeShellArg configDir}}"
+      python3 - "$cfg_dir/config.json" ${lib.escapeShellArg declarativePayload} <<'PY'
+      import json, os, sys, tempfile
+
+      target_path, override_path = sys.argv[1], sys.argv[2]
+      os.makedirs(os.path.dirname(target_path), exist_ok=True)
+      current = {}
+      if os.path.exists(target_path):
+          try:
+              with open(target_path, "r", encoding="utf-8") as f:
+                  loaded = json.load(f)
+              if isinstance(loaded, dict):
+                  current = loaded
+          except Exception:
+              current = {}
+
+      with open(override_path, "r", encoding="utf-8") as f:
+          overrides = json.load(f)
+
+      if "pets" in overrides:
+          current["pets"] = overrides["pets"]
+      if "behavior" in overrides:
+          beh = current.get("behavior")
+          if not isinstance(beh, dict):
+              beh = {}
+          beh.update(overrides["behavior"])
+          current["behavior"] = beh
+
+      fd, tmp = tempfile.mkstemp(dir=os.path.dirname(target_path), prefix=".config.", suffix=".json")
+      with os.fdopen(fd, "w", encoding="utf-8") as f:
+          json.dump(current, f, indent=2)
+          f.write("\n")
+      os.replace(tmp, target_path)
+      PY
+    '';
+  };
 in
 {
-  options.programs.qs-vpets = with lib; {
-    enable = mkEnableOption "qs-vpets desktop virtual pets";
+  options.programs.qs-vpets = {
+    enable = lib.mkEnableOption "qs-vpets desktop virtual pets";
 
-    package = mkOption {
-      type = types.package;
-      default = finalPkg;
+    package = lib.mkOption {
+      type = lib.types.package;
+      default = packageFor pkgs;
+      defaultText = lib.literalExpression "packageFor pkgs";
+      description = "qs-vpets package to run.";
+    };
+
+    pets = lib.mkOption {
+      type = lib.types.nullOr (lib.types.listOf petSubmodule);
+      default = null;
+      description = "Declarative pet roster synced into config.json on start (null keeps mutable roster).";
+    };
+
+    behavior = {
+      idleTimeout = lib.mkOption {
+        type = lib.types.nullOr lib.types.ints.positive;
+        default = null;
+        description = "Seconds of inactivity before user is marked idle.";
+      };
+      walkSpeed = lib.mkOption {
+        type = lib.types.nullOr lib.types.number;
+        default = null;
+        description = "Base walking speed in pixels per second.";
+      };
+      showEmotes = lib.mkOption {
+        type = lib.types.nullOr lib.types.bool;
+        default = null;
+        description = "Show floating emote and dream particles.";
+      };
+      enablePerching = lib.mkOption {
+        type = lib.types.nullOr lib.types.bool;
+        default = null;
+        description = "Allow pets to hop onto top window titlebar edges.";
+      };
+      enableMusicReact = lib.mkOption {
+        type = lib.types.nullOr lib.types.bool;
+        default = null;
+        description = "Allow pets to sense and groove to MPRIS media playback.";
+      };
+      maxActiveRoaming = lib.mkOption {
+        type = lib.types.nullOr (lib.types.ints.between 1 10);
+        default = null;
+        description = "Maximum auto-rotating companions roaming the desktop simultaneously.";
+      };
+    };
+
+    systemd = {
+      enable = lib.mkOption {
+        type = lib.types.bool;
+        default = true;
+        description = "Start qs-vpets automatically with the Wayland session.";
+      };
+      target = lib.mkOption {
+        type = lib.types.str;
+        default = "graphical-session.target";
+        description = "Systemd user target that owns qs-vpets.";
+      };
     };
   };
 
-  config = lib.mkIf cfg.enable {
-    home.packages = [ cfg.package ];
+  config = lib.mkIf cfg.enable (
+    lib.mkMerge [
+      {
+        home.packages = [ cfg.package ];
+        systemd.user.tmpfiles.rules = [
+          "d ${configDir} 0755 - - -"
+          "d ${stateDir} 0755 - - -"
+        ];
+      }
+      (lib.mkIf cfg.systemd.enable {
+        systemd.user.services.qs-vpets = {
+          Unit = {
+            Description = "Desktop virtual pets (Quickshell)";
+            After = [ cfg.systemd.target ];
+            BindsTo = [ cfg.systemd.target ];
+            PartOf = [ cfg.systemd.target ];
+            ConditionEnvironment = "WAYLAND_DISPLAY";
+          };
 
-    systemd.user.services.qs-vpets = {
-      Unit = {
-        Description = "Desktop virtual pets";
-        After = [ "graphical-session.target" ];
-        PartOf = [ "graphical-session.target" ];
-        ConditionEnvironment = "WAYLAND_DISPLAY";
-      };
+          Service = {
+            ExecStart = lib.getExe cfg.package;
+            ExecStartPre = lib.optional hasDeclarativeConfig (lib.getExe applyConfig);
+            Restart = "on-failure";
+            RestartSec = 3;
+            Slice = "session.slice";
+            Environment = [
+              "QS_VPETS_CONFIG_DIR=${configDir}"
+              "QS_VPETS_STATE_DIR=${stateDir}"
+            ];
+          };
 
-      Service = {
-        ExecStart = "${cfg.package}/bin/qs-vpets";
-        Restart = "on-failure";
-        RestartSec = 3;
-      };
-
-      Install = {
-        WantedBy = [ "graphical-session.target" ];
-      };
-    };
-  };
+          Install.WantedBy = [ cfg.systemd.target ];
+        };
+      })
+    ]
+  );
 }

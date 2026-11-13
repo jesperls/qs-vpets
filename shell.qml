@@ -1,8 +1,12 @@
+//@ pragma ShellId qs-vpets
 //@ pragma Env QS_NO_RELOAD_POPUP=1
 //@ pragma Env QSG_RENDER_LOOP=threaded
 
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import Quickshell
+import Quickshell.Wayland
 import "services"
 import "config"
 import "components"
@@ -10,34 +14,84 @@ import "components"
 ShellRoot {
     id: root
 
-    property var petList: []
+    property var allPetIds: []
 
+    function _reconcileIds(): void {
+        const next = Config.pets.map(p => p.id);
+        if (JSON.stringify(next) !== JSON.stringify(root.allPetIds)) {
+            root.allPetIds = next;
+        }
+    }
+
+    // Persistent cognitive/soul records for all adopted companions (roaming + Sanctuary pen).
     Variants {
-        model: root.petList
+        model: root.allPetIds
+
+        ResidentRecord {
+            required property string modelData
+            petId: modelData
+        }
+    }
+
+    // Wayland overlay windows only for companions currently roaming on the desktop.
+    Variants {
+        model: PetManager.roamingIds
 
         PetWindow {
-            required property var modelData
-            petData: modelData
-            screen: {
-                if (!Quickshell.screens || Quickshell.screens.length === 0) return null;
-                if (modelData.monitor) {
-                    const match = Quickshell.screens.find(s => s.name === modelData.monitor);
-                    if (match) return match;
-                }
-                return Quickshell.screens[0];
-            }
+            required property string modelData
+            petId: modelData
         }
+    }
+
+    // Zero-input-mask cross-monitor drag ghost so carrying a pet across displays never drops grab.
+    PanelWindow {
+        id: dragGhostWindow
+        screen: PetManager.dragGhostScreen ?? (Quickshell.screens.length > 0 ? Quickshell.screens[0] : null)
+        visible: PetManager.dragGhostActive && PetManager.dragGhostScreen !== null && !PetManager.hidden
+
+        WlrLayershell.layer: WlrLayer.Overlay
+        WlrLayershell.namespace: "qs-vpets:drag-ghost"
+        WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+        WlrLayershell.exclusionMode: ExclusionMode.Ignore
+
+        anchors {
+            top: true
+            bottom: true
+            left: true
+            right: true
+        }
+        color: "transparent"
+
+        Item { id: emptyGhostMask; width: 0; height: 0 }
+        mask: Region { item: emptyGhostMask }
+
+        SpriteAnimation {
+            x: PetManager.dragGhostX
+            y: PetManager.dragGhostY
+            width: PetManager.dragGhostSize
+            height: PetManager.dragGhostSize
+            speciesName: PetManager.dragGhostSprite
+            currentState: "drag"
+            altitude: 18
+            mirror: PetManager.dragGhostMirror
+            spriteDir: PetManager.dragGhostSprite
+                ? Qt.resolvedUrl("assets/sprites/" + PetManager.dragGhostSprite)
+                : ""
+        }
+    }
+
+    // Lazy-loaded floating Sanctuary / Pet Pen management GUI (`qs-vpets pen`).
+    Loader {
+        active: PetManager.penVisible
+        sourceComponent: SanctuaryWindow {}
     }
 
     Connections {
         target: Config
-        // fires on first load and on every external config edit; only touch
-        // petList when the pets actually changed, since reassigning it tears
-        // down and respawns every pet window
-        function onConfigReady(): void {
-            const next = Config.pets.map(p => Object.assign({}, p));
-            if (JSON.stringify(next) !== JSON.stringify(root.petList))
-                root.petList = next;
-        }
+        function onConfigReady(): void { root._reconcileIds(); }
+    }
+
+    Component.onCompleted: {
+        if (Config.ready) root._reconcileIds();
     }
 }

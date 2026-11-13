@@ -1,86 +1,161 @@
-// Traits are 0-1 and influence drive rates, utility scores, and social compatibility.
-//
-// A pet's effective personality = preset + seeded per-name jitter + config
-// overrides + learned drift (bounded, applied in Pet.qml). The jitter means two
-// "curious" pets are still individuals, deterministically, across restarts.
+// Developmental 8-trait personality, earned quirks, and archetype synthesis.
 
-var TRAIT_KEYS = ["energy", "curiosity", "playfulness", "sleepiness",
-                  "boldness", "sociability", "patience"];
+var TRAIT_KEYS = [
+    "energy",
+    "curiosity",
+    "playfulness",
+    "sleepiness",
+    "boldness",
+    "sociability",
+    "patience",
+    "composure"
+];
 
-var PRESETS = {
-    "lazy": {
-        energy: 0.15, curiosity: 0.2, playfulness: 0.15, sleepiness: 0.9,
-        boldness: 0.2, sociability: 0.3, patience: 0.8
-    },
-    "energetic": {
-        energy: 0.95, curiosity: 0.6, playfulness: 0.85, sleepiness: 0.05,
-        boldness: 0.8, sociability: 0.7, patience: 0.2
-    },
-    "curious": {
-        energy: 0.5, curiosity: 0.95, playfulness: 0.4, sleepiness: 0.3,
-        boldness: 0.6, sociability: 0.5, patience: 0.5
-    },
-    "chill": {
-        energy: 0.3, curiosity: 0.35, playfulness: 0.25, sleepiness: 0.5,
-        boldness: 0.4, sociability: 0.4, patience: 0.9
-    },
-    "brave": {
-        energy: 0.7, curiosity: 0.7, playfulness: 0.5, sleepiness: 0.2,
-        boldness: 0.95, sociability: 0.5, patience: 0.4
-    },
-    "shy": {
-        energy: 0.3, curiosity: 0.6, playfulness: 0.3, sleepiness: 0.4,
-        boldness: 0.1, sociability: 0.2, patience: 0.7
-    },
-    "playful": {
-        energy: 0.7, curiosity: 0.5, playfulness: 0.95, sleepiness: 0.15,
-        boldness: 0.6, sociability: 0.8, patience: 0.3
-    },
-    "grumpy": {
-        energy: 0.4, curiosity: 0.2, playfulness: 0.1, sleepiness: 0.6,
-        boldness: 0.5, sociability: 0.1, patience: 0.3
-    },
+var TRAIT_LABELS = {
+    energy: "Energy",
+    curiosity: "Curiosity",
+    playfulness: "Playfulness",
+    sleepiness: "Drowsiness",
+    boldness: "Boldness",
+    sociability: "Affection",
+    patience: "Patience",
+    composure: "Composure"
 };
 
-var JITTER = 0.07;
+var PRESETS = {
+    emergent: {
+        energy: 0.50, curiosity: 0.52, playfulness: 0.50, sleepiness: 0.45,
+        boldness: 0.48, sociability: 0.50, patience: 0.52, composure: 0.50
+    },
+    lazy: {
+        energy: 0.18, curiosity: 0.25, playfulness: 0.20, sleepiness: 0.88,
+        boldness: 0.30, sociability: 0.35, patience: 0.82, composure: 0.85
+    },
+    energetic: {
+        energy: 0.92, curiosity: 0.62, playfulness: 0.84, sleepiness: 0.12,
+        boldness: 0.78, sociability: 0.70, patience: 0.22, composure: 0.40
+    },
+    curious: {
+        energy: 0.56, curiosity: 0.92, playfulness: 0.48, sleepiness: 0.30,
+        boldness: 0.62, sociability: 0.52, patience: 0.54, composure: 0.55
+    },
+    chill: {
+        energy: 0.32, curiosity: 0.38, playfulness: 0.30, sleepiness: 0.52,
+        boldness: 0.48, sociability: 0.46, patience: 0.90, composure: 0.88
+    },
+    brave: {
+        energy: 0.70, curiosity: 0.68, playfulness: 0.52, sleepiness: 0.22,
+        boldness: 0.94, sociability: 0.52, patience: 0.44, composure: 0.78
+    },
+    shy: {
+        energy: 0.34, curiosity: 0.58, playfulness: 0.34, sleepiness: 0.44,
+        boldness: 0.12, sociability: 0.26, patience: 0.72, composure: 0.24
+    },
+    playful: {
+        energy: 0.74, curiosity: 0.56, playfulness: 0.94, sleepiness: 0.18,
+        boldness: 0.64, sociability: 0.82, patience: 0.32, composure: 0.52
+    },
+    grumpy: {
+        energy: 0.40, curiosity: 0.24, playfulness: 0.14, sleepiness: 0.62,
+        boldness: 0.56, sociability: 0.16, patience: 0.28, composure: 0.36
+    },
+    nocturnal: {
+        energy: 0.54, curiosity: 0.74, playfulness: 0.44, sleepiness: 0.38,
+        boldness: 0.66, sociability: 0.40, patience: 0.68, composure: 0.72
+    }
+};
 
-// Deterministic hash so jitter is stable for a given pet name.
+var QUIRK_DEFS = {
+    terminal_supervisor: {
+        label: "Code Supervisor",
+        icon: "⌘",
+        summary: "Loves perching near editors and terminals while you work."
+    },
+    melomaniac: {
+        label: "Melomaniac",
+        icon: "♪",
+        summary: "Perks up and grooves whenever music plays."
+    },
+    night_watch: {
+        label: "Night Watch",
+        icon: "☾",
+        summary: "Stays alert to keep you company during late-night sessions."
+    },
+    screen_hopper: {
+        label: "Horizon Walker",
+        icon: "⇄",
+        summary: "Treats multiple monitors as one big playground."
+    },
+    velcro_companion: {
+        label: "Velcro Buddy",
+        icon: "♥",
+        summary: "Deeply bonded; greets you warmly and shadows your focus."
+    },
+    cozy_hermit: {
+        label: "Corner Sage",
+        icon: "☕",
+        summary: "Cherishes a quiet sanctuary corner and restores peace there."
+    },
+    pack_spark: {
+        label: "Pack Spark",
+        icon: "✦",
+        summary: "Initiates playdates, tandem zoomies, and group naps."
+    },
+    sky_acrobat: {
+        label: "Sky Acrobat",
+        icon: "☄",
+        summary: "Delights in being picked up and tossed across the screen."
+    },
+    window_percher: {
+        label: "Ledge Percher",
+        icon: "⊤",
+        summary: "Likes hopping onto top window edges to survey the desktop."
+    },
+    daydreamer: {
+        label: "Daydreamer",
+        icon: "💭",
+        summary: "Vivid sleeper whose naps weave rich reflections."
+    }
+};
+
+var JITTER = 0.08;
+var CORE_BOUND = 0.28;
+var RECENT_BOUND = 0.14;
+var MAX_ACTIVE_QUIRKS = 4;
+
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+function clamp01(v) { return clamp(v, 0, 1); }
+
 function _hash(str) {
     var h = 2166136261;
     for (var i = 0; i < str.length; i++) {
         h ^= str.charCodeAt(i);
-        h = (h * 16777619) >>> 0;
+        h = Math.imul(h, 16777619) >>> 0;
     }
-    return h;
+    return h || 1;
 }
 
 function _seeded01(seed) {
-    // xorshift step, returns [0,1)
     seed ^= seed << 13; seed >>>= 0;
-    seed ^= seed >> 17;
+    seed ^= seed >>> 17;
     seed ^= seed << 5; seed >>>= 0;
-    return { value: (seed >>> 0) / 4294967296, seed: seed };
+    return (seed >>> 0) / 4294967296;
 }
 
-function clamp01(v) { return Math.max(0, Math.min(1, v)); }
-
-// preset: string name or an object of trait values.
-// name: pet name, used to seed individual jitter.
-// overrides: optional object of absolute trait values from config.
-function resolve(preset, name, overrides) {
-    var base;
-    if (preset && typeof preset === "object") base = preset;
-    else base = PRESETS[preset] || PRESETS["curious"];
-
-    var seed = _hash(name || "pet") || 1;
+function resolveBase(preset, name, overrides) {
+    var base = (preset && typeof preset === "object")
+        ? preset
+        : (PRESETS[preset] || PRESETS.emergent);
+    var jitterSpan = preset === "emergent" ? 0.12 : JITTER;
+    var seed = _hash(name || "pet");
     var p = {};
     for (var i = 0; i < TRAIT_KEYS.length; i++) {
         var k = TRAIT_KEYS[i];
-        var r = _seeded01(seed + i * 7919);
-        var jitter = (r.value - 0.5) * 2 * JITTER;
-        p[k] = clamp01((base[k] !== undefined ? base[k] : 0.5) + jitter);
+        var r = _seeded01(seed + (i + 1) * 7919);
+        var b = base[k] !== undefined ? base[k] : 0.5;
+        p[k] = clamp01(b + (r - 0.5) * 2 * jitterSpan);
     }
-    if (overrides) {
+    if (overrides && typeof overrides === "object") {
         for (var j = 0; j < TRAIT_KEYS.length; j++) {
             var ok = TRAIT_KEYS[j];
             if (overrides[ok] !== undefined) p[ok] = clamp01(overrides[ok]);
@@ -89,12 +164,147 @@ function resolve(preset, name, overrides) {
     return p;
 }
 
-// How naturally two personalities get along, -1..1. Playful+playful bond,
-// grumpy pets start standoffish, big energy mismatches grate.
+function compose(base, coreDrift, recentDrift) {
+    var out = {};
+    for (var i = 0; i < TRAIT_KEYS.length; i++) {
+        var k = TRAIT_KEYS[i];
+        var b = base && base[k] !== undefined ? base[k] : 0.5;
+        var cd = coreDrift && coreDrift[k] ? clamp(coreDrift[k], -CORE_BOUND, CORE_BOUND) : 0;
+        var rd = recentDrift && recentDrift[k] ? clamp(recentDrift[k], -RECENT_BOUND, RECENT_BOUND) : 0;
+        out[k] = clamp01(b + cd + rd);
+    }
+    return out;
+}
+
+function totalDelta(base, effective) {
+    var out = {};
+    for (var i = 0; i < TRAIT_KEYS.length; i++) {
+        var k = TRAIT_KEYS[i];
+        out[k] = Math.round(((effective[k] || 0.5) - (base[k] || 0.5)) * 100) / 100;
+    }
+    return out;
+}
+
+function hasQuirk(pet, id) {
+    return !!(pet.quirks && pet.quirks.indexOf(id) !== -1);
+}
+
+// Plasticity tapers gently with maturity so veterans feel established yet still alive.
+function plasticityRate(maturity) {
+    var m = clamp01(maturity || 0);
+    return 1.0 - m * 0.45;
+}
+
+function shiftRecent(recentDrift, key, delta) {
+    var next = Object.assign({}, recentDrift || {});
+    next[key] = clamp((next[key] || 0) + delta, -RECENT_BOUND, RECENT_BOUND);
+    return next;
+}
+
+function consolidateCore(coreDrift, recentDrift, episodeSignals, maturity) {
+    var rate = plasticityRate(maturity);
+    var nextCore = Object.assign({}, coreDrift || {});
+    var nextRecent = Object.assign({}, recentDrift || {});
+
+    for (var i = 0; i < TRAIT_KEYS.length; i++) {
+        var k = TRAIT_KEYS[i];
+        var sig = (episodeSignals && episodeSignals[k]) || 0;
+        var carry = (nextRecent[k] || 0) * 0.28; // fold session drift into permanent character
+        var delta = (sig + carry) * rate;
+        var cur = nextCore[k] || 0;
+        // Homeostatic pull settles traits proportionally to ongoing habits rather than pegging bounds.
+        var homeo = -cur * 0.024;
+        var updated = clamp(cur + delta + homeo, -CORE_BOUND, CORE_BOUND);
+        if (Math.abs(updated) < 0.003) delete nextCore[k];
+        else nextCore[k] = Math.round(updated * 10000) / 10000;
+
+        var rem = (nextRecent[k] || 0) * 0.65;
+        if (Math.abs(rem) < 0.003) delete nextRecent[k];
+        else nextRecent[k] = Math.round(rem * 10000) / 10000;
+    }
+    return { core: nextCore, recent: nextRecent };
+}
+
+function updateQuirks(quirkProgress, currentQuirks, increments) {
+    var prog = Object.assign({}, quirkProgress || {});
+    var qKeys = Object.keys(QUIRK_DEFS);
+    for (var i = 0; i < qKeys.length; i++) {
+        var k = qKeys[i];
+        var inc = (increments && increments[k]) || 0;
+        // Unreinforced habits slowly soften, earned ones have inertia.
+        var wasActive = currentQuirks && currentQuirks.indexOf(k) !== -1;
+        var decay = wasActive ? 0.992 : 0.975;
+        var v = clamp01((prog[k] || 0) * decay + inc);
+        if (v < 0.01) delete prog[k];
+        else prog[k] = Math.round(v * 1000) / 1000;
+    }
+
+    var candidates = [];
+    for (var j = 0; j < qKeys.length; j++) {
+        var qid = qKeys[j];
+        var score = prog[qid] || 0;
+        var threshold = (currentQuirks && currentQuirks.indexOf(qid) !== -1) ? 0.42 : 0.58;
+        if (score >= threshold) candidates.push({ id: qid, score: score });
+    }
+    var prevLead = (currentQuirks && currentQuirks.length > 0) ? currentQuirks[0] : "";
+    candidates.sort(function(a, b) {
+        var sa = a.score + (a.id === prevLead ? 0.08 : 0);
+        var sb = b.score + (b.id === prevLead ? 0.08 : 0);
+        return sb - sa;
+    });
+    var active = [];
+    for (var c = 0; c < Math.min(MAX_ACTIVE_QUIRKS, candidates.length); c++) {
+        active.push(candidates[c].id);
+    }
+    return { progress: prog, active: active };
+}
+
+function archetypeTitle(traits, quirks, maturity, bond) {
+    var m = clamp01(maturity || 0);
+    var b = clamp01(bond === undefined ? 0.3 : bond);
+    if (m < 0.06 && (!quirks || quirks.length === 0)) return "Curious Hatchling";
+
+    var adj = "Balanced";
+    if (traits.playfulness > 0.74 && traits.boldness > 0.62) adj = "Mischievous";
+    else if (traits.composure > 0.75 && traits.patience > 0.72) adj = "Serene";
+    else if (traits.curiosity > 0.75 && traits.boldness > 0.6) adj = "Intrepid";
+    else if (traits.curiosity > 0.72) adj = "Inquisitive";
+    else if (traits.energy > 0.76) adj = "Spirited";
+    else if (traits.sleepiness > 0.74) adj = "Dreamy";
+    else if (traits.boldness < 0.28) adj = "Bashful";
+    else if (traits.sociability < 0.28 && traits.patience < 0.4) adj = "Prickly";
+    else if (b > 0.75 && traits.sociability > 0.65) adj = "Devoted";
+    else if (traits.sociability > 0.72) adj = "Affectionate";
+
+    if (quirks && quirks.length > 0 && QUIRK_DEFS[quirks[0]]) {
+        return adj + " " + QUIRK_DEFS[quirks[0]].label;
+    }
+
+    var noun = "Companion";
+    if (traits.curiosity >= traits.playfulness && traits.curiosity > 0.62) noun = "Scout";
+    else if (traits.playfulness > 0.66) noun = "Trickster";
+    else if (traits.sleepiness > 0.68) noun = "Loafer";
+    else if (traits.patience > 0.72) noun = "Observer";
+    else if (traits.boldness > 0.72) noun = "Vanguard";
+    return adj + " " + noun;
+}
+
 function compatibility(a, b) {
     var playMatch = 1 - Math.abs(a.playfulness - b.playfulness);
     var energyMatch = 1 - Math.abs(a.energy - b.energy);
-    var warmth = (a.sociability + b.sociability) / 2;
-    var c = playMatch * 0.35 + energyMatch * 0.25 + warmth * 0.8 - 0.55;
-    return Math.max(-1, Math.min(1, c));
+    var calmComplement = (a.composure + b.composure) * 0.5;
+    var warmth = (a.sociability + b.sociability) * 0.5;
+    var c = playMatch * 0.30 + energyMatch * 0.20 + calmComplement * 0.15 + warmth * 0.75 - 0.52;
+    return clamp(c, -1, 1);
+}
+
+function relationshipTag(rel) {
+    if (!rel || rel.familiarity < 0.08) return "Strangers";
+    if (rel.affinity > 0.78 && rel.familiarity > 0.45) return "Soulmates";
+    if (rel.affinity > 0.65 && rel.playCount > 4) return "Play Partners";
+    if (rel.affinity > 0.62 && rel.napCount > 2) return "Nap Buddies";
+    if (rel.affinity > 0.56) return "Friends";
+    if (rel.affinity < 0.32 && rel.familiarity > 0.35 && rel.napCount > 0) return "Grumpy Allies";
+    if (rel.affinity < 0.30) return "Rivals";
+    return "Acquaintances";
 }
