@@ -1,3 +1,4 @@
+.import "../SpeciesProfile.js" as SpeciesProfile
 .import "Personality.js" as Personality
 .import "Topology.js" as Topology
 
@@ -225,11 +226,31 @@ function consolidateSleep(pet) {
             break;
         case "played_with":
         case "chase_bout":
-        case "sparred":
+        case "sync_danced":
             signals.playfulness += 0.005;
             signals.sociability += 0.007;
             signals.energy += 0.003;
             bumpQuirk("pack_spark", 0.030 + pet.personality.playfulness * 0.050);
+            break;
+        case "sparred":
+            signals.boldness += 0.007;
+            signals.playfulness += 0.005;
+            signals.composure += 0.004;
+            bumpQuirk("pack_spark", 0.035);
+            break;
+        case "unrequited_play":
+            signals.patience += 0.004;
+            signals.sociability -= 0.003;
+            break;
+        case "squabbled":
+            signals.boldness += 0.005;
+            signals.patience -= 0.006;
+            signals.sociability -= 0.004;
+            break;
+        case "mediated":
+            signals.composure += 0.008;
+            signals.patience += 0.007;
+            signals.boldness += 0.004;
             break;
         case "rested_with":
             signals.sociability += 0.007;
@@ -324,7 +345,14 @@ function consolidateSleep(pet) {
             break;
         case "played_with":
         case "chase_bout":
+        case "sync_danced":
             dreamLine = "Paws twitching in sleep";
+            break;
+        case "sparred":
+            dreamLine = "Practicing sparring footwork in sleep";
+            break;
+        case "mediated":
+            dreamLine = "Sleeping with quiet guardian poise";
             break;
         case "startled":
         case "tossed_rough":
@@ -537,8 +565,9 @@ function decayMemories(pet) {
         var rKeys = Object.keys(pet.relationships);
         for (var r = 0; r < rKeys.length; r++) {
             var rel = pet.relationships[rKeys[r]];
-            var anchor = rel.familiarity > 0.5 ? 0.99997 : 0.99990;
-            rel.affinity = 0.5 + (rel.affinity - 0.5) * anchor;
+            var baseline = rel.initialAffinity !== undefined ? rel.initialAffinity : 0.48;
+            var anchor = rel.familiarity > 0.5 ? 0.99998 : 0.99992;
+            rel.affinity = baseline + (rel.affinity - baseline) * anchor;
             rel.familiarity *= 0.99996;
         }
     }
@@ -560,39 +589,81 @@ function usualUserActivity(pet, hour) {
 
 // --- Inter-Pet Relationships ---
 
-function relationWith(pet, name, otherPersonality) {
+function relationWith(pet, name, otherPersonality, otherSpecies) {
     if (!pet.relationships) pet.relationships = ({});
     var r = pet.relationships[name];
     if (!r) {
-        var prior = 0.5;
-        if (otherPersonality) {
-            prior = 0.5 + Personality.compatibility(pet.personality, otherPersonality) * 0.16;
-        }
+        var myName = (pet && pet.petData && pet.petData.name) || (pet && pet.name) || "pet";
+        var myStyle = SpeciesProfile.socialStyleOf(pet);
+        var otherStyle = otherSpecies ? SpeciesProfile.socialStyleOf(otherSpecies) : "parallel";
+        var chem = otherPersonality
+            ? Personality.socialChemistry(pet.personality, otherPersonality, myStyle, otherStyle, myName, name)
+            : { affinity: 0.48, respect: 0.50 };
         r = {
-            affinity: Personality.clamp01(prior),
+            affinity: Personality.clamp01(chem.affinity),
+            initialAffinity: Personality.clamp01(chem.affinity),
+            respect: Personality.clamp01(chem.respect),
             familiarity: 0,
             playCount: 0,
+            sparCount: 0,
             napCount: 0,
+            unrequitedCount: 0,
             friction: 0,
+            lastOutcome: "",
             lastInteract: 0
         };
         pet.relationships[name] = r;
+    } else {
+        if (r.respect === undefined) r.respect = 0.50;
+        if (r.sparCount === undefined) r.sparCount = 0;
+        if (r.unrequitedCount === undefined) r.unrequitedCount = 0;
+        if (r.initialAffinity === undefined) r.initialAffinity = r.affinity;
     }
     return r;
 }
 
-function adjustRelation(pet, name, affinityDelta, familiarityDelta, kind) {
+function adjustRelation(pet, name, affinityDelta, familiarityDelta, kind, extra) {
     var r = relationWith(pet, name);
     var prevTag = Personality.relationshipTag(r);
     r.affinity = Personality.clamp01(r.affinity + affinityDelta);
     r.familiarity = Personality.clamp01(r.familiarity + (familiarityDelta || 0));
-    if (kind === "play") r.playCount = (r.playCount || 0) + 1;
-    else if (kind === "nap") r.napCount = (r.napCount || 0) + 1;
-    else if (kind === "friction") r.friction = (r.friction || 0) + 1;
+    if (extra && extra.respectDelta !== undefined) {
+        r.respect = Personality.clamp01((r.respect || 0.5) + extra.respectDelta);
+    }
+    if (extra && extra.outcome) {
+        r.lastOutcome = extra.outcome;
+    }
+    if (kind === "play") {
+        r.playCount = (r.playCount || 0) + 1;
+        if ((r.unrequitedCount || 0) > 0) r.unrequitedCount--;
+    } else if (kind === "spar") {
+        r.sparCount = (r.sparCount || 0) + 1;
+        r.playCount = (r.playCount || 0) + 1;
+        r.respect = Personality.clamp01((r.respect || 0.5) + 0.035);
+        if ((r.unrequitedCount || 0) > 0) r.unrequitedCount--;
+    } else if (kind === "nap") {
+        r.napCount = (r.napCount || 0) + 1;
+    } else if (kind === "friction") {
+        r.friction = (r.friction || 0) + 1;
+    } else if (kind === "unrequited") {
+        r.unrequitedCount = (r.unrequitedCount || 0) + 1;
+    } else if (kind === "won_over") {
+        var wasUnreq = r.unrequitedCount || 0;
+        r.playCount = (r.playCount || 0) + 1;
+        r.unrequitedCount = 0;
+        if (wasUnreq >= 2) {
+            addJournalEntry(pet, "Finally won over " + name + " for a game.", "social");
+        }
+    }
     r.lastInteract = _now(pet);
     var nextTag = Personality.relationshipTag(r);
-    if (nextTag !== prevTag && (nextTag === "Friends" || nextTag === "Play Partners" || nextTag === "Nap Buddies" || nextTag === "Soulmates" || nextTag === "Grumpy Allies")) {
-        addJournalEntry(pet, "Became " + nextTag + " with " + name + ".", "social");
+    if (nextTag !== prevTag) {
+        if (nextTag === "Friends" || nextTag === "Play Partners" || nextTag === "Sparring Rivals"
+                || nextTag === "Nap Buddies" || nextTag === "Soulmates" || nextTag === "Grumpy Allies") {
+            addJournalEntry(pet, "Became " + nextTag + " with " + name + ".", "social");
+        } else if (nextTag === "Feuding") {
+            addJournalEntry(pet, "Started a prickly rivalry with " + name + ".", "social");
+        }
     }
     return r;
 }

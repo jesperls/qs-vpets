@@ -101,6 +101,7 @@ Item {
 
     property string illusionSpecies: ""
     property double illusionUntil: 0
+    property double nextPeerSocialAt: Date.now() + 90000 + Math.random() * 120000
     property double roamStartedAt: Date.now()
     property bool _retiringToPen: false
 

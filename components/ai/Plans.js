@@ -42,11 +42,16 @@ function startPlan(pet, plan, nav, pickFn) {
         reason: plan.reason || plan.label || plan.name,
         urgency: Drives.clamp01(plan.urgency === undefined ? 0.5 : plan.urgency),
         otherName: plan.otherName || "",
+        secondOtherName: plan.secondOtherName || "",
         windowClass: plan.windowClass || "",
         windowAddr: plan.windowAddr || "",
         watchMode: plan.watchMode || "",
         otherScreen: !!plan.otherScreen,
         waitingForBid: false,
+        bidOutcome: "",
+        bidPlayMode: "",
+        sparAccepted: undefined,
+        chaseRejected: false,
         started: now,
         until: now + (plan.durationMs || 150000),
         stepIndex: -1,
@@ -65,6 +70,31 @@ function startPlan(pet, plan, nav, pickFn) {
         Memory.thinkAloud(pet, "plan_" + plan.name, plan.thought, { minGapMs: 25000 });
     }
     advanceStep(pet, nav, pickFn);
+}
+
+function _clampedScreenPoint(pet, gx, gy) {
+    var scr = Topology.currentScreen(pet);
+    var pw = pet.width || 64, ph = pet.height || 64;
+    var minX = scr.x + 28;
+    var maxX = Math.max(minX, scr.x + scr.width - pw - 28);
+    var minY = scr.y + (scr.topInset || 0) + 28;
+    var maxY = Math.max(minY, scr.y + scr.height - (scr.bottomInset || 0) - ph - 24);
+    return {
+        gx: Topology.clamp(gx, minX, maxX),
+        gy: Topology.clamp(gy, minY, maxY)
+    };
+}
+
+function _naturalOffsetFrom(pet, other, radius) {
+    var myGX = pet.screenX() + pet.worldX, myGY = pet.screenY() + pet.worldY;
+    var oGX = other.screenX() + other.worldX, oGY = other.screenY() + other.worldY;
+    var baseAng = Math.atan2(myGY - oGY, myGX - oGX);
+    var ang = baseAng + (Math.random() - 0.5) * 0.72;
+    var r = radius || 82;
+    return {
+        offsetX: Math.round(Math.cos(ang) * r),
+        offsetY: Math.round(Math.sin(ang) * r * 0.78)
+    };
 }
 
 function advanceStep(pet, nav, pickFn) {
@@ -111,11 +141,88 @@ function advanceStep(pet, nav, pickFn) {
                 gx = targetPet.targetGX + (step.offsetX || -38);
                 gy = targetPet.targetGY + (step.offsetY || 0);
             } else {
-                gx = targetPet.screenX() + targetPet.worldX + (step.offsetX !== undefined ? step.offsetX : 54);
+                gx = targetPet.screenX() + targetPet.worldX + (step.offsetX !== undefined ? step.offsetX : 68);
                 gy = targetPet.screenY() + targetPet.worldY + (step.offsetY || 0);
             }
         }
         nav.journeyToGlobal(pet, gx, gy);
+        return;
+    }
+
+    case "dash_relative": {
+        if (!nav) { finishPlan(pet, pickFn); return; }
+        var relPet = _findPet(pet, step.otherName || plan.otherName);
+        if (!relPet) { finishPlan(pet, pickFn); return; }
+        var myGX = pet.screenX() + pet.worldX, myGY = pet.screenY() + pet.worldY;
+        var oGX = relPet.screenX() + relPet.worldX, oGY = relPet.screenY() + relPet.worldY;
+        var fromOther = Math.atan2(myGY - oGY, myGX - oGX);
+        var dest;
+        if (step.maneuver === "lunge") {
+            var lRad = step.radius || 46;
+            dest = _clampedScreenPoint(pet, oGX + Math.cos(fromOther) * lRad, oGY + Math.sin(fromOther) * lRad);
+        } else if (step.maneuver === "sidestep") {
+            var sSign = step.sideSign || (Math.random() < 0.5 ? 1 : -1);
+            var sAng = fromOther + sSign * (Math.PI * 0.52);
+            var sRad = step.radius || 96;
+            dest = _clampedScreenPoint(pet, oGX + Math.cos(sAng) * sRad, oGY + Math.sin(sAng) * sRad);
+        } else if (step.maneuver === "circle_front") {
+            var cSign = Math.random() < 0.5 ? 1 : -1;
+            var cAng = fromOther + cSign * 2.25;
+            var cRad = step.radius || 76;
+            dest = _clampedScreenPoint(pet, oGX + Math.cos(cAng) * cRad, oGY + Math.sin(cAng) * cRad);
+        } else if (step.maneuver === "retreat") {
+            var rDist = step.dist || 115;
+            var rAng = fromOther + (Math.random() - 0.5) * 0.55;
+            dest = _clampedScreenPoint(pet, myGX + Math.cos(rAng) * rDist, myGY + Math.sin(rAng) * rDist);
+        } else {
+            var aAng = fromOther + (step.angleOffset !== undefined ? step.angleOffset : ((Math.random() - 0.5) * 0.65));
+            var aRad = step.radius || 84;
+            dest = _clampedScreenPoint(pet, oGX + Math.cos(aAng) * aRad, oGY + Math.sin(aAng) * aRad);
+        }
+        pet.gait = step.gait || "trot";
+        nav.journeyToGlobal(pet, dest.gx, dest.gy);
+        return;
+    }
+
+    case "wander_apart": {
+        pet.attentionUntil = 0;
+        if (!nav) { finishPlan(pet, pickFn); return; }
+        var sepOther = _findPet(pet, step.otherName || plan.otherName);
+        if (!sepOther || _distBetween(pet, sepOther) >= (step.minDist || 175)) {
+            advanceStep(pet, nav, pickFn);
+            return;
+        }
+        var curGX = pet.screenX() + pet.worldX, curGY = pet.screenY() + pet.worldY;
+        var sepGX = sepOther.screenX() + sepOther.worldX, sepGY = sepOther.screenY() + sepOther.worldY;
+        var awayAng = Math.atan2(curGY - sepGY, curGX - sepGX) + (Math.random() - 0.5) * 0.85;
+        var sepDist = (step.dist || 135) + Math.random() * 45;
+        var pt = _clampedScreenPoint(pet, curGX + Math.cos(awayAng) * sepDist, curGY + Math.sin(awayAng) * sepDist);
+        if (Math.hypot(pt.gx - sepGX, pt.gy - sepGY) < 95) {
+            var scr = Topology.currentScreen(pet);
+            var toCenter = Math.atan2((scr.y + scr.height * 0.5) - curGY, (scr.x + scr.width * 0.5) - curGX);
+            pt = _clampedScreenPoint(pet, curGX + Math.cos(toCenter) * sepDist, curGY + Math.sin(toCenter) * sepDist);
+        }
+        pet.gait = step.gait || "amble";
+        nav.journeyToGlobal(pet, pt.gx, pt.gy);
+        return;
+    }
+
+    case "face_away": {
+        pet.attentionUntil = 0;
+        var ignOther = _findPet(pet, step.otherName || plan.otherName);
+        var fMyGX = pet.screenX() + pet.worldX, fMyGY = pet.screenY() + pet.worldY;
+        var turnAng = ignOther
+            ? (Math.atan2(fMyGY - (ignOther.screenY() + ignOther.worldY), fMyGX - (ignOther.screenX() + ignOther.worldX)) + (Math.random() < 0.5 ? 0.35 : -0.35))
+            : (pet.facingRight ? Math.PI : 0);
+        pet.facingRight = Math.cos(turnAng) >= 0;
+        pet.sprite.setDirection(turnAng);
+        var dismissPool = step.states || SpeciesProfile.dismissMovesFor(pet);
+        pet.enterState(pickFn ? pickFn(pet, dismissPool) : dismissPool[0]);
+        return;
+    }
+
+    case "branch_social_bid": {
+        _resolvePeerPlayBid(pet, plan, step, nav, pickFn);
         return;
     }
 
@@ -195,12 +302,36 @@ function advanceStep(pet, nav, pickFn) {
 
     case "social": {
         var friend = _findPet(pet, plan.otherName);
-        if (friend && _distBetween(pet, friend) < 300) {
+        var maxDist = step.interaction === "reverse_chase" ? 720 : (step.interaction === "mediate" ? 380 : 340);
+        if (friend && _distBetween(pet, friend) < maxDist) {
             _faceGlobal(pet, friend.screenX() + friend.worldX, friend.screenY() + friend.worldY);
             if (step.interaction === "greet") Social.greet(pet, friend);
-            else if (step.interaction === "invite") Social.invitePlay(pet, friend);
-            else if (step.interaction === "chase") Social.startChase(pet, friend);
-            else if (step.interaction === "groove") Social.syncGroove(pet, friend);
+            else if (step.interaction === "invite" || step.interaction === "play_bid") Social.bidPlay(pet, friend, false);
+            else if (step.interaction === "play_bid_retry") Social.bidPlay(pet, friend, true);
+            else if (step.interaction === "spar_challenge") {
+                Social.startSpar(pet, friend);
+                if (plan.sparAccepted === false) {
+                    plan.steps = plan.steps.slice(0, plan.stepIndex + 1).concat([
+                        { kind: "act", label: "Lowering stance", states: ["nod"] },
+                        { kind: "wander_apart", dist: 140, gait: "amble", label: "Stepping away" }
+                    ]);
+                }
+            } else if (step.interaction === "spar_hit") Social.sparExchange(pet, friend);
+            else if (step.interaction === "chase") {
+                Social.startChase(pet, friend);
+                if (plan.chaseRejected) {
+                    plan.steps = plan.steps.slice(0, plan.stepIndex + 1).concat([
+                        { kind: "act", label: "Stopped short", states: ["cringe", "nod"] },
+                        { kind: "wander_apart", dist: 145, gait: "amble", label: "Ambling off" }
+                    ]);
+                }
+            } else if (step.interaction === "reverse_chase") Social.reverseChase(pet, friend);
+            else if (step.interaction === "show_off") Social.showOff(pet, friend);
+            else if (step.interaction === "squabble") Social.squabble(pet, friend);
+            else if (step.interaction === "mediate") {
+                var second = _findPet(pet, plan.secondOtherName);
+                if (second) Social.mediate(pet, friend, second);
+            } else if (step.interaction === "groove") Social.syncGroove(pet, friend);
             else if (step.interaction === "story") Social.shareDiscovery(pet, friend, step.topic);
             else if (step.interaction === "rest") Social.restBeside(pet, friend);
             else if (step.interaction === "pounce") Social.pounce(pet, friend);
@@ -271,6 +402,70 @@ function advanceStep(pet, nav, pickFn) {
     }
 }
 
+function _resolvePeerPlayBid(pet, plan, step, nav, pickFn) {
+    var outcome = plan.bidOutcome || "ignored";
+    var other = _findPet(pet, plan.otherName);
+    if (outcome === "accepted" && other) {
+        var wasRetry = !!step.afterRetry;
+        var mode = plan.bidPlayMode || Social.preferredPlayMode(pet, other);
+        Memory.adjustRelation(pet, plan.otherName, wasRetry ? 0.028 : 0.018, 0.07, wasRetry ? "won_over" : "play", { outcome: mode });
+        Memory.recordEpisode(pet, mode === "spar" ? "sparred" : "played_with", {
+            valence: 0.50,
+            salience: 0.64,
+            withPet: plan.otherName
+        });
+        pet.playDrive = Math.max(0, pet.playDrive - 0.22);
+        pet.socialDrive = Math.max(0, pet.socialDrive - 0.18);
+        Drives.happier(pet, 0.035);
+        if (mode === "spar") {
+            startPlan(pet, buildSparBoutPlan(pet, plan.otherName, true, true), nav, pickFn);
+        } else if (mode === "tag") {
+            startPlan(pet, buildPlayTagPlan({ name: plan.otherName }, true, pet), nav, pickFn);
+        } else {
+            startPlan(pet, buildSyncDancePlan(pet, plan.otherName), nav, pickFn);
+        }
+        return;
+    }
+
+    if (outcome === "ignored") {
+        var canRetry = !step.afterRetry && other
+                    && pet.personality.boldness >= 0.52 && pet.personality.playfulness >= 0.56;
+        if (canRetry) {
+            plan.bidOutcome = "";
+            plan.steps = plan.steps.slice(0, plan.stepIndex + 1).concat([
+                { kind: "dash_relative", maneuver: "circle_front", gait: "trot", radius: 74, label: "Hopping into " + plan.otherName + "'s view" },
+                { kind: "act", label: "Trying one more trick", states: SpeciesProfile.showOffMovesFor(pet), faceOther: true },
+                { kind: "social", interaction: "play_bid_retry", label: "Play-bowing eagerly" },
+                { kind: "observe", durationMs: 1100, attend: "other", label: "Waiting hopefully" },
+                { kind: "branch_social_bid", afterRetry: true, label: "Reading reaction" }
+            ]);
+            advanceStep(pet, nav, pickFn);
+            return;
+        }
+        Memory.adjustRelation(pet, plan.otherName, -0.010, 0.04, "unrequited", { outcome: "ignored" });
+        Memory.recordEpisode(pet, "unrequited_play", { valence: -0.22, salience: 0.55, withPet: plan.otherName });
+        Memory.thinkAloud(pet, "unrequited", "Wanted to play with " + plan.otherName + ", who gave the cold shoulder");
+        pet.mood = Math.max(0, pet.mood - 0.04);
+        pet.playDrive = Math.max(0, pet.playDrive - 0.08);
+        plan.steps = plan.steps.slice(0, plan.stepIndex + 1).concat([
+            { kind: "act", label: "Wilting quietly", states: ["cringe", "sitDown", "nod"], emote: "..." },
+            { kind: "wander_apart", dist: 150, gait: "amble", label: "Ambling off quietly" }
+        ]);
+        advanceStep(pet, nav, pickFn);
+        return;
+    }
+
+    Memory.adjustRelation(pet, plan.otherName, -0.024, 0.04, "unrequited", { outcome: "rebuffed" });
+    Memory.recordEpisode(pet, "unrequited_play", { valence: -0.38, salience: 0.62, withPet: plan.otherName });
+    Memory.thinkAloud(pet, "rebuffed_play", "Got brushed off sharply by " + plan.otherName);
+    pet.mood = Math.max(0, pet.mood - 0.06);
+    plan.steps = plan.steps.slice(0, plan.stepIndex + 1).concat([
+        { kind: "act", label: "Backing off", states: ["tumbleBack", "cringe", "hop"] },
+        { kind: "wander_apart", dist: 175, gait: "trot", label: "Giving " + plan.otherName + " space" }
+    ]);
+    advanceStep(pet, nav, pickFn);
+}
+
 function _orientForStep(pet, plan, step) {
     if (step.faceCursor && pet.inputTracker) {
         _faceGlobal(pet, pet.inputTracker.cursorX, pet.inputTracker.cursorY);
@@ -327,6 +522,9 @@ function finishPlan(pet, pickFn) {
     var now = _now(pet);
     Drives.eventful(pet, 0.22);
     pet.calmUntil = now + 14000 + pet.personality.patience * 40000;
+    if (plan.otherName) {
+        pet.attentionUntil = 0;
+    }
 
     switch (plan.name) {
     case "scout_expedition":
@@ -380,6 +578,15 @@ function finishPlan(pet, pickFn) {
         Drives.happier(pet, 0.03);
         Memory.recordEpisode(pet, "music_groove", { valence: 0.45, music: true });
         pet.recentDrift = Personality.shiftRecent(pet.recentDrift, "playfulness", 0.007);
+        break;
+
+    case "sync_dance":
+    case "pack_rally":
+        pet.playDrive = Math.max(0, pet.playDrive - 0.22);
+        pet.socialDrive = Math.max(0, pet.socialDrive - 0.16);
+        Drives.happier(pet, 0.035);
+        Memory.recordEpisode(pet, "sync_danced", { valence: 0.48, withPet: plan.otherName });
+        pet.recentDrift = Personality.shiftRecent(pet.recentDrift, "playfulness", 0.006);
         break;
 
     case "night_vigil":
@@ -648,46 +855,133 @@ function buildNightVigilPlan(perc, pet) {
 }
 
 function buildShareStoryPlan(other, topic, pet) {
+    var off = (pet && other && other.pet) ? _naturalOffsetFrom(pet, other.pet, 78) : { offsetX: 68, offsetY: 18 };
     return {
         name: "share_story",
-        label: "Visiting " + other.name,
-        reason: "Checking in with " + other.name,
+        label: "Checking In with " + other.name,
+        reason: "Sharing excitement with " + other.name,
         otherName: other.name,
         urgency: 0.55,
-        durationMs: 120000,
-        thought: "Trotted over to greet " + other.name,
+        durationMs: 55000,
+        thought: "Trotted over to share news with " + other.name,
         steps: [
-            { kind: "travel", gait: "trot", label: "Trotting to " + other.name, dynamic: "other_pet", offsetX: 56, offsetY: 0 },
+            { kind: "travel", gait: "trot", label: "Trotting near " + other.name, dynamic: "other_pet", offsetX: off.offsetX, offsetY: off.offsetY },
             { kind: "social", label: "Greeting", interaction: "story", topic: topic },
-            { kind: "act", label: "Nose sniff", states: SpeciesProfile.greetGesturesFor(pet), faceOther: true }
+            { kind: "act", label: "Excited gesture", states: SpeciesProfile.showOffMovesFor(pet), faceOther: true },
+            { kind: "wander_apart", dist: 135, gait: "amble", label: "Strolling onward" }
         ]
     };
 }
 
-function buildPlayTagPlan(other, closeAlready) {
+function buildInvitePlayPlan(pet, other) {
+    var steps = [];
+    if (other.dist > 115) {
+        steps.push({ kind: "dash_relative", maneuver: "approach_angled", gait: "trot", radius: 84, label: "Bounding near " + other.name });
+    }
+    var bidMoves = SpeciesProfile.affectionGesturesFor(pet).concat(["hop"]);
+    steps.push({ kind: "act", label: "Play-bowing to " + other.name, states: bidMoves, faceOther: true });
+    steps.push({ kind: "social", interaction: "play_bid", label: "Inviting " + other.name + " to play" });
+    steps.push({ kind: "observe", durationMs: 1150, attend: "other", label: "Waiting for " + other.name });
+    steps.push({ kind: "branch_social_bid", afterRetry: false, label: "Reading " + other.name + "'s mood" });
+    return {
+        name: "invite_play",
+        label: "Inviting " + other.name + " to Play",
+        reason: "Play-bowing eagerly toward " + other.name,
+        otherName: other.name,
+        urgency: 0.66,
+        durationMs: 55000,
+        thought: "Play-bowed to see if " + other.name + " wants to play",
+        steps: steps
+    };
+}
+
+function buildSparBoutPlan(pet, otherName, alreadyClose, skipChallenge) {
+    var sparMoves = SpeciesProfile.sparMovesFor(pet);
+    var dodgeMoves = SpeciesProfile.dodgeMovesFor(pet);
+    var stanceMoves = SpeciesProfile.standoffMovesFor(pet);
+    var steps = [];
+    if (!alreadyClose) {
+        steps.push({ kind: "dash_relative", maneuver: "approach_angled", gait: "trot", radius: 98, label: "Approaching " + otherName });
+    }
+    if (!skipChallenge) {
+        steps.push({ kind: "act", label: "Martial stance", states: stanceMoves, faceOther: true });
+        steps.push({ kind: "social", interaction: "spar_challenge", label: "Challenging " + otherName });
+    }
+    steps.push({ kind: "dash_relative", maneuver: "lunge", gait: "scamper", radius: 46, label: "Lunging in!" });
+    steps.push({ kind: "act", label: "Opening strike!", states: sparMoves, faceOther: true });
+    steps.push({ kind: "dash_relative", maneuver: "sidestep", gait: "scamper", radius: 98, sideSign: 1, label: "Sidestepping counter!" });
+    steps.push({ kind: "act", label: "Agile evade", states: dodgeMoves, faceOther: true });
+    steps.push({ kind: "dash_relative", maneuver: "lunge", gait: "scamper", radius: 48, label: "Closing in!" });
+    steps.push({ kind: "act", label: "Combo finisher!", states: sparMoves, faceOther: true });
+    steps.push({ kind: "social", interaction: "spar_hit", label: "Sparring clash" });
+    steps.push({ kind: "dash_relative", maneuver: "retreat", gait: "trot", dist: 105, label: "Springing back" });
+    steps.push({ kind: "pant", label: "Catching breath" });
+    steps.push({ kind: "act", label: "Respectful nod", states: ["nod", "pose"], faceOther: true });
+    steps.push({ kind: "wander_apart", dist: 145, gait: "amble", label: "Parting ways" });
+    return {
+        name: "spar_bout",
+        label: "Sparring with " + otherName,
+        reason: "Friendly martial sparring with " + otherName,
+        otherName: otherName,
+        urgency: 0.78,
+        durationMs: 65000,
+        thought: "Trading playful sparring combos with " + otherName,
+        steps: steps
+    };
+}
+
+function buildSparPartnerPlan(pet, challenger) {
+    var cName = challenger.petData.name;
+    var sparMoves = SpeciesProfile.sparMovesFor(pet);
+    var dodgeMoves = SpeciesProfile.dodgeMovesFor(pet);
+    var stanceMoves = SpeciesProfile.standoffMovesFor(pet);
+    return {
+        name: "spar_partner",
+        label: "Sparring with " + cName,
+        reason: "Trading sparring moves with " + cName,
+        otherName: cName,
+        urgency: 0.78,
+        durationMs: 65000,
+        thought: "Accepted " + cName + "'s sparring challenge!",
+        steps: [
+            { kind: "act", label: "Ready stance", states: stanceMoves, faceOther: true },
+            { kind: "dash_relative", maneuver: "sidestep", gait: "scamper", radius: 94, sideSign: -1, label: "Weaving aside!" },
+            { kind: "act", label: "Dodging!", states: dodgeMoves, faceOther: true },
+            { kind: "dash_relative", maneuver: "lunge", gait: "scamper", radius: 46, label: "Counter-lunging!" },
+            { kind: "act", label: "Counter strike!", states: sparMoves, faceOther: true },
+            { kind: "act", label: "Parrying!", states: dodgeMoves, faceOther: true },
+            { kind: "dash_relative", maneuver: "retreat", gait: "trot", dist: 105, label: "Hopping back" },
+            { kind: "pant", label: "Catching breath" },
+            { kind: "act", label: "Respectful nod", states: ["nod", "pose"], faceOther: true },
+            { kind: "wander_apart", dist: 145, gait: "amble", label: "Parting ways" }
+        ]
+    };
+}
+
+function buildPlayTagPlan(other, closeAlready, pet) {
     var steps = [];
     if (!closeAlready) {
-        steps.push({ kind: "travel", gait: "trot", label: "Trotting up to " + other.name, dynamic: "other_pet", offsetX: 54, offsetY: 0 });
+        steps.push({ kind: "dash_relative", maneuver: "approach_angled", gait: "trot", radius: 82, label: "Bounding near " + other.name });
     }
     steps.push({ kind: "act", label: "Play-bowing", states: ["nod"], faceOther: true });
     steps.push({ kind: "social", label: "Tagging " + other.name, interaction: "chase" });
-    steps.push({ kind: "travel", gait: "scamper", label: "Chasing " + other.name, dynamic: "other_pet_chase", offsetX: -38, offsetY: 0 });
-    steps.push({ kind: "act", label: "Playful pounce", states: ["hop"], faceOther: true });
+    steps.push({ kind: "travel", gait: "scamper", label: "Chasing " + other.name, dynamic: "other_pet_chase", offsetX: -38, offsetY: 16 });
+    steps.push({ kind: "act", label: "Playful pounce", states: pet ? SpeciesProfile.dodgeMovesFor(pet) : ["hop"], faceOther: true });
     steps.push({ kind: "pant", label: "Catching breath" });
-    steps.push({ kind: "loaf_watch", label: "Resting together", attend: "other", durationMs: 18000 });
+    steps.push({ kind: "wander_apart", dist: 150, gait: "amble", label: "Cooling down" });
     return {
         name: "play_tag",
         label: "Playing Tag with " + other.name,
         reason: "Playful chase with " + other.name,
         otherName: other.name,
         urgency: 0.78,
-        durationMs: 75000,
+        durationMs: 65000,
         thought: "Chasing " + other.name + " in a game of tag",
         steps: steps
     };
 }
 
-function buildFleeTagPlan(pet, chaser) {
+function buildFleeTagPlan(pet, chaser, allowReverse) {
     var scr = Topology.currentScreen(pet);
     var pw = pet.width || 64, ph = pet.height || 64;
     var minX = scr.x + 36, maxX = Math.max(minX, scr.x + scr.width - pw - 36);
@@ -705,20 +999,231 @@ function buildFleeTagPlan(pet, chaser) {
     var leg2X = Math.max(minX, Math.min(maxX, leg1X + Math.cos(leg2Angle) * 240));
     var leg2Y = Math.max(minY, Math.min(maxY, leg1Y + Math.sin(leg2Angle) * 180));
 
+    var steps = [
+        { kind: "travel", gait: "scamper", label: "Scampering!", gx: leg1X, gy: leg1Y },
+        { kind: "travel", gait: "scamper", label: "Zig-zagging!", gx: leg2X, gy: leg2Y }
+    ];
+
+    var canReverse = allowReverse !== false && pet.personality
+                  && (SpeciesProfile.socialStyleOf(pet) === "sprinter"
+                      || (pet.personality.energy + pet.personality.playfulness > 0.92));
+    if (canReverse) {
+        steps.push({ kind: "act", label: "Whirling around!", states: ["hop", "twirl", "rotate"], faceOther: true });
+        steps.push({ kind: "social", interaction: "reverse_chase", label: "Tagging " + chaser.petData.name + " back!" });
+        steps.push({ kind: "travel", gait: "scamper", label: "Chasing " + chaser.petData.name + " back!", dynamic: "other_pet_chase", offsetX: 36, offsetY: -16 });
+    }
+    steps.push({ kind: "act", label: "Happy tumble", states: ["hop", "tumble", "twirl"], faceOther: true });
+    steps.push({ kind: "pant", label: "Catching breath" });
+    steps.push({ kind: "wander_apart", dist: 145, gait: "amble", label: "Trotting off happily" });
+
     return {
         name: "flee_tag",
-        label: "Darting from " + chaser.petData.name,
-        reason: "Playfully dodging " + chaser.petData.name,
+        label: "Playing Tag with " + chaser.petData.name,
+        reason: "Darting & zig-zagging with " + chaser.petData.name,
         otherName: chaser.petData.name,
         urgency: 0.80,
-        durationMs: 55000,
-        thought: "Scampering away from " + chaser.petData.name + " in tag",
+        durationMs: 62000,
+        thought: "Scampering in zig-zags with " + chaser.petData.name + " in tag",
+        steps: steps
+    };
+}
+
+function buildReverseFleePlan(pet, counterChaser) {
+    var scr = Topology.currentScreen(pet);
+    var pw = pet.width || 64, ph = pet.height || 64;
+    var minX = scr.x + 36, maxX = Math.max(minX, scr.x + scr.width - pw - 36);
+    var minY = scr.y + (scr.topInset || 0) + 36;
+    var maxY = Math.max(minY, scr.y + scr.height - (scr.bottomInset || 0) - ph - 36);
+    var curGX = scr.x + pet.worldX, curGY = scr.y + pet.worldY;
+    var cGX = counterChaser.screenX() + counterChaser.worldX, cGY = counterChaser.screenY() + counterChaser.worldY;
+    var away = Math.atan2(curGY - cGY, curGX - cGX) + (Math.random() - 0.5) * 0.8;
+    var tx = Math.max(minX, Math.min(maxX, curGX + Math.cos(away) * 260));
+    var ty = Math.max(minY, Math.min(maxY, curGY + Math.sin(away) * 190));
+    if (Math.hypot(tx - curGX, ty - curGY) < 120) {
+        tx = curGX < (minX + maxX) * 0.5 ? Math.min(maxX, curGX + 250) : Math.max(minX, curGX - 250);
+    }
+    return {
+        name: "reverse_tag",
+        label: "Dodging " + counterChaser.petData.name + "!",
+        reason: counterChaser.petData.name + " turned the chase around!",
+        otherName: counterChaser.petData.name,
+        urgency: 0.82,
+        durationMs: 42000,
+        thought: counterChaser.petData.name + " tagged back — darting away!",
         steps: [
-            { kind: "travel", gait: "scamper", label: "Scampering!", gx: leg1X, gy: leg1Y },
-            { kind: "travel", gait: "scamper", label: "Dodging!", gx: leg2X, gy: leg2Y },
-            { kind: "act", label: "Playful hop", states: ["hop"], faceOther: true },
-            { kind: "pant", label: "Catching breath" }
+            { kind: "travel", gait: "scamper", label: "Darting away!", gx: tx, gy: ty },
+            { kind: "act", label: "Playful spin", states: SpeciesProfile.dodgeMovesFor(pet), faceOther: true },
+            { kind: "pant", label: "Catching breath" },
+            { kind: "wander_apart", dist: 150, gait: "amble", label: "Parting ways" }
         ]
+    };
+}
+
+function buildShowOffPlan(pet, other) {
+    var moves = SpeciesProfile.showOffMovesFor(pet);
+    return {
+        name: "show_off",
+        label: "Showing Off near " + other.name,
+        reason: "Performing signature flair near " + other.name,
+        otherName: other.name,
+        urgency: 0.62,
+        durationMs: 36000,
+        thought: "Showing off a neat trick near " + other.name,
+        steps: [
+            { kind: "act", label: "Flair move!", states: moves, faceOther: true },
+            { kind: "social", interaction: "show_off", label: "Looking to see " + other.name + "'s reaction" },
+            { kind: "act", label: "Encore spin", states: moves.concat(["rotate", "hop"]), faceOther: true },
+            { kind: "wander_apart", dist: 135, gait: "amble", label: "Sauntering onward" }
+        ]
+    };
+}
+
+function buildSyncDancePlan(pet, partnerName) {
+    var moves = SpeciesProfile.showOffMovesFor(pet).concat(SpeciesProfile.affectionGesturesFor(pet));
+    return {
+        name: "sync_dance",
+        label: "Dancing with " + partnerName,
+        reason: "Synchronized joyful duet with " + partnerName,
+        otherName: partnerName,
+        urgency: 0.72,
+        durationMs: 36000,
+        thought: "Dancing in sync with " + partnerName,
+        steps: [
+            { kind: "act", label: "Synchronized spin!", states: moves, faceOther: true, emote: "♪" },
+            { kind: "act", label: "Joyful hop!", states: ["twirl", "dance", "hop", "rotate"], faceOther: true },
+            { kind: "wander_apart", dist: 140, gait: "amble", label: "Parting cheerfully" }
+        ]
+    };
+}
+
+function buildSquabblePlan(pet, other) {
+    var bristle = SpeciesProfile.standoffMovesFor(pet);
+    return {
+        name: "squabble",
+        label: "Bickering with " + other.name,
+        reason: "Disagreement over personal space with " + other.name,
+        otherName: other.name,
+        urgency: 0.74,
+        durationMs: 32000,
+        thought: "Bristled at " + other.name + " over personal space",
+        steps: [
+            { kind: "act", label: "Bristling!", states: bristle, faceOther: true },
+            { kind: "social", interaction: "squabble", label: "Confronting " + other.name },
+            { kind: "observe", durationMs: 1200, attend: "other", label: "Tense standoff" },
+            { kind: "face_away", label: "Turning away in a huff" },
+            { kind: "wander_apart", dist: 185, gait: "trot", label: "Stalking off" }
+        ]
+    };
+}
+
+function buildSquabbleReplyPlan(pet, instigator) {
+    var iName = instigator.petData.name;
+    var bristle = SpeciesProfile.standoffMovesFor(pet);
+    return {
+        name: "squabble_reply",
+        label: "Standing Ground vs " + iName,
+        reason: "Refusing to back down from " + iName,
+        otherName: iName,
+        urgency: 0.76,
+        durationMs: 30000,
+        thought: "Stood ground and huffed right back at " + iName,
+        steps: [
+            { kind: "act", label: "Standing ground!", states: bristle, faceOther: true },
+            { kind: "face_away", label: "Huffing away" },
+            { kind: "wander_apart", dist: 185, gait: "trot", label: "Taking own corner" }
+        ]
+    };
+}
+
+function buildPeacekeeperPlan(pet, petA, petB) {
+    var midGX = (petA.screenX() + petA.worldX + petB.screenX() + petB.worldX) * 0.5;
+    var midGY = (petA.screenY() + petA.worldY + petB.screenY() + petB.worldY) * 0.5;
+    var pt = _clampedScreenPoint(pet, midGX, midGY);
+    var calmAuth = SpeciesProfile.standoffMovesFor(pet).concat(SpeciesProfile.calmGesturesFor(pet));
+    return {
+        name: "peacekeeper",
+        label: "Calming Squabble",
+        reason: "Stepping between " + petA.petData.name + " & " + petB.petData.name,
+        otherName: petA.petData.name,
+        secondOtherName: petB.petData.name,
+        urgency: 0.82,
+        durationMs: 38000,
+        thought: "Stepping in to calm " + petA.petData.name + " and " + petB.petData.name,
+        steps: [
+            { kind: "travel", gait: "trot", label: "Stepping between them", gx: pt.gx, gy: pt.gy },
+            { kind: "act", label: "Commanding calm", states: calmAuth, faceOther: true },
+            { kind: "social", interaction: "mediate", label: "Restoring peace" },
+            { kind: "act", label: "Reassuring nod", states: SpeciesProfile.calmGesturesFor(pet) },
+            { kind: "wander_apart", dist: 135, gait: "amble", label: "Resuming watch" }
+        ]
+    };
+}
+
+function buildSpectatePlan(pet, actorA) {
+    var aName = actorA.petData.name;
+    return {
+        name: "spectate_bout",
+        label: "Watching " + aName + "'s Match",
+        reason: "Watching companions spar from nearby",
+        otherName: aName,
+        urgency: 0.56,
+        durationMs: 24000,
+        thought: "Paused to watch " + aName + "'s match",
+        steps: [
+            { kind: "observe", durationMs: 3600, attend: "other", label: "Watching match" },
+            { kind: "act", label: "Impressed nod", states: SpeciesProfile.calmGesturesFor(pet).concat(["hop"]), faceOther: true }
+        ]
+    };
+}
+
+function buildPackRallyPlan(pet, leader) {
+    var lName = leader.petData.name;
+    return {
+        name: "pack_rally",
+        label: "Joining " + lName + "'s Play!",
+        reason: "Swept up in contagious pack energy",
+        otherName: lName,
+        urgency: 0.74,
+        durationMs: 28000,
+        thought: "Joined in the contagious zoomies with " + lName + "!",
+        steps: [
+            { kind: "act", label: "Perking up!", states: ["hop", "twirl", "rotate"], faceOther: true },
+            { kind: "zoomies", label: "Pack zoomies!" },
+            { kind: "pant", label: "Catching breath" },
+            { kind: "wander_apart", dist: 140, gait: "amble", label: "Settling down" }
+        ]
+    };
+}
+
+function buildBestFriendVisitPlan(pet, other) {
+    var myGX = pet.screenX() + pet.worldX, myGY = pet.screenY() + pet.worldY;
+    var midX = myGX + (other.gx - myGX) * 0.55 + (Math.random() - 0.5) * 90;
+    var midY = myGY + (other.gy - myGY) * 0.55 + (Math.random() - 0.5) * 70;
+    var midPt = _clampedScreenPoint(pet, midX, midY);
+    var off = other.pet ? _naturalOffsetFrom(pet, other.pet, 76) : { offsetX: 68, offsetY: 20 };
+    var steps = [];
+    if (other.dist > 420) {
+        steps.push({ kind: "travel", gait: "trot", label: "Strolling toward " + other.name, gx: midPt.gx, gy: midPt.gy });
+        steps.push({ kind: "act", label: "Glancing ahead", states: SpeciesProfile.calmGesturesFor(pet), faceOther: true });
+    }
+    steps.push({ kind: "travel", gait: "trot", label: "Joining " + other.name, dynamic: "other_pet", offsetX: off.offsetX, offsetY: off.offsetY });
+    steps.push({ kind: "social", label: "Warm greeting", interaction: "greet" });
+    steps.push({ kind: "act", label: "Happy greeting", states: SpeciesProfile.affectionGesturesFor(pet).concat(["hop"]), faceOther: true });
+    if (pet.restDrive > 0.34) {
+        steps.push({ kind: "social", label: "Curling up nearby", interaction: "rest" });
+        steps.push({ kind: "rest", label: "Resting near " + other.name, deep: pet.restDrive > 0.68, faceOther: true });
+    } else {
+        steps.push({ kind: "wander_apart", dist: 145, gait: "amble", label: "Continuing stroll" });
+    }
+    return {
+        name: "best_friend_checkin",
+        label: "Checking In on " + other.name,
+        reason: "Checking in on best friend " + other.name,
+        otherName: other.name,
+        urgency: 0.58,
+        durationMs: 95000,
+        thought: "Strolled over to check in on best friend " + other.name,
+        steps: steps
     };
 }
 
@@ -783,10 +1288,11 @@ function buildIllusionPrankPlan(other) {
         thought: "Weaving a playful Illusion to surprise " + other.name,
         steps: [
             { kind: "illusion_shift", targetSpecies: targetSp, label: "Weaving Illusion" },
-            { kind: "travel", gait: "trot", label: "Padding up in disguise", dynamic: "other_pet", offsetX: 52, offsetY: 0 },
+            { kind: "dash_relative", maneuver: "approach_angled", gait: "trot", radius: 74, label: "Padding up in disguise" },
             { kind: "social", label: "Surprising " + other.name, interaction: "illusion" },
             { kind: "act", label: "Playful spin", states: ["hop", "rotate"], faceOther: true },
-            { kind: "illusion_clear", label: "Dropping Illusion" }
+            { kind: "illusion_clear", label: "Dropping Illusion" },
+            { kind: "wander_apart", dist: 145, gait: "trot", label: "Scampering off" }
         ]
     };
 }

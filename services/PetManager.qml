@@ -21,6 +21,7 @@ Singleton {
     property string penSelectedPetId: ""
 
     property double lastAmbientEmoteMs: 0
+    property double lastSocialBoutMs: 0
     property bool _initialPartyPicked: false
     property double _lastRotationMs: 0
     property double _lastSanctuaryTickMs: Date.now()
@@ -41,6 +42,17 @@ Singleton {
         const now = Date.now();
         if (now - lastAmbientEmoteMs < 45000) return false;
         lastAmbientEmoteMs = now;
+        return true;
+    }
+
+    function allowSocialBout(minGapMs = 135000): bool {
+        return (Date.now() - lastSocialBoutMs) >= minGapMs;
+    }
+
+    function claimSocialBout(minGapMs = 135000): bool {
+        const now = Date.now();
+        if (now - lastSocialBoutMs < minGapMs) return false;
+        lastSocialBoutMs = now;
         return true;
     }
 

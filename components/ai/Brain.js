@@ -57,7 +57,7 @@ function onActionFinished(pet, nav) {
     if (Plans.hasActivePlan(pet)) {
         var step = Plans.currentStep(pet);
         if (step && (step.kind === "act" || step.kind === "vocal" || step.kind === "pant"
-                || step.kind === "zoomies"
+                || step.kind === "face_away" || step.kind === "zoomies"
                 || step.kind === "illusion_shift" || step.kind === "illusion_clear")) {
             Plans.advanceStep(pet, nav, _pick);
             return;
@@ -425,14 +425,17 @@ function _candidates(pet, perc, nav) {
 
     var trueProf = SpeciesProfile.profileFor(SpeciesProfile.trueSpeciesOf(pet));
     if (trueProf.illusionCapable && !pet.illusionSpecies
-            && perc.nearest && perc.nearest.sameScreen && perc.nearest.dist < 480 && !perc.nearest.resting
-            && pet.playDrive > 0.40 && pet.alertness > 0.40 && !perc.fullscreen
+            && Social.canInitiatePeerBout(pet, 150000)
+            && perc.nearest && perc.nearest.sameScreen && perc.nearest.dist < 270
+            && !perc.nearest.resting && !perc.nearest.busySocial
+            && pet.playDrive > 0.42 && pet.alertness > 0.40 && !perc.fullscreen
             && !Memory.recent(pet, "illusion_prank", 900000)) {
         cands.push({
             name: "illusion_prank",
             otherName: perc.nearest.name,
             score: pet.playDrive * (0.38 + p.playfulness * 0.62) * moodMult * active * 0.88,
             exec: function() {
+                Social.claimPeerBout(pet, "show_off", 150000);
                 Plans.startPlan(pet, Plans.buildIllusionPrankPlan(perc.nearest), nav, _pick);
             }
         });
@@ -445,84 +448,159 @@ function _candidates(pet, perc, nav) {
 
 function _socialCandidates(pet, perc, nav, cands, m) {
     var p = pet.personality;
-    var now = _now(pet);
-    var packSpark = Personality.hasQuirk(pet, "pack_spark") ? 0.22 : 0;
+    var myStyle = SpeciesProfile.socialStyleOf(pet);
+    var packSpark = Personality.hasQuirk(pet, "pack_spark") ? 0.16 : 0;
+
+    for (var s = 0; s < Math.min(3, perc.others.length); s++) {
+        (function(o) {
+            if (o.busySocial || !o.sameScreen || o.dist >= 145) return;
+            var crowdedDislike = o.affinity < 0.37
+                              || (o.affinity < 0.46 && p.patience < 0.36)
+                              || (o.friction >= 2 && o.affinity < 0.44);
+            if (!crowdedDislike || o.sinceInteract < 45000) return;
+
+            if (p.boldness >= 0.42 && !o.resting && Social.canInitiatePeerBout(pet, 65000)) {
+                cands.push({
+                    name: "squabble",
+                    otherName: o.name,
+                    score: (0.52 - o.affinity) * (0.95 + (1 - p.patience) * 0.65) + p.boldness * 0.16,
+                    exec: function() {
+                        Social.claimPeerBout(pet, "squabble", 65000);
+                        Plans.startPlan(pet, Plans.buildSquabblePlan(pet, o), nav, _pick);
+                    }
+                });
+            } else {
+                cands.push({
+                    name: "move_away",
+                    otherName: o.name,
+                    score: (0.50 - o.affinity) * (1 - p.patience * 0.45) * 1.32,
+                    exec: function() {
+                        Social.annoy(pet, o.pet);
+                        Plans.clearPlan(pet);
+                        nav.fleeFrom(pet, o.gx, o.gy, 175 + Math.random() * 115);
+                    }
+                });
+            }
+        })(perc.others[s]);
+    }
+
+    if (perc.fullscreen || !Social.canInitiatePeerBout(pet, 135000)) return;
 
     for (var i = 0; i < Math.min(3, perc.others.length); i++) {
         (function(o) {
-            var freshNews = pet.lastDiscovery && (now - (pet.lastDiscoveryTime || 0) < 180000);
-            if (freshNews && o.affinity > 0.45 && !o.resting && o.sinceInteract > 35000) {
+            if (o.busySocial) return;
+
+            var closeProx = o.sameScreen && o.dist < 260;
+            var closeFriendMed = o.sameScreen && o.dist >= 260 && o.dist < 500
+                              && o.affinity >= 0.65 && o.familiarity >= 0.36 && o.sinceInteract > 360000;
+            var soulmateFar = o.affinity >= 0.76 && o.familiarity >= 0.48
+                           && o.sinceInteract > 540000 && o.dist >= 260
+                           && (o.sameScreen || p.boldness > 0.50 || Personality.hasQuirk(pet, "screen_hopper"));
+
+            if (!closeProx && !closeFriendMed && !soulmateFar) return;
+
+            if (soulmateFar) {
+                var checkScore = pet.socialDrive * (0.38 + p.sociability * 0.62)
+                               * (0.45 + o.affinity * 0.65) * m.moodMult * m.active * m.nightMult
+                               + packSpark * 0.5 - _distCost(pet, o.dist) * 0.85;
                 cands.push({
-                    name: "share_story",
+                    name: "best_friend_checkin",
                     otherName: o.name,
-                    score: (0.45 + p.sociability * 0.55 + o.affinity * 0.4) * m.active + packSpark
-                         - _distCost(pet, o.dist) * 0.7,
+                    score: checkScore,
                     exec: function() {
-                        var topic = pet.lastDiscovery;
-                        pet.lastDiscovery = "";
-                        Plans.startPlan(pet, Plans.buildShareStoryPlan(o, topic, pet), nav, _pick);
+                        Social.claimPeerBout(pet, "greet", 180000);
+                        Plans.startPlan(pet, Plans.buildBestFriendVisitPlan(pet, o), nav, _pick);
                     }
                 });
+                return;
             }
 
-            if (pet.socialDrive > 0.30 && o.dist > 160 && o.sinceInteract > 55000) {
-                var visitScore = pet.socialDrive * (0.42 + p.sociability * 0.8)
-                               * (0.3 + o.affinity * 0.9) * m.moodMult * m.active * m.nightMult
-                               + o.familiarity * 0.12 + packSpark * 0.5
-                               - _distCost(pet, o.dist) * 0.75;
-                if (!o.sameScreen) visitScore *= 0.55 + p.boldness * 0.55;
-                if (o.resting) visitScore *= 0.55;
-                cands.push({
-                    name: "visit_pet",
-                    otherName: o.name,
-                    score: visitScore,
-                    exec: function() {
-                        var side = perc.petGX < o.gx ? -54 : 54;
-                        var visitSteps = [
-                            { kind: "travel", gait: "trot", label: "Trotting to " + o.name, dynamic: "other_pet", offsetX: side, offsetY: 0 },
-                            { kind: "social", label: "Sniffing hello to " + o.name, interaction: "greet" },
-                            { kind: "act", label: "Friendly sniff", states: SpeciesProfile.greetGesturesFor(pet), faceOther: true }
-                        ];
-                        if (o.affinity > 0.56 && pet.restDrive > 0.24) {
-                            visitSteps.push({ kind: "loaf_watch", label: "Loafing beside " + o.name, attend: "other", durationMs: 26000 });
+            if (!o.resting && o.sinceInteract > 150000 && pet.playDrive > 0.28 && pet.alertness > 0.38) {
+                var wantsSpar = myStyle === "brawler" || o.socialStyle === "brawler"
+                             || o.sparCount >= 2 || (p.boldness > 0.58 && p.playfulness > 0.48);
+                if (wantsSpar && o.affinity >= 0.38 && o.dist < (closeFriendMed ? 460 : 245)) {
+                    var sparScore = pet.playDrive * (0.32 + p.boldness * 0.46 + p.playfulness * 0.40)
+                                  * (0.42 + o.respect * 0.58) * m.moodMult * m.active
+                                  + (myStyle === "brawler" ? 0.16 : 0)
+                                  + (o.sparCount >= 2 ? 0.10 : 0)
+                                  + packSpark * 0.5 - _distCost(pet, o.dist) * 0.5;
+                    cands.push({
+                        name: "spar_bout",
+                        otherName: o.name,
+                        score: sparScore,
+                        exec: function() {
+                            Social.claimPeerBout(pet, "spar", 135000);
+                            Plans.startPlan(pet, Plans.buildSparBoutPlan(pet, o.name, o.dist < 130, false), nav, _pick);
                         }
-                        Plans.startPlan(pet, {
-                            name: "visit_pet",
-                            label: "Visiting " + o.name,
-                            reason: "Greeting " + o.name,
-                            otherName: o.name,
-                            urgency: pet.socialDrive,
-                            thought: "Trotted over to greet " + o.name,
-                            steps: visitSteps
-                        }, nav, _pick);
-                    }
-                });
+                    });
+                }
+
+                if (o.affinity >= 0.44 && p.playfulness > 0.34) {
+                    var oPlayful = o.pet.personality.playfulness;
+                    var tagScore = pet.playDrive * (0.24 + p.playfulness * 0.70 + p.energy * 0.22)
+                                 * (0.38 + oPlayful * 0.55) * (0.35 + o.affinity * 0.72)
+                                 * m.moodMult * m.active
+                                 + (myStyle === "sprinter" ? 0.15 : 0)
+                                 + packSpark * 0.6 - _distCost(pet, o.dist) * 0.5;
+                    cands.push({
+                        name: "play_tag",
+                        otherName: o.name,
+                        score: tagScore,
+                        exec: function() {
+                            Social.claimPeerBout(pet, "chase", 135000);
+                            Plans.startPlan(pet, Plans.buildPlayTagPlan(o, o.dist < 125, pet), nav, _pick);
+                        }
+                    });
+                }
             }
 
-            if (o.dist < 360 && p.playfulness > 0.30 && pet.playDrive > 0.32 && pet.alertness > 0.35
-                    && o.sinceInteract > 45000 && !o.resting) {
-                var oPlayful = o.pet.personality.playfulness;
-                var tagScore = pet.playDrive * (0.20 + p.playfulness * 0.88) * (0.42 + oPlayful * 0.58)
-                             * (0.32 + o.affinity) * m.moodMult * m.active + packSpark;
+            if (closeProx && o.sinceInteract > 140000 && o.affinity >= 0.42 && o.unrequitedCount < 4
+                    && o.state !== "deepsleep" && pet.alertness > 0.34
+                    && (pet.playDrive > 0.26 || pet.socialDrive > 0.42)
+                    && (p.playfulness > 0.42 || p.sociability > 0.48)) {
+                var invScore = (pet.playDrive * 0.58 + pet.socialDrive * 0.42)
+                             * (0.34 + p.playfulness * 0.44 + p.sociability * 0.40)
+                             * (0.38 + o.affinity * 0.70) * m.moodMult * m.active
+                             - o.unrequitedCount * 0.08 + packSpark * 0.5;
                 cands.push({
-                    name: "play_tag",
+                    name: "invite_play",
                     otherName: o.name,
-                    score: tagScore,
+                    score: invScore,
                     exec: function() {
-                        Plans.startPlan(pet, Plans.buildPlayTagPlan(o, o.dist < 130), nav, _pick);
+                        Social.claimPeerBout(pet, "invite", 135000);
+                        Plans.startPlan(pet, Plans.buildInvitePlayPlan(pet, o), nav, _pick);
                     }
                 });
             }
 
-            if (o.resting && o.dist < 560 && o.dist > 60 && pet.restDrive > 0.28 && pet.alertness < 0.78) {
+            if (closeProx && !o.resting && o.sinceInteract > 160000
+                    && pet.playDrive > 0.28 && p.playfulness > 0.40 && pet.alertness > 0.36) {
+                var showScore = pet.playDrive * (0.32 + p.playfulness * 0.54 + p.boldness * 0.22)
+                              * m.moodMult * m.active + (myStyle === "trickster" ? 0.16 : 0);
+                cands.push({
+                    name: "show_off",
+                    otherName: o.name,
+                    score: showScore,
+                    exec: function() {
+                        Social.claimPeerBout(pet, "show_off", 135000);
+                        Plans.startPlan(pet, Plans.buildShowOffPlan(pet, o), nav, _pick);
+                    }
+                });
+            }
+
+            if (o.resting && o.dist > 64 && o.affinity >= 0.54
+                    && pet.restDrive > 0.32 && pet.alertness < 0.72 && o.sinceInteract > 180000) {
+                var ang = Math.atan2(perc.petGY - o.gy, perc.petGX - o.gx) + (Math.random() - 0.5) * 0.6;
+                var offX = Math.round(Math.cos(ang) * 68);
+                var offY = Math.round(Math.sin(ang) * 52);
                 cands.push({
                     name: "rest_with",
                     otherName: o.name,
-                    score: pet.restDrive * (0.54 + p.sleepiness * 0.52)
-                         * (0.38 + o.affinity * 0.82) + o.familiarity * 0.12
+                    score: pet.restDrive * (0.50 + p.sleepiness * 0.52)
+                         * (0.36 + o.affinity * 0.80) + o.familiarity * 0.12
                          - _distCost(pet, o.dist),
                     exec: function() {
-                        var side = perc.petGX < o.gx ? -56 : 56;
+                        Social.claimPeerBout(pet, "nap", 135000);
                         Plans.startPlan(pet, {
                             name: "rest_with",
                             label: "Resting by " + o.name,
@@ -531,54 +609,11 @@ function _socialCandidates(pet, perc, nav, cands, m) {
                             urgency: pet.restDrive,
                             thought: "Settling down beside " + o.name,
                             steps: [
-                                { kind: "travel", gait: "amble", label: "Padding over to " + o.name, dynamic: "other_pet", offsetX: side, offsetY: 4 },
+                                { kind: "travel", gait: "amble", label: "Padding over to " + o.name, dynamic: "other_pet", offsetX: offX, offsetY: offY },
                                 { kind: "social", label: "Snuggling down", interaction: "rest" },
                                 { kind: "rest", label: "Resting together", deep: pet.restDrive > 0.70, faceOther: true }
                             ]
                         }, nav, _pick);
-                    }
-                });
-            }
-
-            if (o.dist < 220 && pet.playDrive > 0.38 && pet.alertness > 0.40
-                    && o.sinceInteract > 30000 && !Memory.recent(pet, "pounced", 95000)) {
-                var pool = _attackPool(pet);
-                if (pool.length > 0) {
-                    var pounceScore = pet.playDrive * (0.48 + p.playfulness * 0.65)
-                                    * (0.3 + o.affinity * 0.85) * (0.55 + p.boldness * 0.5)
-                                    * m.moodMult * m.active
-                                    - (o.resting ? 0.42 + p.patience * 0.35 : 0);
-                    cands.push({
-                        name: "pounce",
-                        otherName: o.name,
-                        score: pounceScore,
-                        exec: function() {
-                            Plans.startPlan(pet, {
-                                name: "pounce",
-                                label: "Play-Pouncing " + o.name,
-                                reason: "Mischievous pounce on " + o.name,
-                                otherName: o.name,
-                                urgency: pet.playDrive,
-                                durationMs: 20000,
-                                steps: [
-                                    { kind: "social", label: "Ambushing!", interaction: "pounce" },
-                                    { kind: "act", label: "Pouncing!", states: pool, faceOther: true }
-                                ]
-                            }, nav, _pick);
-                        }
-                    });
-                }
-            }
-
-            if (o.dist < 92 && o.affinity < 0.44 && p.patience < 0.58) {
-                cands.push({
-                    name: "move_away",
-                    otherName: o.name,
-                    score: (0.46 - o.affinity) * (1 - p.patience) * 1.35,
-                    exec: function() {
-                        Social.annoy(pet, o.pet);
-                        Plans.clearPlan(pet);
-                        nav.fleeFrom(pet, o.gx, o.gy, 200 + Math.random() * 140);
                     }
                 });
             }
@@ -601,7 +636,7 @@ function _attendToSomething(pet, perc) {
     if (perc.cursor.onMyScreen && perc.cursor.dist < 620 && perc.cursor.active) {
         pet.attentionGX = perc.cursor.gx;
         pet.attentionGY = perc.cursor.gy;
-    } else if (perc.nearest && perc.nearest.dist < 720) {
+    } else if (perc.nearest && perc.nearest.playing && perc.nearest.dist > 135 && perc.nearest.dist < 520) {
         pet.attentionGX = perc.nearest.gx;
         pet.attentionGY = perc.nearest.gy;
     } else if (perc.win && perc.win.onMyScreen) {
@@ -611,7 +646,7 @@ function _attendToSomething(pet, perc) {
         pet.attentionUntil = 0;
         return;
     }
-    pet.attentionUntil = now + 8000 + Math.random() * 8000;
+    pet.attentionUntil = now + 7000 + Math.random() * 6000;
 }
 
 function _faceGlobal(pet, gx, gy) {
@@ -1115,13 +1150,134 @@ function onEvent(pet, type, data, nav) {
         break;
     }
 
+    case "pet_play_bid": {
+        var fromPb = data.fromPet;
+        var isRetry = !!(data && data.retry);
+        var relPb = Memory.relationWith(pet, fromPb.petData.name, fromPb.personality, fromPb.petData.sprite);
+        var myStylePb = SpeciesProfile.socialStyleOf(pet);
+        var willingness = relPb.affinity * 0.52
+                        + p.playfulness * 0.30
+                        + p.sociability * 0.16
+                        + pet.playDrive * 0.20
+                        + (pet.mood - 0.5) * 0.16
+                        - (pet.state_ === "deepsleep" ? 0.65 : loafing ? 0.26 : 0)
+                        - p.sleepiness * 0.14
+                        - (myStylePb === "parallel" && p.playfulness < 0.45 ? 0.12 : 0)
+                        + (isRetry && p.patience > 0.58 && relPb.affinity > 0.36 ? 0.18 : 0)
+                        - (isRetry && p.patience < 0.44 ? 0.22 : 0);
+
+        var shouldRebuff = pet.state_ !== "deepsleep"
+                        && (relPb.affinity < 0.28
+                            || (relPb.affinity < 0.38 && p.patience < 0.30)
+                            || (isRetry && p.patience < 0.42)
+                            || (loafing && p.patience < 0.34));
+
+        if (willingness >= 0.50 && !shouldRebuff && pet.state_ !== "deepsleep" && nav) {
+            var mode = Social.preferredPlayMode(fromPb, pet);
+            if (fromPb.activePlan) {
+                fromPb.activePlan.bidOutcome = "accepted";
+                fromPb.activePlan.bidPlayMode = mode;
+            }
+            Social.markPeerBout(pet, mode);
+            Memory.adjustRelation(pet, fromPb.petData.name, isRetry ? 0.024 : 0.016, 0.06, mode === "spar" ? "spar" : "play", { outcome: mode });
+            Memory.recordEpisode(pet, mode === "spar" ? "sparred" : "played_with", { valence: 0.46, withPet: fromPb.petData.name });
+            pet.playDrive = Math.max(0, pet.playDrive - 0.18);
+            pet.mood = Drives.clamp01(pet.mood + 0.06);
+            if (mode === "spar") {
+                Plans.startPlan(pet, Plans.buildSparPartnerPlan(pet, fromPb), nav, _pick);
+            } else if (mode === "duet") {
+                Plans.startPlan(pet, Plans.buildSyncDancePlan(pet, fromPb.petData.name), nav, _pick);
+            } else {
+                Plans.clearPlan(pet);
+                _faceGlobal(pet, fromPb.screenX() + fromPb.worldX, fromPb.screenY() + fromPb.worldY);
+                pet.enterState(_pick(pet, ["hop", "nod"]));
+            }
+        } else if (shouldRebuff) {
+            if (fromPb.activePlan) fromPb.activePlan.bidOutcome = "rebuffed";
+            Social.rebuff(pet, fromPb);
+            Plans.clearPlan(pet);
+            if (loafing) {
+                pet.enterState(SpeciesProfile.wakeStateFor(pet));
+            } else {
+                _faceGlobal(pet, fromPb.screenX() + fromPb.worldX, fromPb.screenY() + fromPb.worldY);
+                pet.enterState(_pick(pet, SpeciesProfile.standoffMovesFor(pet)));
+            }
+        } else {
+            if (fromPb.activePlan) fromPb.activePlan.bidOutcome = "ignored";
+            Memory.adjustRelation(pet, fromPb.petData.name, -0.004, 0.02, null, { outcome: "ignored" });
+            Memory.thinkAloud(pet, "cold_shoulder", "Gave " + fromPb.petData.name + "'s play invitation the cold shoulder");
+            if (!resting && nav) {
+                Plans.startPlan(pet, {
+                    name: "cold_shoulder",
+                    label: "Aloof Turn",
+                    reason: "Not in the mood to play with " + fromPb.petData.name,
+                    otherName: fromPb.petData.name,
+                    urgency: 0.55,
+                    durationMs: 12000,
+                    steps: [
+                        { kind: "face_away", otherName: fromPb.petData.name, label: "Turning away aloofly" }
+                    ]
+                }, nav, _pick);
+            }
+        }
+        break;
+    }
+
+    case "pet_spar_challenge": {
+        var fromCh = data.fromPet;
+        var relCh = Memory.relationWith(pet, fromCh.petData.name, fromCh.personality, fromCh.petData.sprite);
+        var myStyleCh = SpeciesProfile.socialStyleOf(pet);
+        var sparAcceptScore = relCh.affinity * 0.36 + relCh.respect * 0.22
+                            + p.boldness * 0.30 + p.playfulness * 0.26
+                            + (myStyleCh === "brawler" ? 0.18 : 0)
+                            - (resting ? 0.45 : 0);
+        if (sparAcceptScore >= 0.52 && !resting && nav) {
+            if (fromCh.activePlan) fromCh.activePlan.sparAccepted = true;
+            Social.markPeerBout(pet, "spar");
+            Plans.startPlan(pet, Plans.buildSparPartnerPlan(pet, fromCh), nav, _pick);
+        } else if (p.boldness < 0.34 && !resting && nav) {
+            if (fromCh.activePlan) fromCh.activePlan.sparAccepted = false;
+            Memory.adjustRelation(pet, fromCh.petData.name, -0.015, 0.03, "friction", { outcome: "ignored" });
+            Memory.thinkAloud(pet, "shy_spar", "Backed away shyly from " + fromCh.petData.name + "'s sparring stance");
+            Plans.clearPlan(pet);
+            pet.gait = "scamper";
+            nav.fleeFrom(pet, fromCh.screenX() + fromCh.worldX, fromCh.screenY() + fromCh.worldY, 175);
+        } else {
+            if (fromCh.activePlan) fromCh.activePlan.sparAccepted = false;
+            if (relCh.affinity < 0.34 || p.patience < 0.35) {
+                Social.rebuff(pet, fromCh);
+            }
+            if (!resting && nav) {
+                Plans.startPlan(pet, {
+                    name: "cold_shoulder",
+                    label: "Declining Spar",
+                    otherName: fromCh.petData.name,
+                    durationMs: 12000,
+                    steps: [{ kind: "face_away", otherName: fromCh.petData.name, label: "Turning away" }]
+                }, nav, _pick);
+            }
+        }
+        break;
+    }
+
+    case "pet_spar_hit": {
+        var fromSh = data.fromPet;
+        Memory.adjustRelation(pet, fromSh.petData.name, 0.016, 0.06, "spar", { respectDelta: 0.04, outcome: "spar" });
+        Memory.recordEpisode(pet, "sparred", { valence: 0.48, salience: 0.65, withPet: fromSh.petData.name });
+        pet.playDrive = Math.max(0, pet.playDrive - 0.20);
+        pet.mood = Drives.clamp01(pet.mood + 0.06);
+        Drives.happier(pet, 0.025);
+        break;
+    }
+
     case "pet_invite":
     case "pet_chase": {
         var fromI = data.fromPet;
-        var rel = Memory.relationWith(pet, fromI.petData.name, fromI.personality);
+        var rel = Memory.relationWith(pet, fromI.petData.name, fromI.personality, fromI.petData.sprite);
         Drives.eventful(pet, 0.3);
         if (rel.affinity > 0.34 && pet.alertness > 0.24 && !resting && pet.playDrive > 0.12) {
-            Memory.adjustRelation(pet, fromI.petData.name, 0.014, 0.05, "play");
+            Social.markPeerBout(pet, "chase");
+            Memory.adjustRelation(pet, fromI.petData.name, 0.014, 0.05, "play", { outcome: "tag" });
             Memory.recordEpisode(pet, type === "pet_chase" ? "chase_bout" : "played_with", {
                 valence: 0.45,
                 withPet: fromI.petData.name
@@ -1129,14 +1285,140 @@ function onEvent(pet, type, data, nav) {
             pet.playDrive = Math.max(0, pet.playDrive - 0.14);
             pet.mood = Drives.clamp01(pet.mood + 0.06);
             if (type === "pet_chase" && nav) {
-                Plans.startPlan(pet, Plans.buildFleeTagPlan(pet, fromI), nav, _pick);
+                Plans.startPlan(pet, Plans.buildFleeTagPlan(pet, fromI, true), nav, _pick);
             } else {
                 _faceGlobal(pet, fromI.screenX() + fromI.worldX, fromI.screenY() + fromI.worldY);
                 pet.enterState(_pick(pet, SpeciesProfile.greetGesturesFor(pet).concat(["hop"])));
             }
-        } else if (rel.affinity < 0.3 || p.patience < 0.25) {
-            Memory.adjustRelation(pet, fromI.petData.name, -0.01, 0.02, "friction");
-            if (!resting) pet.enterState(_pick(pet, ["cringe", "nod"]));
+        } else {
+            if (fromI.activePlan) fromI.activePlan.chaseRejected = true;
+            if (rel.affinity < 0.32 || p.patience < 0.28) {
+                Social.rebuff(pet, fromI);
+            } else {
+                Memory.adjustRelation(pet, fromI.petData.name, -0.008, 0.02, "friction");
+                if (!resting && nav) {
+                    Plans.startPlan(pet, {
+                        name: "cold_shoulder",
+                        label: "Ignoring Tag",
+                        otherName: fromI.petData.name,
+                        durationMs: 10000,
+                        steps: [{ kind: "face_away", otherName: fromI.petData.name, label: "Turning away" }]
+                    }, nav, _pick);
+                }
+            }
+        }
+        break;
+    }
+
+    case "pet_reverse_chase": {
+        var fromRev = data.fromPet;
+        if (!resting && nav) {
+            Memory.adjustRelation(pet, fromRev.petData.name, 0.014, 0.04, "play", { outcome: "tag" });
+            Plans.startPlan(pet, Plans.buildReverseFleePlan(pet, fromRev), nav, _pick);
+        }
+        break;
+    }
+
+    case "pet_show_off": {
+        var fromShow = data.fromPet;
+        if (resting) break;
+        var relShow = Memory.relationWith(pet, fromShow.petData.name, fromShow.personality, fromShow.petData.sprite);
+        if (relShow.affinity >= 0.50 && p.playfulness > 0.44 && pet.playDrive > 0.18 && nav) {
+            Social.markPeerBout(pet, "duet");
+            Memory.adjustRelation(pet, fromShow.petData.name, 0.016, 0.05, "play", { outcome: "duet" });
+            Plans.startPlan(pet, Plans.buildSyncDancePlan(pet, fromShow.petData.name), nav, _pick);
+        } else if (relShow.affinity < 0.36 && nav) {
+            Memory.adjustRelation(pet, fromShow.petData.name, -0.006, 0.02, null, {
+                respectDelta: fromShow.personality.boldness > 0.6 ? 0.01 : -0.01
+            });
+            Memory.thinkAloud(pet, "unimpressed", "Looked away unimpressed by " + fromShow.petData.name);
+            Plans.startPlan(pet, {
+                name: "cold_shoulder",
+                label: "Unimpressed",
+                otherName: fromShow.petData.name,
+                durationMs: 10000,
+                steps: [{ kind: "face_away", otherName: fromShow.petData.name, label: "Looking away" }]
+            }, nav, _pick);
+        } else if (p.boldness < 0.26 && pet.state_ === "idle") {
+            pet.enterState(_pick(pet, ["hop", "cringe"]));
+        } else if (pet.state_ === "idle") {
+            Memory.adjustRelation(pet, fromShow.petData.name, 0.008, 0.03);
+            _faceGlobal(pet, fromShow.screenX() + fromShow.worldX, fromShow.screenY() + fromShow.worldY);
+            pet.enterState(_pick(pet, SpeciesProfile.greetGesturesFor(pet)));
+        }
+        break;
+    }
+
+    case "pet_squabble": {
+        var fromSq = data.fromPet;
+        Social.markPeerBout(pet, "squabble");
+        Memory.adjustRelation(pet, fromSq.petData.name, -0.026, 0.04, "friction", {
+            respectDelta: p.boldness > 0.52 ? 0.015 : -0.01,
+            outcome: "squabble"
+        });
+        Memory.recordEpisode(pet, "squabbled", { valence: -0.36, salience: 0.58, withPet: fromSq.petData.name });
+        pet.mood = Math.max(0, pet.mood - 0.05);
+        if (p.boldness >= 0.48 && p.patience < 0.62 && !resting && nav) {
+            if (pet.emitEmote) pet.emitEmote("💢");
+            Plans.startPlan(pet, Plans.buildSquabbleReplyPlan(pet, fromSq), nav, _pick);
+        } else if (nav) {
+            Plans.clearPlan(pet);
+            if (resting) pet.enterState(SpeciesProfile.wakeStateFor(pet));
+            else nav.fleeFrom(pet, fromSq.screenX() + fromSq.worldX, fromSq.screenY() + fromSq.worldY, 185);
+        }
+        break;
+    }
+
+    case "pet_mediated": {
+        var peacekeeper = data.fromPet;
+        var otherSq = data.otherSquabbler;
+        Memory.adjustRelation(pet, peacekeeper.petData.name, 0.012, 0.04, null, { respectDelta: 0.06, outcome: "greet" });
+        if (otherSq) Memory.adjustRelation(pet, otherSq.petData.name, 0.008, 0.01);
+        Memory.thinkAloud(pet, "calmed_by", "Cooled down when " + peacekeeper.petData.name + " stepped in");
+        if (nav) {
+            var sepTarget = otherSq ? otherSq.petData.name : peacekeeper.petData.name;
+            Plans.startPlan(pet, {
+                name: "cooled_off",
+                label: "Cooling Off",
+                otherName: sepTarget,
+                urgency: 0.68,
+                durationMs: 22000,
+                steps: [
+                    { kind: "act", label: "Cooling down", states: ["nod"] },
+                    { kind: "wander_apart", otherName: sepTarget, dist: 175, gait: "amble", label: "Giving space" }
+                ]
+            }, nav, _pick);
+        }
+        break;
+    }
+
+    case "pet_group_squabble": {
+        if (resting || Plans.hasActivePlan(pet) || !nav) break;
+        var gStyle = SpeciesProfile.socialStyleOf(pet);
+        if ((gStyle === "guardian" || (p.composure >= 0.60 && p.boldness >= 0.50)) && data.secondPet) {
+            Social.markPeerBout(pet, "mediate");
+            Plans.startPlan(pet, Plans.buildPeacekeeperPlan(pet, data.fromPet, data.secondPet), nav, _pick);
+        } else if (p.boldness < 0.32) {
+            nav.fleeFrom(pet, data.fromPet.screenX() + data.fromPet.worldX, data.fromPet.screenY() + data.fromPet.worldY, 165);
+        }
+        break;
+    }
+
+    case "pet_group_chase":
+    case "pet_group_duet": {
+        if (resting || Plans.hasActivePlan(pet) || !nav) break;
+        if (p.playfulness >= 0.56 && pet.playDrive >= 0.28 && pet.alertness >= 0.38
+                && !_cooldown(pet, "pack_rally", 240000)) {
+            Social.markPeerBout(pet, "chase");
+            Plans.startPlan(pet, Plans.buildPackRallyPlan(pet, data.fromPet), nav, _pick);
+        }
+        break;
+    }
+
+    case "pet_group_spar": {
+        if (resting || Plans.hasActivePlan(pet) || !nav) break;
+        if ((p.curiosity >= 0.45 || p.patience >= 0.50) && !_cooldown(pet, "spectate", 180000)) {
+            Plans.startPlan(pet, Plans.buildSpectatePlan(pet, data.fromPet), nav, _pick);
         }
         break;
     }
@@ -1192,11 +1474,29 @@ function onEvent(pet, type, data, nav) {
     case "pet_rebuff":
     case "pet_annoy": {
         var fromR = data.fromPet;
-        Memory.adjustRelation(pet, fromR.petData.name, -0.015, 0.025, "friction");
+        Memory.adjustRelation(pet, fromR.petData.name, -0.015, 0.025, "friction", { outcome: "rebuffed" });
         Memory.recordEpisode(pet, "rebuffed", { valence: -0.35, withPet: fromR.petData.name });
         pet.mood = Math.max(0, pet.mood - 0.04);
-        Plans.clearPlan(pet);
-        if (pet.state_ === "idle") pet.enterState(_pick(pet, ["cringe", "nod"]));
+        var activeName = pet.activePlan ? pet.activePlan.name : "";
+        if (activeName === "invite_play" || activeName === "spar_bout" || activeName === "play_tag") {
+            break;
+        }
+        if (nav && !resting) {
+            Plans.startPlan(pet, {
+                name: "backed_off",
+                label: "Giving Space",
+                otherName: fromR.petData.name,
+                urgency: 0.62,
+                durationMs: 18000,
+                steps: [
+                    { kind: "act", label: "Startled back", states: ["cringe", "nod"] },
+                    { kind: "wander_apart", dist: 155, gait: "trot", label: "Stepping away" }
+                ]
+            }, nav, _pick);
+        } else {
+            Plans.clearPlan(pet);
+            if (pet.state_ === "idle") pet.enterState(_pick(pet, ["cringe", "nod"]));
+        }
         break;
     }
 
@@ -1238,11 +1538,18 @@ function ambientGlanceRow(pet, currentRow) {
     if (perc.cursor.onMyScreen && perc.cursor.active && perc.cursor.speed > 75 && perc.cursor.dist < 560 && Math.random() < 0.55) {
         return _angleToRow(Math.atan2(perc.cursor.gy - perc.petGY, perc.cursor.gx - perc.petGX));
     }
-    if (perc.nearest && perc.nearest.sameScreen && perc.nearest.dist < 420 && perc.nearest.attending && Math.random() < 0.38) {
-        return _angleToRow(Math.atan2(perc.nearest.attentionGY - perc.petGY, perc.nearest.attentionGX - perc.petGX));
-    }
-    if (perc.nearest && perc.nearest.sameScreen && perc.nearest.dist < 560 && Math.random() < 0.32) {
-        return _angleToRow(Math.atan2(perc.nearest.gy - perc.petGY, perc.nearest.gx - perc.petGX));
+    if (perc.nearest && perc.nearest.sameScreen && perc.nearest.dist < 140) {
+        if (Math.random() < (perc.nearest.affinity < 0.40 ? 0.72 : 0.45)) {
+            var awayPeer = Math.atan2(perc.petGY - perc.nearest.gy, perc.petGX - perc.nearest.gx) + (Math.random() - 0.5) * 0.9;
+            return _angleToRow(awayPeer);
+        }
+    } else if (perc.nearest && perc.nearest.sameScreen && perc.nearest.dist < 480 && perc.nearest.affinity >= 0.38) {
+        if (perc.nearest.attending && Math.random() < 0.18) {
+            return _angleToRow(Math.atan2(perc.nearest.attentionGY - perc.petGY, perc.nearest.attentionGX - perc.petGX));
+        }
+        if (Math.random() < 0.12) {
+            return _angleToRow(Math.atan2(perc.nearest.gy - perc.petGY, perc.nearest.gx - perc.petGX));
+        }
     }
     if (perc.cursor.onMyScreen && perc.cursor.active && perc.cursor.dist < 500 && Math.random() < 0.28) {
         return _angleToRow(Math.atan2(perc.cursor.gy - perc.petGY, perc.cursor.gx - perc.petGX));
@@ -1290,6 +1597,18 @@ function fidget(pet) {
 
 function idleMicroAction(pet) {
     var p = pet.personality;
+    var perc = Perception.perceive(pet);
+    if (pet.state_ === "idle" && perc.nearest && perc.nearest.sameScreen
+            && (perc.nearest.dist < 115 || (perc.nearest.dist < 190 && perc.nearest.affinity < 0.38))
+            && Math.random() < 0.58) {
+        var away = Math.atan2(perc.petGY - perc.nearest.gy, perc.petGX - perc.nearest.gx) + (Math.random() - 0.5) * 1.0;
+        return {
+            kind: "potter",
+            angle: away,
+            durationMs: Math.round(1150 + Math.random() * 1200)
+        };
+    }
+
     if (pet.state_ === "idle" && (p.sleepiness > 0.58 || pet.restDrive > 0.42) && Math.random() < 0.14) {
         return { kind: "loaf" };
     }

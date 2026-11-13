@@ -1,3 +1,4 @@
+.import "../SpeciesProfile.js" as SpeciesProfile
 .import "Memory.js" as Memory
 .import "Topology.js" as Topology
 
@@ -154,17 +155,28 @@ function perceive(pet) {
         if (reachable.length > 1 && !Topology.screenAt(reachable, ogx + (o.width || 64) * 0.5, ogy + (o.height || 64) * 0.5)) {
             continue;
         }
-        var rel = Memory.relationWith(pet, o.petData.name, o.personality);
+        var rel = Memory.relationWith(pet, o.petData.name, o.personality, o.petData.sprite);
         var oPlan = o.activePlan ? o.activePlan.name : "";
+        var busySocial = oPlan === "spar_bout" || oPlan === "spar_partner"
+                      || oPlan === "play_tag" || oPlan === "flee_tag" || oPlan === "reverse_tag"
+                      || oPlan === "squabble" || oPlan === "squabble_reply"
+                      || oPlan === "invite_play" || oPlan === "sync_dance"
+                      || oPlan === "peacekeeper" || oPlan === "retire_to_pen";
         others.push({
             pet: o,
             name: o.petData.name,
+            species: o.petData.sprite || "",
+            socialStyle: SpeciesProfile.socialStyleOf(o),
             gx: ogx,
             gy: ogy,
             dist: dist,
             state: o.state_,
+            activePlanName: oPlan,
+            busySocial: busySocial,
             resting: o.state_ === "loaf" || o.state_ === "sit" || o.state_ === "deepsleep",
-            playing: o.state_ === "zoomies" || oPlan === "play_tag" || oPlan === "flee_tag" || oPlan === "social_play",
+            playing: o.state_ === "zoomies" || oPlan === "play_tag" || oPlan === "flee_tag"
+                  || oPlan === "reverse_tag" || oPlan === "spar_bout" || oPlan === "spar_partner"
+                  || oPlan === "sync_dance",
             grooving: oPlan === "music_groove",
             attending: (o.attentionUntil || 0) > now,
             attentionGX: o.attentionGX || 0,
@@ -173,6 +185,10 @@ function perceive(pet) {
             sameScreen: o.screenX() === sx && o.screenY() === sy,
             affinity: rel.affinity,
             familiarity: rel.familiarity,
+            respect: rel.respect !== undefined ? rel.respect : 0.5,
+            sparCount: rel.sparCount || 0,
+            unrequitedCount: rel.unrequitedCount || 0,
+            friction: rel.friction || 0,
             sinceInteract: now - (rel.lastInteract || 0)
         });
     }

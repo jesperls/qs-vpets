@@ -112,21 +112,38 @@ function integrateResident(rec, dtSec, penMates, env, nowMs) {
     }
     rec.archetype = nextTitle;
 
-    // Occasional social camaraderie among companions sharing the Sanctuary pen.
-    if (penMates && penMates.length > 0 && Math.random() < 0.09) {
+    if (penMates && penMates.length > 0 && Math.random() < 0.055) {
         var mate = penMates[Math.floor(Math.random() * penMates.length)];
         if (mate && mate.id !== rec.id && mate.name) {
             var mateTraits = Personality.compose(mate.basePersonality, mate.coreDrift, mate.recentDrift);
-            Memory.relationWith(rec, mate.name, mateTraits);
-            if (sleepingInPen) {
-                Memory.adjustRelation(rec, mate.name, 0.010, 0.025, "nap");
+            var rel = Memory.relationWith(rec, mate.name, mateTraits, mate.sprite);
+            var myStyle = SpeciesProfile.socialStyleOf(rec.sprite);
+            var mateStyle = SpeciesProfile.socialStyleOf(mate.sprite);
+            if (rel.affinity < 0.36) {
+                if (p.patience < 0.38 && !sleepingInPen) {
+                    Memory.adjustRelation(rec, mate.name, -0.008, 0.015, "friction", { outcome: "squabble" });
+                    rec.penState = "idle";
+                    rec.sanctuaryActivity = "Huffed over a sunny spot with " + mate.name;
+                } else {
+                    Memory.adjustRelation(rec, mate.name, 0.0, 0.012);
+                    rec.sanctuaryActivity = "Keeping distance from " + mate.name + " in " + prof.biome;
+                }
+            } else if (rel.affinity < 0.48) {
+                Memory.adjustRelation(rec, mate.name, 0.002, 0.016);
+                rec.sanctuaryActivity = "Sharing the shade quietly near " + mate.name;
+            } else if (sleepingInPen) {
+                Memory.adjustRelation(rec, mate.name, 0.009, 0.024, "nap");
                 rec.sanctuaryActivity = "Napping in " + prof.biome + " beside " + mate.name;
+            } else if ((myStyle === "brawler" || mateStyle === "brawler") && p.boldness > 0.50 && p.playfulness > 0.42) {
+                Memory.adjustRelation(rec, mate.name, 0.008, 0.024, "spar");
+                rec.penState = "wander";
+                rec.sanctuaryActivity = "Practicing sparring footwork with " + mate.name;
             } else if (p.playfulness > 0.48) {
-                Memory.adjustRelation(rec, mate.name, 0.010, 0.025, "play");
+                Memory.adjustRelation(rec, mate.name, 0.009, 0.024, "play");
                 rec.penState = "wander";
                 rec.sanctuaryActivity = "Playing in " + prof.biome + " with " + mate.name;
             } else {
-                Memory.adjustRelation(rec, mate.name, 0.006, 0.02);
+                Memory.adjustRelation(rec, mate.name, 0.005, 0.018);
                 rec.penState = "idle";
                 rec.sanctuaryActivity = "Hanging out peacefully with " + mate.name;
             }

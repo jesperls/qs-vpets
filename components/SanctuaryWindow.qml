@@ -1383,8 +1383,9 @@ FloatingWindow {
                                                 }
 
                                                 Text {
-                                                    text: Math.round(((sRelRow.relObj && sRelRow.relObj.affinity) || 0.5) * 100) + "%"
-                                                    color: Theme.love
+                                                    readonly property real aff: (sRelRow.relObj && sRelRow.relObj.affinity !== undefined) ? sRelRow.relObj.affinity : 0.5
+                                                    text: Math.round(aff * 100) + "%"
+                                                    color: aff < 0.35 ? Theme.danger : (aff < 0.52 ? Theme.warm : Theme.love)
                                                     font.family: Theme.fontFamily
                                                     font.pixelSize: 9
                                                 }

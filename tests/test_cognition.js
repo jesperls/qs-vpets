@@ -51,7 +51,18 @@ function createSimWorld() {
             { x: 0, y: 0, width: 2560, height: 1440, name: "DP-1" },
             { x: 2560, y: 0, width: 1920, height: 1080, name: "DP-2" }
         ],
-        petManager: { pets: [] },
+        petManager: {
+            pets: [],
+            lastSocialBoutMs: 0,
+            allowSocialBout(minGapMs = 135000) {
+                return (world.now - this.lastSocialBoutMs) >= minGapMs;
+            },
+            claimSocialBout(minGapMs = 135000) {
+                if (world.now - this.lastSocialBoutMs < minGapMs) return false;
+                this.lastSocialBoutMs = world.now;
+                return true;
+            }
+        },
         windowTracker: {
             activeWindowPos: { address: "0xabc", x: 300, y: 180, w: 1400, h: 900 },
             activeWindowClass: "kitty",
@@ -824,6 +835,275 @@ function stepNavigationSim(world, pet, maxSeconds = 120) {
     assert.equal(SpeciesProfile.trueSpeciesOf(zFox), "zorua", "True species remains zorua underneath");
     Plans.clearPlan(zFox);
     assert.equal(zFox.illusionSpecies, "", "Clearing plan cleanly drops Illusion disguise");
+}
+
+// 13. Test Social Overhaul: Species Moves, Asymmetry, Proximity Gate, Rarity, Sparring, Unrequited Play, Role-Reversal Tag, Squabbles & Peacekeeper
+{
+    // 13a. Every species's social move pools resolve directly to valid AnimData sheets
+    for (const sp of SpriteSheet.SPECIES_LIST) {
+        const xml = fs.readFileSync(path.join(rootDir, `assets/sprites/${sp}/AnimData.xml`), "utf8");
+        const anims = SpriteSheet.parseAnimData(xml).anims;
+        const dummy = { petData: { sprite: sp }, sprite: { _animData: anims, defaultMap: SpriteSheet.DEFAULT_STATE_MAP, actionMap: {} } };
+        for (const [poolName, pool] of [
+            ["sparMoves", SpeciesProfile.sparMovesFor(dummy)],
+            ["showOffMoves", SpeciesProfile.showOffMovesFor(dummy)],
+            ["dodgeMoves", SpeciesProfile.dodgeMovesFor(dummy)],
+            ["standoffMoves", SpeciesProfile.standoffMovesFor(dummy)],
+            ["dismissMoves", SpeciesProfile.dismissMovesFor(dummy)]
+        ]) {
+            assert.ok(pool.length >= 1, `${sp} has non-empty ${poolName}`);
+            for (const state of pool) {
+                const animName = SpriteSheet.DEFAULT_STATE_MAP[state];
+                assert.ok(animName && anims[animName], `${sp} ${poolName} state '${state}' -> '${animName}' exists in AnimData.xml`);
+            }
+        }
+    }
+
+    // 13b. Directional asymmetric chemistry (eager sprinter admires aloof/grumpy parallel, who finds sprinter exhausting)
+    {
+        const world = createSimWorld();
+        const eevee = createSimPet(world, "Sunny", "playful", 0, "eevee");
+        const ferro = createSimPet(world, "Thorn", "grumpy", 0, "ferrothorn");
+        const relEF = Memory.relationWith(eevee, "Thorn", ferro.personality, "ferrothorn");
+        const relFE = Memory.relationWith(ferro, "Sunny", eevee.personality, "eevee");
+        assert.ok(
+            relEF.affinity > relFE.affinity + 0.14,
+            `Directional chemistry is asymmetric: Eevee->Ferrothorn (${relEF.affinity.toFixed(2)}) > Ferrothorn->Eevee (${relFE.affinity.toFixed(2)})`
+        );
+        assert.ok(relFE.affinity < 0.36, `Grumpy Ferrothorn starts low-affinity toward rowdy Eevee (${relFE.affinity.toFixed(2)})`);
+    }
+
+    // 13c. Strict proximity spontaneity: strangers & casual friends NEVER march across screen to socialize
+    {
+        const world = createSimWorld();
+        const a = createSimPet(world, "Alpha", "playful", 0, "pikachu");
+        const b = createSimPet(world, "Beta", "playful", 0, "eevee");
+        a.worldX = 220; a.worldY = 500;
+        b.worldX = 1150; b.worldY = 500; // 930px apart on same screen
+        a.socialDrive = 0.92;
+        a.playDrive = 0.88;
+        const peerPlanNames = new Set([
+            "visit_pet", "share_story", "spar_bout", "play_tag",
+            "invite_play", "show_off", "best_friend_checkin", "rest_with"
+        ]);
+        for (let i = 0; i < 150; i++) {
+            Plans.clearPlan(a);
+            a.enterState("idle");
+            Brain.think(a, Nav);
+            if (a.activePlan) {
+                assert.ok(
+                    !peerPlanNames.has(a.activePlan.name),
+                    `Distant non-soulmate never launches cross-screen peer plan '${a.activePlan.name}'`
+                );
+            }
+        }
+
+        // Soulmates separated for > 9 min CAN do a rare check-in across screen
+        const relAB = Memory.relationWith(a, "Beta", b.personality, "eevee");
+        relAB.affinity = 0.85;
+        relAB.familiarity = 0.62;
+        relAB.lastInteract = world.now - 700_000;
+        let sawSoulmateCheckin = false;
+        for (let i = 0; i < 80 && !sawSoulmateCheckin; i++) {
+            world.petManager.lastSocialBoutMs = 0;
+            a.nextPeerSocialAt = 0;
+            Plans.clearPlan(a);
+            a.enterState("idle");
+            Brain.think(a, Nav);
+            if (a.activePlan && a.activePlan.name === "best_friend_checkin") {
+                sawSoulmateCheckin = true;
+            }
+        }
+        assert.ok(sawSoulmateCheckin, "Deeply bonded Soulmates can occasionally check in from afar");
+    }
+
+    // 13d. Rarity & scene pacing: 6-hour 3-pet simulation keeps peer socializing rare (< 14% of plans)
+    {
+        const world = createSimWorld();
+        const p1 = createSimPet(world, "Mochi", "playful", 0, "zorua");
+        const p2 = createSimPet(world, "Spark", "energetic", 0, "pikachu");
+        const p3 = createSimPet(world, "Hoot", "chill", 0, "rowlet");
+        p1.worldX = 480; p2.worldX = 590; p3.worldX = 700;
+        const socialNames = new Set([
+            "spar_bout", "play_tag", "invite_play", "show_off",
+            "squabble", "best_friend_checkin", "rest_with", "illusion_prank"
+        ]);
+        const beatKinds = new Set(["observe", "perch", "wait_bid", "watch_north", "loaf_watch"]);
+        let totalDecisions = 0;
+        let socialInitiations = 0;
+
+        for (let tick = 0; tick < 360; tick++) { // 360 * 60s = 6 hours
+            advanceTime(world, 60);
+            for (const pet of [p1, p2, p3]) {
+                const cur = Plans.currentStep(pet);
+                if (!pet.activePlan && (pet.state_ === "loaf" || pet.state_ === "sit" || pet.state_ === "deepsleep")) {
+                    Brain.restTick(pet);
+                } else if (pet.onJourney) {
+                    pet.worldX = Math.max(0, Math.min(pet.screenW() - pet.width, pet.targetGX - pet.screenX()));
+                    pet.worldY = Math.max(0, Math.min(pet.screenH() - pet.height, pet.targetGY - pet.screenY()));
+                    Nav.walkArrived(pet);
+                } else if (cur && beatKinds.has(cur.kind)) {
+                    Brain.onPlanBeat(pet, Nav);
+                } else if (pet.state_ !== "idle" && pet.state_ !== "perch" && pet.state_ !== "sitNorth") {
+                    Brain.onActionFinished(pet, Nav);
+                } else {
+                    totalDecisions++;
+                    Brain.think(pet, Nav);
+                    if (pet.activePlan && socialNames.has(pet.activePlan.name)) {
+                        socialInitiations++;
+                    }
+                }
+            }
+        }
+        const socialRatio = socialInitiations / Math.max(1, totalDecisions);
+        assert.ok(
+            socialRatio < 0.14,
+            `Peer socializing stays rare & un-spammed over 6h (${socialInitiations}/${totalDecisions} = ${(socialRatio * 100).toFixed(1)}%)`
+        );
+    }
+
+    // Helper to step two or three pets through active plans until all finish
+    function runPlansToCompletion(world, pets, maxTicks = 60) {
+        const beatKinds = new Set(["observe", "perch", "wait_bid", "watch_north", "loaf_watch"]);
+        for (let t = 0; t < maxTicks && pets.some(p => p.activePlan || p.onJourney || p.state_ !== "idle"); t++) {
+            for (const p of pets) {
+                const step = Plans.currentStep(p);
+                if (p.onJourney) {
+                    p.worldX = Math.max(0, Math.min(p.screenW() - p.width, p.targetGX - p.screenX()));
+                    p.worldY = Math.max(0, Math.min(p.screenH() - p.height, p.targetGY - p.screenY()));
+                    Nav.walkArrived(p);
+                } else if (step && beatKinds.has(step.kind)) {
+                    Brain.onPlanBeat(p, Nav);
+                } else if (p.state_ !== "idle") {
+                    Brain.onActionFinished(p, Nav);
+                }
+            }
+        }
+    }
+
+    // 13e. Choreographed sparring bout -> Sparring Rivals milestone & post-bout dispersal (zero staring)
+    {
+        const world = createSimWorld();
+        const riolu = createSimPet(world, "Aura", "brave", 0, "riolu");
+        const ape = createSimPet(world, "Blaze", "energetic", 0, "infernape");
+        riolu.basePersonality.boldness = 0.78;
+        ape.basePersonality.boldness = 0.74;
+        ape.basePersonality.playfulness = 0.68;
+        for (let round = 0; round < 3; round++) {
+            riolu.worldX = 500; riolu.worldY = 500;
+            ape.worldX = 610; ape.worldY = 515;
+            Plans.startPlan(riolu, Plans.buildSparBoutPlan(riolu, "Blaze", true, false), Nav, Brain._pick);
+            Brain.onActionFinished(riolu, Nav); // stance finishes -> spar_challenge -> Blaze joins as spar_partner!
+            if (round === 0) {
+                assert.equal(ape.activePlan && ape.activePlan.name, "spar_partner", "Brawler companion accepts sparring challenge");
+            }
+            runPlansToCompletion(world, [riolu, ape]);
+        }
+        const relRA = Memory.relationWith(riolu, "Blaze");
+        relRA.familiarity = Math.max(0.25, relRA.familiarity);
+        assert.ok(relRA.sparCount >= 3 && relRA.respect > 0.55, "Sparring builds sparCount and mutual respect");
+        assert.equal(Personality.relationshipTag(relRA), "Sparring Rivals", "Repeated sparring earns 'Sparring Rivals' tag");
+        const postDist = Math.hypot(riolu.worldX - ape.worldX, riolu.worldY - ape.worldY);
+        assert.ok(postDist >= 135, `Post-spar wander_apart separates pets (${Math.round(postDist)}px) instead of staring`);
+        assert.equal(riolu.attentionUntil, 0, "Attention lock cleared after social bout");
+    }
+
+    // 13f. Unrequited play: eager playful pet gets cold-shouldered / brushed off, retries via circle_front, earns 'Eager Admirer'
+    {
+        const world = createSimWorld();
+        const pup = createSimPet(world, "Pip", "playful", 0, "eevee");
+        const aloof = createSimPet(world, " Bastion", "chill", 0, "ferrothorn");
+        aloof.petData.name = "Bastion";
+        pup.basePersonality.boldness = 0.68;
+        pup.basePersonality.playfulness = 0.88;
+        aloof.basePersonality.playfulness = 0.14;
+        aloof.basePersonality.patience = 0.52;
+        aloof.playDrive = 0.05;
+
+        const relPB = Memory.relationWith(pup, "Bastion", aloof.personality, "ferrothorn");
+        relPB.affinity = 0.62;
+        const relBP = Memory.relationWith(aloof, "Pip", pup.personality, "eevee");
+        relBP.affinity = 0.34; // low enough to ignore, high enough with patience=0.52 not to instant-rebuff
+
+        for (let attempt = 0; attempt < 2; attempt++) {
+            pup.worldX = 500; pup.worldY = 500;
+            aloof.worldX = 585; aloof.worldY = 510;
+            const oEntry = Perception.perceive(pup).nearest;
+            Plans.startPlan(pup, Plans.buildInvitePlayPlan(pup, oEntry), Nav, Brain._pick);
+            Brain.onActionFinished(pup, Nav); // finishes play-bow -> triggers play_bid -> Bastion ignores!
+            assert.equal(pup.activePlan.bidOutcome, "ignored", "Aloof Ferrothorn gives eager Eevee the cold shoulder");
+            assert.equal(aloof.activePlan && aloof.activePlan.name, "cold_shoulder", "Aloof Ferrothorn turns its back");
+            Brain.onPlanBeat(pup, Nav); // branch_social_bid -> bold playful Pip hops around in circle_front!
+            assert.equal(Plans.currentStep(pup).maneuver, "circle_front", "Persistent playful pet hops around into aloof pet's view");
+            runPlansToCompletion(world, [pup, aloof]);
+        }
+
+        assert.ok(relPB.unrequitedCount >= 2, `Tracks unrequited play invitations (${relPB.unrequitedCount})`);
+        assert.equal(Personality.relationshipTag(relPB), "Eager Admirer", "One-sided playful devotion becomes 'Eager Admirer'");
+        assert.ok(pup.episodes.some(e => e.type === "unrequited_play"), "Records unrequited_play episode");
+    }
+
+    // 13g. Tag role reversal ('reverse_chase' -> 'reverse_tag')
+    {
+        const world = createSimWorld();
+        const pika = createSimPet(world, "Volt", "energetic", 0, "pikachu");
+        const cat = createSimPet(world, "Clover", "playful", 0, "sprigatito");
+        cat.basePersonality.energy = 0.72;
+        cat.basePersonality.playfulness = 0.82;
+        pika.worldX = 500; pika.worldY = 500;
+        cat.worldX = 575; cat.worldY = 510;
+        Memory.adjustRelation(pika, "Clover", 0.2, 0.2);
+        Memory.adjustRelation(cat, "Volt", 0.2, 0.2);
+
+        Plans.startPlan(pika, Plans.buildPlayTagPlan({ name: "Clover" }, true, pika), Nav, Brain._pick);
+        Brain.onActionFinished(pika, Nav); // triggers chase -> Clover enters flee_tag with reverse_chase!
+        assert.equal(cat.activePlan.name, "flee_tag");
+        // Advance Clover through leg 1 & leg 2 -> whirl around -> reverse_chase!
+        for (let leg = 0; leg < 2; leg++) {
+            cat.worldX = cat.targetGX; cat.worldY = cat.targetGY;
+            Nav.walkArrived(cat);
+        }
+        assert.ok(["hop", "twirl", "rotate"].includes(cat.state_), "Chased pet whirls around before tagging back");
+        Brain.onActionFinished(cat, Nav); // fires reverse_chase -> Volt enters reverse_tag!
+        assert.equal(pika.activePlan && pika.activePlan.name, "reverse_tag", "Original chaser now flees in role-reversed tag!");
+        runPlansToCompletion(world, [pika, cat]);
+        assert.ok(Math.hypot(pika.worldX - cat.worldX, pika.worldY - cat.worldY) >= 135, "Tag players disperse cleanly after bout");
+    }
+
+    // 13h. Personal-space squabble & 3rd-pet Guardian Peacekeeper intervention
+    {
+        const world = createSimWorld();
+        const gengar = createSimPet(world, "Hex", "brave", 0, "gengar");
+        const charizard = createSimPet(world, "Pyre", "brave", 0, "charizard");
+        const umbreon = createSimPet(world, "Luna", "nocturnal", 0, "umbreon");
+        gengar.worldX = 600; gengar.worldY = 520;
+        charizard.worldX = 685; charizard.worldY = 530;
+        umbreon.worldX = 880; umbreon.worldY = 560; // 240px from midpoint, composed guardian bystander
+
+        Memory.relationWith(gengar, "Pyre").affinity = 0.22;
+        Memory.relationWith(charizard, "Hex").affinity = 0.22;
+        charizard.basePersonality.boldness = 0.76;
+        charizard.basePersonality.patience = 0.28;
+
+        const targetEntry = Perception.perceive(gengar).others.find(o => o.name === "Pyre");
+        Plans.startPlan(gengar, Plans.buildSquabblePlan(gengar, targetEntry), Nav, Brain._pick);
+        Brain.onActionFinished(gengar, Nav); // bristle finishes -> squabble fires -> Pyre stands ground AND Luna intervenes!
+        assert.equal(charizard.activePlan && charizard.activePlan.name, "squabble_reply", "Bold rival stands ground in squabble");
+        assert.equal(umbreon.activePlan && umbreon.activePlan.name, "peacekeeper", "Nearby Guardian Umbreon steps in as Peacekeeper");
+
+        // Step Luna to midpoint and mediate
+        umbreon.worldX = umbreon.targetGX; umbreon.worldY = umbreon.targetGY;
+        Nav.walkArrived(umbreon);
+        Brain.onActionFinished(umbreon, Nav); // commanding calm -> mediate fires!
+        assert.equal(gengar.activePlan && gengar.activePlan.name, "cooled_off", "Squabbler A cools off after Peacekeeper mediation");
+        assert.equal(charizard.activePlan && charizard.activePlan.name, "cooled_off", "Squabbler B cools off after Peacekeeper mediation");
+        assert.ok(
+            umbreon.journal.some(j => j.text.includes("Calmed a squabble between Hex and Pyre")),
+            "Peacekeeper records mediation milestone in journal"
+        );
+        runPlansToCompletion(world, [gengar, charizard, umbreon]);
+        assert.ok(Math.hypot(gengar.worldX - charizard.worldX, gengar.worldY - charizard.worldY) >= 140, "Squabblers separate after mediation");
+    }
 }
 
 console.log("All cognitive, developmental, social, Sanctuary rotation, physics, multi-monitor, species ethology, and persistence tests passed!");

@@ -71,13 +71,15 @@ function integrate(pet, perc, dt) {
     if (deep) {
         pet.socialDrive = clamp01(pet.socialDrive - 0.00008 * dt);
     } else {
-        var sr = 0.00008 + p.sociability * 0.00028 + (pet.bond || 0.3) * 0.00008;
-        if ((perc.hour >= 8 && perc.hour <= 11) || (perc.hour >= 18 && perc.hour <= 22)) sr *= 1.25;
+        var sr = 0.000055 + p.sociability * 0.00020 + (pet.bond || 0.3) * 0.00006;
+        if ((perc.hour >= 8 && perc.hour <= 11) || (perc.hour >= 18 && perc.hour <= 22)) sr *= 1.20;
         if ((watching || loafing) && perc.win && perc.win.dist < 340) sr *= 0.28;
         pet.socialDrive = clamp01(pet.socialDrive + sr * dt);
     }
-    if (perc.nearest && perc.nearest.dist < 240) {
-        pet.socialDrive = clamp01(pet.socialDrive - 0.00022 * (0.45 + perc.nearest.affinity) * dt);
+    if (perc.nearest && perc.nearest.dist < 220 && perc.nearest.affinity > 0.52) {
+        pet.socialDrive = clamp01(pet.socialDrive - 0.00018 * perc.nearest.affinity * dt);
+    } else if (perc.nearest && perc.nearest.dist < 150 && perc.nearest.affinity < 0.36 && !deep) {
+        pet.mood = clamp01(pet.mood - 0.000045 * (1 - p.patience * 0.6) * dt);
     }
 
     if (playing) {

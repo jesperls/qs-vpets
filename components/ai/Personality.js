@@ -289,22 +289,72 @@ function archetypeTitle(traits, quirks, maturity, bond) {
     return adj + " " + noun;
 }
 
-function compatibility(a, b) {
-    var playMatch = 1 - Math.abs(a.playfulness - b.playfulness);
-    var energyMatch = 1 - Math.abs(a.energy - b.energy);
-    var calmComplement = (a.composure + b.composure) * 0.5;
-    var warmth = (a.sociability + b.sociability) * 0.5;
-    var c = playMatch * 0.30 + energyMatch * 0.20 + calmComplement * 0.15 + warmth * 0.75 - 0.52;
-    return clamp(c, -1, 1);
+function socialChemistry(me, other, myStyle, otherStyle, myName, otherName) {
+    if (!me || !other) return { affinity: 0.48, respect: 0.50 };
+    var ms = myStyle || "parallel";
+    var os = otherStyle || "parallel";
+    var rowdyOther = (os === "brawler" || os === "sprinter" || os === "trickster")
+                  || other.energy > 0.68 || other.playfulness > 0.68;
+    var calmMe = ms === "parallel" || me.sleepiness > 0.60 || me.sociability < 0.34;
+
+    var playFit = 1 - Math.abs(me.playfulness - other.playfulness);
+    var energyFit = 1 - Math.abs(me.energy - other.energy);
+    var aff = 0.34
+            + me.sociability * 0.24
+            + playFit * 0.14
+            + energyFit * 0.08
+            + (other.composure - 0.5) * 0.08;
+
+    if (calmMe && rowdyOther) {
+        aff -= (1 - me.patience) * 0.22 + (1 - me.sociability) * 0.14;
+    }
+    if (me.playfulness > 0.56 && me.sociability > 0.50 && (os === "guardian" || other.boldness > 0.62 || other.composure > 0.68)) {
+        aff += 0.11;
+    }
+    if (ms === os && (ms === "sprinter" || ms === "trickster" || ms === "parallel")) {
+        aff += 0.06;
+    }
+    if (ms === "brawler" && os === "brawler") {
+        aff += (me.patience - 0.42) * 0.14;
+    }
+    if (me.boldness < 0.30 && other.boldness > 0.72 && os === "brawler") {
+        aff -= 0.10;
+    }
+    if (myName || otherName) {
+        var pairJitter = (_seeded01(_hash((myName || "a") + "->" + (otherName || "b"))) - 0.5) * 0.15;
+        aff += pairJitter;
+    }
+
+    var respect = 0.34
+                + other.boldness * 0.22
+                + other.composure * 0.22
+                + (os === "guardian" ? 0.12 : os === "brawler" ? 0.08 : 0)
+                - Math.max(0, 0.42 - other.patience) * 0.10;
+
+    return {
+        affinity: clamp(aff, 0.20, 0.70),
+        respect: clamp(respect, 0.25, 0.80)
+    };
+}
+
+function compatibility(a, b, myStyle, otherStyle) {
+    var chem = socialChemistry(a, b, myStyle, otherStyle, "", "");
+    return clamp((chem.affinity - 0.48) * 3.2, -1, 1);
 }
 
 function relationshipTag(rel) {
-    if (!rel || rel.familiarity < 0.08) return "Strangers";
+    if (!rel || rel.familiarity < 0.06) return "Strangers";
     if (rel.affinity > 0.78 && rel.familiarity > 0.45) return "Soulmates";
-    if (rel.affinity > 0.65 && rel.playCount > 4) return "Play Partners";
-    if (rel.affinity > 0.62 && rel.napCount > 2) return "Nap Buddies";
+    if ((rel.sparCount || 0) >= 3 && (rel.respect || 0.5) >= 0.52 && rel.affinity >= 0.40 && rel.affinity <= 0.78) {
+        return "Sparring Rivals";
+    }
+    if ((rel.unrequitedCount || 0) >= 2 && rel.affinity >= 0.44) return "Eager Admirer";
+    if (rel.affinity > 0.65 && (rel.playCount || 0) > 4) return "Play Partners";
+    if (rel.affinity > 0.62 && (rel.napCount || 0) > 2) return "Nap Buddies";
+    if (rel.affinity < 0.24 && (rel.friction || 0) >= 3) return "Feuding";
+    if (rel.affinity < 0.34 && rel.familiarity > 0.35 && (rel.napCount || 0) > 0) return "Grumpy Allies";
+    if (rel.affinity < 0.34) return "Dislikes";
+    if (rel.affinity < 0.42 && (rel.friction || 0) >= 1) return "Wary";
     if (rel.affinity > 0.56) return "Friends";
-    if (rel.affinity < 0.32 && rel.familiarity > 0.35 && rel.napCount > 0) return "Grumpy Allies";
-    if (rel.affinity < 0.30) return "Rivals";
     return "Acquaintances";
 }

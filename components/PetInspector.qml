@@ -467,8 +467,9 @@ Rectangle {
                     }
 
                     Text {
-                        text: Math.round(((relRow.rel && relRow.rel.affinity) || 0.5) * 100) + "%"
-                        color: Theme.love
+                        readonly property real aff: (relRow.rel && relRow.rel.affinity !== undefined) ? relRow.rel.affinity : 0.5
+                        text: Math.round(aff * 100) + "%"
+                        color: aff < 0.35 ? Theme.danger : (aff < 0.52 ? Theme.warm : Theme.love)
                         font.family: Theme.fontFamily
                         font.pixelSize: 9
                     }
