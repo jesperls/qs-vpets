@@ -1,12 +1,11 @@
+.pragma library
+
 .import "../SpeciesProfile.js" as SpeciesProfile
 .import "Memory.js" as Memory
 .import "Topology.js" as Topology
+.import "Util.js" as Util
 
 var NEARBY_PET_DIST = 8000;
-
-function _now(pet) {
-    return (pet && pet._simNow) ? pet._simNow : Date.now();
-}
 
 function screenForPoint(pet, gx, gy) {
     var screens = pet.allScreens ? pet.allScreens() : [];
@@ -14,7 +13,7 @@ function screenForPoint(pet, gx, gy) {
 }
 
 function perceive(pet) {
-    var now = _now(pet);
+    var now = Util.now(pet);
     var curScr = Topology.currentScreen(pet);
     var sx = curScr.x, sy = curScr.y;
     var sw = curScr.width, sh = curScr.height;
@@ -209,7 +208,7 @@ function perceive(pet) {
             state: o.state_,
             activePlanName: oPlan,
             busySocial: busySocial,
-            resting: o.state_ === "loaf" || o.state_ === "sit" || o.state_ === "deepsleep",
+            resting: Util.isRestingState(o.state_),
             playing: o.state_ === "zoomies" || oPlan === "play_tag" || oPlan === "flee_tag"
                   || oPlan === "reverse_tag" || oPlan === "spar_bout" || oPlan === "spar_partner"
                   || oPlan === "sync_dance",

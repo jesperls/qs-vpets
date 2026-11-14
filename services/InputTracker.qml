@@ -1,4 +1,5 @@
 pragma Singleton
+pragma ComponentBehavior: Bound
 
 import QtQuick
 import Quickshell
@@ -27,6 +28,7 @@ Singleton {
     property real _prevCursorY: 0
     property double _prevSampleMs: 0
     property bool fastTracking: false
+    property bool trackingEnabled: false
 
     property real _lastVecX: 0
     property real _lastVecY: 0
@@ -96,8 +98,8 @@ Singleton {
     }
 
     Timer {
-        interval: !root._active ? 10000 : (root.fastTracking ? 220 : 900)
-        running: root.hasHyprland
+        interval: root.fastTracking ? 220 : 1600
+        running: root.hasHyprland && root._active && root.trackingEnabled
         repeat: true
         triggeredOnStart: true
         onTriggered: if (!cursorProc.running) cursorProc.running = true
@@ -110,7 +112,6 @@ Singleton {
         timeout: Math.max(30, Config.idleTimeout)
         onIsIdleChanged: {
             if (isIdle) {
-                idleTimer.stop();
                 if (root._active) {
                     root._active = false;
                     root._idleBeganMs = Date.now();
@@ -123,20 +124,6 @@ Singleton {
         }
     }
 
-    Timer {
-        id: idleTimer
-        interval: Math.max(30, Config.idleTimeout) * 1000
-        running: true
-        onTriggered: {
-            if (root._active) {
-                root._active = false;
-                root._idleBeganMs = Date.now();
-                root.cursorSpeed = 0;
-                root.idleBegan();
-            }
-        }
-    }
-
     function registerMouseMove(): void {
         if (!root._active) {
             const awaySec = root._idleBeganMs > 0 ? Math.max(0, (Date.now() - root._idleBeganMs) / 1000) : 0;
@@ -144,7 +131,6 @@ Singleton {
             root._idleBeganMs = 0;
             root.idleEnded(awaySec);
         }
-        idleTimer.restart();
     }
 
     Connections {

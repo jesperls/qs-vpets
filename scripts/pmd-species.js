@@ -3,6 +3,7 @@
 
 const fs = require("node:fs");
 const https = require("node:https");
+const os = require("node:os");
 const path = require("node:path");
 const zlib = require("node:zlib");
 
@@ -353,11 +354,13 @@ function cleanUnusedFiles() {
 }
 
 async function loadTracker() {
-    const cacheFile = "/tmp/pmdcollab-tracker.json";
+    const cacheDir = path.join(process.env.XDG_CACHE_HOME || path.join(os.homedir(), ".cache"), "qs-vpets");
+    const cacheFile = path.join(cacheDir, "pmdcollab-tracker.json");
     if (fs.existsSync(cacheFile) && (Date.now() - fs.statSync(cacheFile).mtimeMs) < 3600_000) {
         return JSON.parse(fs.readFileSync(cacheFile, "utf8"));
     }
     const buf = await fetchBuffer(TRACKER_URL);
+    fs.mkdirSync(cacheDir, { recursive: true });
     fs.writeFileSync(cacheFile, buf);
     return JSON.parse(buf.toString("utf8"));
 }
@@ -405,7 +408,6 @@ async function importSpecies(dexIdRaw, slug) {
         fs.writeFileSync(path.join(outDir, `${sheet}-Anim.png`), pngBuf);
     }
 
-    // Remove any stale files not referenced by AnimData.xml
     const needed = new Set(["AnimData.xml", "credits.txt", ...sheets.map(s => `${s}-Anim.png`)]);
     for (const f of fs.readdirSync(outDir)) {
         if (!needed.has(f)) fs.unlinkSync(path.join(outDir, f));

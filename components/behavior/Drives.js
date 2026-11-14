@@ -1,10 +1,10 @@
+.pragma library
+
 .import "../SpeciesProfile.js" as SpeciesProfile
 .import "Personality.js" as Personality
+.import "Util.js" as Util
 
-function clamp01(v) {
-    if (!Number.isFinite(v)) return 0.5;
-    return Math.max(0, Math.min(1, v));
-}
+var clamp01 = Util.clamp01;
 
 function _relax(current, target, dt, tau) {
     if (tau <= 0) return target;

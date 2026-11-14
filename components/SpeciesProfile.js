@@ -1,3 +1,5 @@
+.pragma library
+
 .import "species/Biomes.js" as Biomes
 .import "species/Meadow.js" as Meadow
 .import "species/Woods.js" as Woods

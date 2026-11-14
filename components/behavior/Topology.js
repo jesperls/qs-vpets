@@ -1,8 +1,9 @@
-// Multi-monitor geometry, seam adjacency, and BFS portal routing across arbitrary Wayland layouts.
+.pragma library
 
 var SEAM_TOLERANCE = 56;
 
 function clamp(v, lo, hi) {
+    if (!Number.isFinite(v)) return (lo + hi) * 0.5;
     if (hi < lo) return (lo + hi) * 0.5;
     return Math.max(lo, Math.min(hi, v));
 }
@@ -49,7 +50,6 @@ function currentScreen(pet) {
     return { x: sx, y: sy, width: pet.screenW(), height: pet.screenH(), name: "", topInset: 0, bottomInset: 0 };
 }
 
-// Shared walkable border segment between screen `a` and screen `b`, or null if disjoint.
 function seamBetween(a, b, petW, petH) {
     if (!a || !b || sameScreen(a, b)) return null;
     var minOvX = Math.min(petW || 64, 32);
@@ -74,7 +74,6 @@ function seamBetween(a, b, petW, petH) {
     return null;
 }
 
-// Find adjacent monitor when pet's center crosses `dir` edge at local coordinate `localPos`.
 function adjacentScreenAt(screens, cur, dir, localPos, petSize) {
     if (!cur || !screens) return null;
     var half = (petSize || 64) * 0.5;
@@ -116,7 +115,6 @@ function reachableScreens(pet) {
     return out;
 }
 
-// Compute immediate steering waypoint, routing through shared seam bridges on T-junctions & L-layouts.
 function routeWaypoint(pet, targetGX, targetGY) {
     var pw = pet.width || 64, ph = pet.height || 64;
     var cur = currentScreen(pet);

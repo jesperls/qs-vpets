@@ -1,7 +1,9 @@
 pragma Singleton
+pragma ComponentBehavior: Bound
 
 import QtQuick
 import Quickshell
+import Quickshell.Io
 import Quickshell.Hyprland
 import Quickshell.Wayland
 
@@ -9,6 +11,19 @@ Singleton {
     id: root
 
     readonly property bool hasHyprland: (Quickshell.env("HYPRLAND_INSTANCE_SIGNATURE") || "").length > 0
+    property bool hyprlandLuaDispatch: false
+
+    readonly property var realScreens: {
+        const out = [];
+        for (let i = 0; i < Quickshell.screens.length; i++) {
+            const s = Quickshell.screens[i];
+            if (s && s.width > 100 && s.height > 100 && !s.name.startsWith("Unknown")) {
+                out.push(s);
+            }
+        }
+        return out;
+    }
+
     readonly property var _trackedWaylandActive: root.hasHyprland ? null : ToplevelManager.activeToplevel
     property var _knownWaylandToplevels: []
     property bool _waylandBooted: false
@@ -26,6 +41,7 @@ Singleton {
     property var _prevWindowMap: ({})
     property bool _hasWindowBaseline: false
     property double _lastWorkspaceChangeMs: 0
+    property bool _needsMonitorRefresh: true
 
     signal windowOpened(windowClass: string, title: string)
     signal windowFocused(windowClass: string, title: string)
@@ -42,6 +58,41 @@ Singleton {
         screencast: true,
         submap: true
     })
+
+    function _luaString(value: string): string {
+        return '"' + String(value).replace(/["\\\u0000-\u001f\u007f]/g, c => {
+            if (c === '"' || c === "\\") return "\\" + c;
+            return "\\" + String(c.charCodeAt(0)).padStart(3, "0");
+        }) + '"';
+    }
+
+    function _windowTarget(address: string): string {
+        const value = String(address).trim().replace(/^address:/i, "");
+        return "address:" + (/^[0-9a-f]+$/i.test(value) ? ("0x" + value) : value);
+    }
+
+    // Hyprland 0.57 Lua wraps Quickshell's dispatch string inside `return hl.dispatch(<arg>)`.
+    function focusWindowAddress(address: string): void {
+        if (!root.hasHyprland || !address) return;
+        const target = _windowTarget(address);
+        if (root.hyprlandLuaDispatch) {
+            Hyprland.dispatch(`hl.dsp.focus({ window = ${_luaString(target)} })`);
+        } else {
+            Hyprland.dispatch(`focuswindow ${target}`);
+        }
+    }
+
+    function moveWindowToWorkspaceSilent(workspaceSpec: string, address: string): void {
+        if (!root.hasHyprland || !workspaceSpec || !address) return;
+        const target = _windowTarget(address);
+        const ws = workspaceSpec.trim();
+        if (root.hyprlandLuaDispatch) {
+            const wsExpr = /^\d+$/.test(ws) ? ws : _luaString(ws);
+            Hyprland.dispatch(`hl.dsp.window.move({ workspace = ${wsExpr}, follow = false, window = ${_luaString(target)} })`);
+        } else {
+            Hyprland.dispatch(`movetoworkspacesilent ${ws},${target}`);
+        }
+    }
 
     function insetsFor(screenName: string): var {
         if (screenName && root.monitorInsets[screenName]) return root.monitorInsets[screenName];
@@ -157,7 +208,7 @@ Singleton {
             }
             if (!tl.minimized) openCount++;
             if (tl.fullscreen && !tl.minimized) {
-                const tlScreens = (tl.screens && tl.screens.length > 0) ? tl.screens : Quickshell.screens;
+                const tlScreens = (tl.screens && tl.screens.length > 0) ? tl.screens : root.realScreens;
                 for (let s = 0; s < tlScreens.length; s++) {
                     const scr = tlScreens[s];
                     if (!scr || scr.width <= 0 || scr.height <= 0) continue;
@@ -206,6 +257,16 @@ Singleton {
         if (!refreshTimer.running) refreshTimer.start();
     }
 
+    Process {
+        id: luaProbe
+        command: ["hyprctl", "eval", "assert(type(hl) == 'table')"]
+        stdout: SplitParser {
+            onRead: function(line) {
+                if (line.trim() === "ok") root.hyprlandLuaDispatch = true;
+            }
+        }
+    }
+
     Timer {
         id: waylandSnapshotTimer
         interval: 45
@@ -218,7 +279,10 @@ Singleton {
         onTriggered: {
             Hyprland.refreshToplevels();
             Hyprland.refreshWorkspaces();
-            Hyprland.refreshMonitors();
+            if (root._needsMonitorRefresh) {
+                root._needsMonitorRefresh = false;
+                Hyprland.refreshMonitors();
+            }
             snapshotTimer.restart();
         }
     }
@@ -241,9 +305,12 @@ Singleton {
                 const p = data.split(",");
                 if (p.length >= 2) root.windowFocused(p[0], p.slice(1).join(","));
                 root._focusChanges++;
-            } else if (name === "workspace" || name === "workspacev2") {
+            } else if (name === "workspace" || name === "workspacev2" || name === "activespecial") {
                 root._lastWorkspaceChangeMs = Date.now();
+                root._needsMonitorRefresh = true;
                 root.workspaceChanged();
+            } else if (name === "monitoradded" || name === "monitorremoved" || name === "configreloaded") {
+                root._needsMonitorRefresh = true;
             } else if (name === "urgent") {
                 const needle = data.trim().replace(/^0x/i, "").toLowerCase();
                 if (needle.length > 0) {
@@ -271,7 +338,10 @@ Singleton {
 
     Connections {
         target: root.hasHyprland ? Hyprland.monitors : null
-        function onValuesChanged(): void { root._scheduleRefresh(); }
+        function onValuesChanged(): void {
+            root._needsMonitorRefresh = true;
+            root._scheduleRefresh();
+        }
     }
 
     Connections {
@@ -301,10 +371,13 @@ Singleton {
 
     Timer {
         interval: 10000
-        running: true
+        running: root._focusChanges > 0
         repeat: true
         onTriggered: root._focusChanges = Math.max(0, root._focusChanges - 2)
     }
 
-    Component.onCompleted: root._scheduleRefresh()
+    Component.onCompleted: {
+        if (root.hasHyprland) luaProbe.running = true;
+        root._scheduleRefresh();
+    }
 }

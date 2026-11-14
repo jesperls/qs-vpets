@@ -1,2 +1,7 @@
+result
+result-*
+node_modules/
+dist/
+qmllint.log
 sim
 sim_results.json

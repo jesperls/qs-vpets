@@ -1,9 +1,12 @@
+.pragma library
+
 .import "../SpeciesProfile.js" as SpeciesProfile
 .import "Personality.js" as Personality
 .import "Drives.js" as Drives
 .import "Memory.js" as Memory
 .import "Social.js" as Social
 .import "Topology.js" as Topology
+.import "Util.js" as Util
 
 var ABILITIES = {
     illusion: {
@@ -92,9 +95,7 @@ var ABILITIES = {
     }
 };
 
-function _now(pet) {
-    return (pet && pet._simNow) ? pet._simNow : Date.now();
-}
+var _now = Util.now;
 
 function abilityDef(id) {
     return ABILITIES[id] || null;
@@ -189,7 +190,7 @@ function evaluateCandidates(pet, perc, nav, pickFn, m) {
                 score: pet.playDrive * (0.38 + p.playfulness * 0.62) * m.moodMult * m.active * 0.88,
                 claimSocial: "show_off",
                 claimGapMs: 150000,
-                plan: _buildIllusionPlan(perc.nearest)
+                plan: buildIllusionPlan(perc.nearest)
             });
         }
 
@@ -276,7 +277,7 @@ function evaluateCandidates(pet, perc, nav, pickFn, m) {
     return out;
 }
 
-function _buildIllusionPlan(other) {
+function buildIllusionPlan(other) {
     var targetSp = (other && other.pet && other.pet.petData) ? other.pet.petData.sprite : "";
     return {
         name: "illusion_prank",
@@ -513,6 +514,11 @@ function executeStep(pet, plan, step, nav, pickFn, advanceFn) {
 function onPlanFinished(pet, plan) {
     if (!plan) return false;
     switch (plan.name) {
+    case "illusion_prank":
+        if (!Memory.recent(pet, "illusion_prank", 30000)) {
+            Memory.recordEpisode(pet, "illusion_prank", { valence: 0.42, withPet: plan.otherName || "" });
+        }
+        return true;
     case "phase_jaunt":
         pet.exploreDrive = Math.max(0, pet.exploreDrive - 0.28);
         pet.playDrive = Math.max(0, pet.playDrive - 0.14);

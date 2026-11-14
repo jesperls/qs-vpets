@@ -1,5 +1,6 @@
+.pragma library
+
 .import "behavior/Topology.js" as Topology
-.import "behavior/Memory.js" as Memory
 .import "behavior/Brain.js" as Brain
 
 var ARRIVAL_TOLERANCE = 44;
@@ -222,6 +223,8 @@ function _dropFromLostPerch(pet, wins) {
     for (var i = 0; i < wins.length; i++) {
         var w = wins[i];
         if (!w || w.fullscreen || w.w < 200 || w.h < 120) continue;
+        var wcx = w.x + w.w * 0.5;
+        if (wcx < sx || wcx >= sx + sw || w.y < sy || w.y >= sy + sh) continue;
         if (curGX + petW * 0.5 < w.x + 12 || curGX + petW * 0.5 > w.x + w.w - 12) continue;
         var ledgeGY = Math.max(sy, w.y - petH * 0.85);
         if (ledgeGY > curGY + 24 && ledgeGY - curGY < 380 && ledgeGY < bestLedgeGY) {
@@ -238,10 +241,13 @@ function _dropFromLostPerch(pet, wins) {
     launchSoftDrop(pet, curGX, landGY, bestAddr);
 }
 
-// Ride moving/resizing windows smoothly and drop softly with gravity if a window vanishes.
 function updatePerch(pet, dt) {
-    if (pet.state_ !== "perch" || !pet.perchedWindowAddr) return;
+    if (pet.state_ !== "perch") return;
     var wins = (pet.windowTracker && pet.windowTracker.visibleWindows) || [];
+    if (!pet.perchedWindowAddr) {
+        _dropFromLostPerch(pet, wins);
+        return;
+    }
     var match = null;
     for (var i = 0; i < wins.length; i++) {
         if (wins[i].address === pet.perchedWindowAddr && !wins[i].fullscreen) {

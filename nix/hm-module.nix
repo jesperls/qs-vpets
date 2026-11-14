@@ -16,9 +16,14 @@ let
 
   petSubmodule = lib.types.submodule {
     options = {
+      id = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        description = "Optional stable companion identifier used for state files.";
+      };
       name = lib.mkOption {
         type = lib.types.str;
-        description = "Unique display name and memory key for this pet.";
+        description = "Display name for this companion.";
       };
       sprite = lib.mkOption {
         type = lib.types.enum speciesList;
@@ -49,7 +54,7 @@ let
       monitor = lib.mkOption {
         type = lib.types.str;
         default = "";
-        description = "Initial monitor name to spawn on (empty uses primary).";
+        description = "Initial monitor name to spawn on, or empty for primary.";
       };
       roamMode = lib.mkOption {
         type = lib.types.enum [
@@ -60,6 +65,16 @@ let
         default = "auto";
         description = "Whether this companion rotates automatically, always roams, or stays in the Sanctuary pen.";
       };
+      color = lib.mkOption {
+        type = lib.types.str;
+        default = "";
+        description = "Optional hex accent color override.";
+      };
+      traits = lib.mkOption {
+        type = lib.types.nullOr (lib.types.attrsOf (lib.types.numbers.between 0 1));
+        default = null;
+        description = "Optional initial trait overrides between 0 and 1.";
+      };
       actions = lib.mkOption {
         type = lib.types.attrsOf lib.types.str;
         default = { };
@@ -67,6 +82,8 @@ let
       };
     };
   };
+
+  cleanPet = pet: lib.filterAttrs (k: v: v != null && !(k == "color" && v == "")) pet;
 
   behaviorOverrides = lib.filterAttrs (_: v: v != null) {
     inherit (cfg.behavior)
@@ -83,7 +100,7 @@ let
 
   declarativePayload = pkgs.writeText "qs-vpets-overrides.json" (
     builtins.toJSON (
-      (lib.optionalAttrs (cfg.pets != null) { pets = cfg.pets; })
+      (lib.optionalAttrs (cfg.pets != null) { pets = map cleanPet cfg.pets; })
       // (lib.optionalAttrs (behaviorOverrides != { }) { behavior = behaviorOverrides; })
     )
   );
@@ -95,6 +112,13 @@ let
       cfg_dir="''${QS_VPETS_CONFIG_DIR:-${lib.escapeShellArg configDir}}"
       python3 - "$cfg_dir/config.json" ${lib.escapeShellArg declarativePayload} <<'PY'
       import json, os, sys, tempfile
+
+      EVOLUTIONS = {
+          "eevee": {"umbreon", "leafeon", "flareon", "jolteon", "glaceon"},
+          "riolu": {"lucario"},
+          "vulpix": {"ninetales"},
+          "charmander": {"charizard"},
+      }
 
       target_path, override_path = sys.argv[1], sys.argv[2]
       os.makedirs(os.path.dirname(target_path), exist_ok=True)
@@ -112,7 +136,34 @@ let
           overrides = json.load(f)
 
       if "pets" in overrides:
-          current["pets"] = overrides["pets"]
+          prev_by_id = {}
+          prev_by_name = {}
+          for item in current.get("pets", []) if isinstance(current.get("pets"), list) else []:
+              if not isinstance(item, dict):
+                  continue
+              if isinstance(item.get("id"), str) and item["id"]:
+                  prev_by_id[item["id"]] = item
+              if isinstance(item.get("name"), str) and item["name"]:
+                  prev_by_name[item["name"].strip().lower()] = item
+
+          merged_pets = []
+          for decl in overrides["pets"]:
+              pet = dict(decl)
+              prev = (
+                  prev_by_id.get(pet.get("id", ""))
+                  if pet.get("id")
+                  else prev_by_name.get(str(pet.get("name", "")).strip().lower())
+              )
+              if isinstance(prev, dict):
+                  if not pet.get("id") and isinstance(prev.get("id"), str) and prev["id"]:
+                      pet["id"] = prev["id"]
+                  prev_sp = prev.get("sprite")
+                  decl_sp = pet.get("sprite")
+                  if isinstance(prev_sp, str) and prev_sp in EVOLUTIONS.get(decl_sp, set()):
+                      pet["sprite"] = prev_sp
+              merged_pets.append(pet)
+          current["pets"] = merged_pets
+
       if "behavior" in overrides:
           beh = current.get("behavior")
           if not isinstance(beh, dict):
@@ -143,17 +194,17 @@ in
     pets = lib.mkOption {
       type = lib.types.nullOr (lib.types.listOf petSubmodule);
       default = null;
-      description = "Declarative pet roster synced into config.json on start (null keeps mutable roster).";
+      description = "Declarative pet roster synced into config.json on start, or null for a mutable roster.";
     };
 
     behavior = {
       idleTimeout = lib.mkOption {
-        type = lib.types.nullOr lib.types.ints.positive;
+        type = lib.types.nullOr (lib.types.ints.between 30 86400);
         default = null;
         description = "Seconds of inactivity before user is marked idle.";
       };
       walkSpeed = lib.mkOption {
-        type = lib.types.nullOr lib.types.number;
+        type = lib.types.nullOr (lib.types.numbers.between 30 400);
         default = null;
         description = "Base walking speed in pixels per second.";
       };
@@ -206,7 +257,10 @@ in
         systemd.user.services.qs-vpets = {
           Unit = {
             Description = "Desktop virtual pets (Quickshell)";
-            After = [ cfg.systemd.target ];
+            After = [
+              cfg.systemd.target
+              "pipewire.service"
+            ];
             BindsTo = [ cfg.systemd.target ];
             PartOf = [ cfg.systemd.target ];
             ConditionEnvironment = "WAYLAND_DISPLAY";
@@ -215,6 +269,7 @@ in
           Service = {
             ExecStart = lib.getExe cfg.package;
             ExecStartPre = lib.optional hasDeclarativeConfig (lib.getExe applyConfig);
+            ExecStop = "${lib.getExe cfg.package} flush";
             Restart = "on-failure";
             RestartSec = 3;
             Slice = "session.slice";

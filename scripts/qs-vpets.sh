@@ -14,7 +14,7 @@ else
 	shellRoot="$scriptDir/../share/qs-vpets"
 fi
 
-version="${QS_VPETS_VERSION:-0.2.0}"
+version="${QS_VPETS_VERSION:-0.5.0}"
 
 die() {
 	echo "qs-vpets: $*" >&2
@@ -166,7 +166,7 @@ manageAutostart() {
 			cat >"$unitFile" <<-EOF
 				[Unit]
 				Description=Pokémon Sanctuary desktop companions
-				After=graphical-session.target
+				After=graphical-session.target pipewire.service
 				PartOf=graphical-session.target
 				ConditionEnvironment=WAYLAND_DISPLAY
 
@@ -244,6 +244,7 @@ usage() {
 		  pen | sanctuary            Toggle the floating Pokémon Sanctuary GUI
 		  start                      Start the background overlay if not already running
 		  stop | quit                Save companion memories and stop the overlay
+		  flush                      Save all companion memories and config immediately
 		  reload | restart           Save memories and restart the overlay
 		  autostart [enable|disable|status]
 		                             Configure login autostart for Wayland sessions
@@ -260,6 +261,7 @@ usage() {
 		  evolve <name> [species]    Opt-in evolution when lifestyle milestones are met
 		  inspect [name]             Toggle the interactive inspector card
 		  spawn <species> [name]     Adopt a new companion into the Sanctuary
+		  release <name>             Release a companion and remove its state file
 		  version                    Print version
 	EOF
 }
@@ -377,6 +379,10 @@ inspect)
 spawn)
 	[ $# -ge 1 ] || die "usage: qs-vpets spawn <species> [name]"
 	ipc spawn "$1" "${2:-}"
+	;;
+release)
+	[ $# -ge 1 ] || die "usage: qs-vpets release <name>"
+	ipc release "$1"
 	;;
 version | --version | -V)
 	echo "qs-vpets $version"

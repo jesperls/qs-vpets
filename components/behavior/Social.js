@@ -1,11 +1,13 @@
+.pragma library
+
 .import "../SpeciesProfile.js" as SpeciesProfile
+.import "../SpriteSheet.js" as SpriteSheet
 .import "Personality.js" as Personality
 .import "Memory.js" as Memory
 .import "Drives.js" as Drives
+.import "Util.js" as Util
 
-function _now(pet) {
-    return (pet && pet._simNow) ? pet._simNow : Date.now();
-}
+var _now = Util.now;
 
 function peerCooldownMs(pet, kind) {
     var p = pet.personality;
@@ -271,20 +273,11 @@ function rebuff(pet, other) {
     other.socialEvent("rebuff", pet);
 }
 
-var _SECTOR_TO_ROW = [2, 1, 0, 7, 6, 5, 4, 3];
-
-function _angleToRow(angle) {
-    var a = ((angle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
-    return _SECTOR_TO_ROW[Math.round(a / (Math.PI / 4)) % 8];
-}
-
 function isPeerLookingAt(observer, target) {
     if (!observer || !target) return false;
-    var ox = observer.screenX() + observer.worldX;
-    var oy = observer.screenY() + observer.worldY;
-    var tx = target.screenX() + target.worldX;
-    var ty = target.screenY() + target.worldY;
-    var towardRow = _angleToRow(Math.atan2(ty - oy, tx - ox));
+    var ox = Util.petGX(observer), oy = Util.petGY(observer);
+    var tx = Util.petGX(target), ty = Util.petGY(target);
+    var towardRow = SpriteSheet.angleToDirectionRow(Math.atan2(ty - oy, tx - ox));
     var curRow = (observer.sprite && observer.sprite._dirRow !== undefined)
         ? observer.sprite._dirRow
         : (observer.facingRight ? 2 : 6);

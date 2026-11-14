@@ -10,7 +10,7 @@
   nodejs,
   procps,
   systemd,
-  version ? "0.2.0",
+  version ? "0.5.0",
 }:
 
 let
@@ -62,10 +62,17 @@ let
       fi
 
       command -v qmllint >/dev/null || { echo "qmllint not on PATH" >&2; exit 1; }
-      find . -name '*.qml' -exec qmllint {} + >qmllint.log 2>&1 || true
-      if grep -F '[syntax]' qmllint.log; then
+      qmllint --bare \
+        -I "${quickshell}/lib/qt-6/qml" \
+        -I "${qmlEnv}/lib/qt-6/qml" \
+        -I . \
+        -i config/qmldir \
+        -i services/qmldir \
+        -i components/qmldir \
+        shell.qml config/*.qml services/*.qml components/*.qml >qmllint.log 2>&1 || true
+      if grep -E '\[(syntax|import|unresolved-type|id-shadows-member)\]' qmllint.log; then
         cat qmllint.log >&2
-        echo "qs-vpets: QML syntax errors detected" >&2
+        echo "qs-vpets: QML lint errors detected" >&2
         exit 1
       fi
       rm -f qmllint.log
@@ -94,6 +101,8 @@ stdenvNoCC.mkDerivation {
   pname = "qs-vpets";
   inherit version;
   src = lib.cleanSource ./..;
+
+  nativeBuildInputs = [ shellcheck ];
 
   dontConfigure = true;
   dontBuild = true;
@@ -125,6 +134,7 @@ stdenvNoCC.mkDerivation {
     exec "${shellSrc}/libexec/qs-vpets" "\$@"
     EOF
     chmod 0755 "$out/bin/qs-vpets"
+    shellcheck "$out/bin/qs-vpets"
 
     sed \
       -e "s|^Exec=qs-vpets |Exec=$out/bin/qs-vpets |" \

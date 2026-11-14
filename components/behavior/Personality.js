@@ -1,4 +1,6 @@
-// Developmental 8-trait personality, earned quirks, and archetype synthesis.
+.pragma library
+
+.import "Util.js" as Util
 
 var TRAIT_KEYS = [
     "energy",
@@ -123,8 +125,8 @@ var CORE_BOUND = 0.28;
 var RECENT_BOUND = 0.14;
 var MAX_ACTIVE_QUIRKS = 4;
 
-function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
-function clamp01(v) { return clamp(v, 0, 1); }
+var clamp = Util.clamp;
+var clamp01 = Util.clamp01;
 
 function _hash(str) {
     var h = 2166136261;

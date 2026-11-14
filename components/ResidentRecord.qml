@@ -5,6 +5,7 @@ import Quickshell.Io
 import "../config"
 import "../services"
 import "PetPersistence.js" as Persist
+import "SpeciesProfile.js" as SpeciesProfile
 import "behavior/Personality.js" as Personality
 import "behavior/Memory.js" as Memory
 import "behavior/Sanctuary.js" as Sanctuary
@@ -16,15 +17,32 @@ Item {
     required property string petId
 
     readonly property var petData: {
-        for (let i = 0; i < Config.pets.length; i++) {
-            if (Config.pets[i].id === root.petId) return Config.pets[i];
-        }
-        return { id: root.petId, name: root.petId, sprite: "zorua", personality: "emergent", scale: 2, monitor: "", roamMode: "auto", actions: {} };
+        void Config.pets;
+        return Config.petById(root.petId) ?? {
+            id: root.petId,
+            name: root.petId,
+            sprite: "zorua",
+            personality: "emergent",
+            scale: 2,
+            monitor: "",
+            roamMode: "auto",
+            color: "#cba6f7",
+            traits: null,
+            actions: {}
+        };
     }
 
     property var stateObj: Sanctuary.createDefaultResident(petData, Date.now())
     property bool loaded: false
+    property bool hasSavedState: false
     property bool dirty: false
+    property bool _tryLegacy: false
+    property bool _released: false
+    property int revision: 0
+
+    property string _lastPreset: ""
+    property string _lastSprite: ""
+    property string _lastTraitsSig: ""
 
     property string archetype: "Curious Hatchling"
     property real mood: 0.56
@@ -54,15 +72,45 @@ Item {
     readonly property string statePath: Config.stateDir + "/state-" + root.petId + ".json"
     readonly property string legacyStatePath: Config.configDir + "/state-" + root.petData.name + ".json"
 
+    function _cloneRelationships(src: var): var {
+        const out = {};
+        if (!src || typeof src !== "object") return out;
+        const keys = Object.keys(src);
+        for (let i = 0; i < keys.length; i++) {
+            const k = keys[i];
+            if (src[k] && typeof src[k] === "object") {
+                out[k] = Object.assign({}, src[k]);
+            }
+        }
+        return out;
+    }
+
     onPetDataChanged: {
         if (!stateObj) return;
+        const nextSprite = petData.sprite || "zorua";
+        const nextPreset = petData.personality || "emergent";
+        const nextTraitsSig = JSON.stringify(petData.traits ?? null);
+
         stateObj.name = petData.name;
-        stateObj.sprite = petData.sprite;
-        stateObj.basePersonality = Personality.resolveBase(
-            petData.personality ?? "emergent",
-            petData.name ?? "pet",
-            petData.traits ?? null
-        );
+        if ((_lastPreset !== "" && nextPreset !== _lastPreset)
+                || (_lastTraitsSig !== "" && nextTraitsSig !== _lastTraitsSig)) {
+            stateObj.basePersonality = Personality.resolveBase(
+                nextPreset,
+                petData.id || petData.name || "pet",
+                petData.traits ?? null
+            );
+            dirty = true;
+        }
+        if (_lastSprite !== "" && nextSprite !== _lastSprite) {
+            stateObj.sprite = nextSprite;
+            stateObj.sanctuaryActivity = "Relaxing quietly in " + SpeciesProfile.profileFor(nextSprite).biome;
+            dirty = true;
+        } else {
+            stateObj.sprite = nextSprite;
+        }
+        _lastPreset = nextPreset;
+        _lastSprite = nextSprite;
+        _lastTraitsSig = nextTraitsSig;
         refreshView();
     }
 
@@ -87,7 +135,7 @@ Item {
         homeGX = stateObj.homeGX ?? 0;
         homeGY = stateObj.homeGY ?? 0;
         quirks = (stateObj.quirks || []).slice();
-        relationships = Object.assign({}, stateObj.relationships || {});
+        relationships = _cloneRelationships(stateObj.relationships);
         thoughts = (stateObj.thoughts || []).slice(-12);
         journal = (stateObj.journal || []).slice(-12);
         penState = stateObj.penState || "idle";
@@ -97,20 +145,21 @@ Item {
         } else {
             lastThoughtText = sanctuaryActivity;
         }
+        revision++;
     }
 
     function saveNow(): void {
-        if (!loaded || !stateObj) return;
+        if (!loaded || !stateObj || _released) return;
         dirty = false;
         stateFile.setText(Persist.serializeResident(stateObj));
     }
 
     function saveIfDirty(): void {
-        if (dirty && loaded) saveNow();
+        if (dirty && loaded && !_released) saveNow();
     }
 
     function syncFromPet(pet: var, persistNow: bool): void {
-        if (!pet || !stateObj) return;
+        if (!pet || !stateObj || _released) return;
         stateObj.gx = Math.round(pet.screenX() + pet.worldX);
         stateObj.gy = Math.round(pet.screenY() + pet.worldY);
         stateObj.hasSavedPos = true;
@@ -120,7 +169,7 @@ Item {
         stateObj.maturity = pet.maturity || 0;
         stateObj.bond = pet.bond ?? 0.30;
         stateObj.trust = pet.trust ?? 0.35;
-        stateObj.satiety = pet.satiety ?? 0.50;
+        stateObj.satiety = pet.satiety ?? 0.65;
         stateObj.happiness = pet.happiness;
         stateObj.mood = pet.mood;
         stateObj.restDrive = pet.restDrive;
@@ -130,6 +179,9 @@ Item {
         stateObj.playDrive = pet.playDrive;
         stateObj.alertness = pet.alertness;
         stateObj.boredom = pet.boredom;
+        if (pet.basePersonality && typeof pet.basePersonality === "object") {
+            stateObj.basePersonality = Object.assign({}, pet.basePersonality);
+        }
         stateObj.coreDrift = Object.assign({}, pet.coreDrift || {});
         stateObj.recentDrift = Object.assign({}, pet.recentDrift || {});
         stateObj.quirkProgress = Object.assign({}, pet.quirkProgress || {});
@@ -141,94 +193,120 @@ Item {
         stateObj.visitedCells = Object.assign({}, pet.visitedCells || {});
         stateObj.windowPrefs = Object.assign({}, pet.windowPrefs || {});
         stateObj.placeMemory = Object.assign({}, pet.placeMemory || {});
-        stateObj.relationships = Object.assign({}, pet.relationships || {});
+        stateObj.relationships = _cloneRelationships(pet.relationships);
         stateObj.userRhythm = Object.assign({}, pet.userRhythm || {});
+        hasSavedState = true;
         refreshView();
         dirty = true;
         if (persistNow) saveNow();
     }
 
     function applyToPet(pet: var): bool {
-        if (!pet || !stateObj) return false;
-        const snapshot = JSON.parse(Persist.serializeResident(stateObj));
-        if (!stateObj.hasSavedPos) {
-            delete snapshot.gx;
-            delete snapshot.gy;
+        if (!pet || !stateObj || !hasSavedState) return false;
+        try {
+            const snapshot = JSON.parse(Persist.serializeResident(stateObj));
+            if (!stateObj.hasSavedPos) {
+                delete snapshot.gx;
+                delete snapshot.gy;
+            }
+            return Persist.applySaved(pet, snapshot);
+        } catch (e) {
+            console.warn("qs-vpets: failed to apply resident state:", e);
+            return false;
         }
-        return Persist.applySaved(pet, snapshot);
     }
 
     function markEnteredPen(note: string): void {
-        if (!stateObj) return;
+        if (!stateObj || _released) return;
         stateObj.enteredPenAt = Date.now();
         if (note) {
             Memory.thinkAloud(stateObj, "enter_pen", note, { minGapMs: 3000 });
             stateObj.sanctuaryActivity = note;
         }
+        hasSavedState = true;
         dirty = true;
         refreshView();
         saveNow();
     }
 
     function stepSanctuary(dtSec: real, penMates: var, env: var, nowMs: double): void {
-        if (!loaded || !stateObj) return;
+        if (!loaded || !stateObj || _released) return;
         Sanctuary.integrateResident(stateObj, dtSec, penMates, env, nowMs);
+        hasSavedState = true;
         dirty = true;
         refreshView();
     }
 
     function patInPen(): void {
-        if (!stateObj) return;
-        stateObj.happiness = Personality.clamp01(stateObj.happiness + 0.12);
-        stateObj.mood = Personality.clamp01(stateObj.mood + 0.18);
-        stateObj.bond = Personality.clamp01((stateObj.bond || 0.3) + 0.015);
-        stateObj.trust = Personality.clamp01((stateObj.trust || 0.35) + 0.025);
-        stateObj.socialDrive = Math.max(0, stateObj.socialDrive - 0.28);
-        stateObj.penState = "hop";
-        stateObj.sanctuaryActivity = "Enjoying warm headpats in the Sanctuary";
-        Memory.recordEpisode(stateObj, "petted", { valence: 0.65, salience: 0.6 });
-        Memory.thinkAloud(stateObj, "pen_pat", "Leaned into gentle headpats in the Sanctuary", { minGapMs: 2000 });
+        if (!stateObj || _released) return;
+        Sanctuary.patInPen(stateObj);
+        hasSavedState = true;
         dirty = true;
         refreshView();
         saveNow();
     }
 
     function feedInPen(): void {
-        if (!stateObj) return;
-        stateObj.satiety = Personality.clamp01((stateObj.satiety ?? 0.5) + 0.45);
-        stateObj.happiness = Personality.clamp01(stateObj.happiness + 0.16);
-        stateObj.mood = Personality.clamp01(stateObj.mood + 0.22);
-        stateObj.trust = Personality.clamp01((stateObj.trust || 0.35) + 0.035);
-        stateObj.penState = "eat";
-        stateObj.sanctuaryActivity = "Happily munching a berry snack";
-        Memory.recordEpisode(stateObj, "fed_snack", { valence: 0.8, salience: 0.72 });
-        Memory.thinkAloud(stateObj, "pen_fed", "Happily ate a sweet berry in the Sanctuary", { minGapMs: 2000 });
+        if (!stateObj || _released) return;
+        Sanctuary.feedInPen(stateObj);
+        hasSavedState = true;
         dirty = true;
         refreshView();
         saveNow();
     }
 
     function playInPen(): void {
-        if (!stateObj) return;
-        stateObj.happiness = Personality.clamp01(stateObj.happiness + 0.10);
-        stateObj.mood = Personality.clamp01(stateObj.mood + 0.16);
-        stateObj.trust = Personality.clamp01((stateObj.trust || 0.35) + 0.02);
-        stateObj.playDrive = Math.max(0, stateObj.playDrive - 0.25);
-        stateObj.penState = "wander";
-        stateObj.sanctuaryActivity = "Romping playfully across the Sanctuary pasture";
-        Memory.recordEpisode(stateObj, "played_solo", { valence: 0.6, salience: 0.55 });
-        Memory.thinkAloud(stateObj, "pen_play", "Played a lively game in the Sanctuary", { minGapMs: 2000 });
+        if (!stateObj || _released) return;
+        Sanctuary.playInPen(stateObj);
+        hasSavedState = true;
         dirty = true;
         refreshView();
         saveNow();
     }
 
     function rekeyRelationship(oldName: string, newName: string): void {
-        if (!stateObj || !stateObj.relationships || !oldName || !newName || oldName === newName) return;
-        if (stateObj.relationships[oldName] !== undefined) {
-            const next = Object.assign({}, stateObj.relationships);
+        if (!stateObj || _released || !oldName || !newName || oldName === newName) return;
+        let changed = false;
+        if (stateObj.relationships && stateObj.relationships[oldName] !== undefined) {
+            const next = _cloneRelationships(stateObj.relationships);
             next[newName] = next[oldName];
             delete next[oldName];
+            stateObj.relationships = next;
+            changed = true;
+        }
+        if (Array.isArray(stateObj.episodes)) {
+            for (let i = 0; i < stateObj.episodes.length; i++) {
+                const ep = stateObj.episodes[i];
+                if (ep && ep.withPet === oldName) {
+                    ep.withPet = newName;
+                    changed = true;
+                }
+            }
+        }
+        if (changed) {
+            dirty = true;
+            refreshView();
+            saveNow();
+        }
+    }
+
+    function removePeerReferences(removedName: string): void {
+        if (!stateObj || _released || !removedName || !stateObj.relationships) return;
+        if (stateObj.relationships[removedName] !== undefined) {
+            const next = _cloneRelationships(stateObj.relationships);
+            delete next[removedName];
+            stateObj.relationships = next;
+            dirty = true;
+            refreshView();
+            saveNow();
+        }
+    }
+
+    function updatePeerSpecies(peerName: string, newSpecies: string): void {
+        if (!stateObj || _released || !peerName || !newSpecies || !stateObj.relationships) return;
+        if (stateObj.relationships[peerName]) {
+            const next = _cloneRelationships(stateObj.relationships);
+            next[peerName].species = newSpecies;
             stateObj.relationships = next;
             dirty = true;
             refreshView();
@@ -242,54 +320,61 @@ Item {
         printErrors: false
         onLoaded: {
             if (!root.loaded) {
+                let ok = false;
                 try {
-                    const parsed = JSON.parse(text());
-                    Persist.applySaved(root.stateObj, parsed);
+                    ok = Persist.applySaved(root.stateObj, text());
                 } catch (e) {
                     console.warn("qs-vpets: resident state parse failed:", e);
                 }
+                root.hasSavedState = ok;
                 root.loaded = true;
                 root.refreshView();
                 PetManager.onResidentLoaded(root.petId);
             }
         }
         onLoadFailed: {
-            if (!root.loaded) legacyStateFile.reload();
+            if (!root.loaded) root._tryLegacy = true;
         }
     }
 
     FileView {
         id: legacyStateFile
-        path: root.legacyStatePath
+        path: root._tryLegacy ? root.legacyStatePath : ""
         printErrors: false
         onLoaded: {
             if (!root.loaded) {
+                let ok = false;
                 try {
-                    const parsed = JSON.parse(text());
-                    Persist.applySaved(root.stateObj, parsed);
+                    ok = Persist.applySaved(root.stateObj, text());
                 } catch (e) {
                     console.warn("qs-vpets: legacy state parse failed:", e);
                 }
+                root.hasSavedState = ok;
                 root.loaded = true;
                 root.refreshView();
-                root.saveNow();
+                if (ok) root.saveNow();
                 PetManager.onResidentLoaded(root.petId);
             }
         }
         onLoadFailed: {
-            root.loaded = true;
-            root.refreshView();
-            PetManager.onResidentLoaded(root.petId);
+            if (!root.loaded && root._tryLegacy) {
+                root.loaded = true;
+                root.refreshView();
+                PetManager.onResidentLoaded(root.petId);
+            }
         }
     }
 
     Component.onCompleted: {
+        _lastPreset = petData.personality || "emergent";
+        _lastSprite = petData.sprite || "zorua";
+        _lastTraitsSig = JSON.stringify(petData.traits ?? null);
         refreshView();
         PetManager.registerResident(root.petId, root);
     }
 
     Component.onDestruction: {
-        saveIfDirty();
+        if (!_released) saveIfDirty();
         PetManager.unregisterResident(root.petId, root);
     }
 }

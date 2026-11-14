@@ -120,7 +120,7 @@ inputs.qs-vpets = {
 
 # home-manager module
 { inputs, ... }: {
-  imports = [ inputs.qs-vpets.homeManagerModules.default ];
+  imports = [ inputs.qs-vpets.homeModules.default ];
 
   programs.qs-vpets = {
     enable = true;
@@ -187,16 +187,19 @@ qs-vpets open                   # Start overlay (if needed) and open Pokémon Sa
 qs-vpets pen                    # Toggle the floating Pokémon Sanctuary GUI (ideal for keybinds)
 qs-vpets start                  # Start background overlay if not already running
 qs-vpets stop                   # Save companion memories and stop overlay
+qs-vpets flush                  # Save all companion memories and config immediately
 qs-vpets autostart enable       # Start automatically on Wayland login (systemd / XDG autostart)
 qs-vpets status                 # Live JSON dump of roaming & Sanctuary companions
 qs-vpets roam <name> <mode>     # Set mode: auto | always | penned | out | in
 qs-vpets rename <old> <new>     # Rename a companion (preserves memories & friendships)
+qs-vpets evolve <name> [species]# Opt-in evolution when lifestyle milestones are met
 qs-vpets inspect [name]         # Toggle right-click inspector card (or open Sanctuary)
 qs-vpets pet [name]             # Stroke/pat a companion
 qs-vpets feed [name]            # Give a berry snack
 qs-vpets play [name]            # Trigger a playful bout
 qs-vpets summon [name]          # Call a companion to cursor (or out from Sanctuary)
 qs-vpets spawn <species> [name] # Adopt a new companion into your Sanctuary
+qs-vpets release <name>         # Release a companion and remove its state file
 qs-vpets toggle                 # Hide/show all desktop pets
 ```
 

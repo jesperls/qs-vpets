@@ -1,4 +1,5 @@
 pragma Singleton
+pragma ComponentBehavior: Bound
 
 import QtQuick
 import Quickshell
@@ -7,6 +8,7 @@ import Quickshell.Io
 Singleton {
     id: root
 
+    property bool activeSampling: true
     property real cpuUsage: 0
     property real memUsage: 0
     property real cpuTempC: 42
@@ -34,6 +36,7 @@ Singleton {
     property double _lastBuildSignalMs: 0
     property string _sunrise: ""
     property string _sunset: ""
+    property bool _customWeatherFresh: false
 
     readonly property string _cacheBase: {
         const xdg = Quickshell.env("XDG_CACHE_HOME");
@@ -74,16 +77,31 @@ Singleton {
         return "clear";
     }
 
+    function _resetWeatherDefaults(): void {
+        root.weatherAvailable = false;
+        root.weatherKind = "clear";
+        root.outdoorTempC = 16;
+        root._sunrise = "";
+        root._sunset = "";
+        root._updateSolarPhase();
+    }
+
     function _ingestWeatherJson(raw: string): bool {
         if (!raw || !raw.trim()) return false;
         try {
             const d = JSON.parse(raw);
             if (!d || typeof d !== "object") return false;
-            if (d.updatedAt && (Date.now() - Number(d.updatedAt)) > 3 * 3600 * 1000) return false;
+            if (d.updatedAt !== undefined) {
+                const rawTs = Number(d.updatedAt);
+                if (Number.isFinite(rawTs) && rawTs > 0) {
+                    const tsMs = rawTs < 1e11 ? (rawTs * 1000) : rawTs;
+                    if ((Date.now() - tsMs) > 3 * 3600 * 1000) return false;
+                }
+            }
             if (typeof d.weatherKind === "string" && d.weatherKind.length > 0) {
                 root.weatherKind = d.weatherKind;
             } else if (d.weatherCode !== undefined) {
-                root.weatherKind = root._classifyWeatherCode( parseInt(d.weatherCode, 10) || 0 );
+                root.weatherKind = root._classifyWeatherCode(parseInt(d.weatherCode, 10) || 0);
             }
             if (d.tempC !== undefined && Number.isFinite(Number(d.tempC))) {
                 root.outdoorTempC = Number(d.tempC);
@@ -95,6 +113,17 @@ Singleton {
             return true;
         } catch (e) {
             return false;
+        }
+    }
+
+    function _refreshWeather(): void {
+        if (root._ingestWeatherJson(customWeatherFile.text())) {
+            root._customWeatherFresh = true;
+            return;
+        }
+        root._customWeatherFresh = false;
+        if (!root._ingestWeatherJson(panguWeatherFile.text())) {
+            root._resetWeatherDefaults();
         }
     }
 
@@ -122,7 +151,7 @@ Singleton {
 
     Timer {
         interval: 6000
-        running: true
+        running: root.activeSampling
         repeat: true
         triggeredOnStart: true
         onTriggered: {
@@ -141,6 +170,7 @@ Singleton {
             root._updateSolarPhase();
             customWeatherFile.reload();
             panguWeatherFile.reload();
+            root._refreshWeather();
         }
     }
 
@@ -211,19 +241,21 @@ Singleton {
     FileView {
         id: customWeatherFile
         path: root._customWeatherPath
+        watchChanges: true
         printErrors: false
-        onLoaded: root._ingestWeatherJson(text())
+        onLoaded: root._refreshWeather()
+        onFileChanged: reload()
     }
 
     FileView {
         id: panguWeatherFile
         path: root._panguWeatherPath
+        watchChanges: true
         printErrors: false
         onLoaded: {
-            if (!customWeatherFile.text() || !customWeatherFile.text().trim()) {
-                root._ingestWeatherJson(text());
-            }
+            if (!root._customWeatherFresh) root._refreshWeather();
         }
+        onFileChanged: reload()
     }
 
     Component.onCompleted: {

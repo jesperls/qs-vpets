@@ -1,3 +1,5 @@
+.pragma library
+
 var BIOME = "Starlight Loft";
 
 var SPECIES = {

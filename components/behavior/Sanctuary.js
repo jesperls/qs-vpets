@@ -1,7 +1,10 @@
+.pragma library
+
 .import "../SpeciesProfile.js" as SpeciesProfile
 .import "Personality.js" as Personality
 .import "Memory.js" as Memory
 .import "Abilities.js" as Abilities
+.import "Util.js" as Util
 
 var MIN_ROAM_MS = 14 * 60000;
 var ROTATION_COOLDOWN_MS = 150000;
@@ -9,16 +12,14 @@ var OPEN_SLOT_DELAY_MS = 6000;
 var SOLO_EXPEDITION_MIN_ROAM_MS = 45 * 60000;
 var MIN_PEN_REST_MS = 8 * 60000;
 
-function clamp01(v) {
-    if (!Number.isFinite(v)) return 0.5;
-    return Math.max(0, Math.min(1, v));
-}
+var clamp01 = Util.clamp01;
 
 function createDefaultResident(petCfg, nowMs) {
     var sprite = (petCfg && petCfg.sprite) || "zorua";
     var preset = (petCfg && petCfg.personality) || "emergent";
     var name = (petCfg && petCfg.name) || "Companion";
-    var base = Personality.resolveBase(preset, name, petCfg ? petCfg.traits : null);
+    var seedKey = (petCfg && petCfg.id) || name;
+    var base = Personality.resolveBase(preset, seedKey, petCfg ? petCfg.traits : null);
     var eff = Personality.compose(base, {}, {});
     return {
         id: (petCfg && petCfg.id) || "pet",
@@ -173,12 +174,13 @@ function integrateResident(rec, dtSec, penMates, env, nowMs) {
     }
 }
 
-// Score how eager & context-appropriate an "auto" Sanctuary resident is to step onto the desktop.
-function readinessScore(rec, activeDesktopNames, env, nowMs) {
+function readinessScore(rec, activeDesktopNames, env, nowMs, ignoreRestCooldown) {
     var now = nowMs || Date.now();
     var p = Personality.compose(rec.basePersonality, rec.coreDrift, rec.recentDrift);
     var prof = SpeciesProfile.profileFor(rec.sprite);
-    var inPenMs = Math.max(0, now - (rec.enteredPenAt || 0));
+    var inPenMs = ignoreRestCooldown
+        ? (MIN_PEN_REST_MS + 60000)
+        : Math.max(0, now - (rec.enteredPenAt || 0));
     if (inPenMs < MIN_PEN_REST_MS) return -1;
 
     var rested = (1 - rec.restDrive) * 0.55 + rec.alertness * 0.45;
@@ -255,7 +257,6 @@ function retireDesire(livePet, hasWaitingPeers, env, nowMs) {
     return desire;
 }
 
-// Select initial roaming IDs at session start respecting "always", "penned", and maxRoaming.
 function selectInitialRoaming(petConfigs, residentMap, maxRoaming, env, nowMs) {
     var now = nowMs || Date.now();
     var cap = Math.max(1, maxRoaming || 3);
@@ -269,11 +270,7 @@ function selectInitialRoaming(petConfigs, residentMap, maxRoaming, env, nowMs) {
             out.push(cfg.id);
         } else if (mode === "auto") {
             var rec = residentMap[cfg.id];
-            // Ignore MIN_PEN_REST_MS on cold boot so initial party populates immediately.
-            var savedEntered = rec ? rec.enteredPenAt : 0;
-            if (rec) rec.enteredPenAt = now - MIN_PEN_REST_MS - 60000;
-            var s = rec ? readinessScore(rec, [], env, now) : 0.5;
-            if (rec) rec.enteredPenAt = savedEntered;
+            var s = rec ? readinessScore(rec, [], env, now, true) : 0.5;
             autoCandidates.push({ id: cfg.id, score: s });
         }
     }
@@ -286,22 +283,21 @@ function selectInitialRoaming(petConfigs, residentMap, maxRoaming, env, nowMs) {
     return out;
 }
 
-// Evaluate one calm rotation decision: returns { spawnId, retireId } (at most one action per beat).
 function evaluateRotation(petConfigs, residentMap, livePetMap, currentRoamingIds, maxRoaming, lastRotationMs, env, nowMs) {
     var now = nowMs || Date.now();
     var cap = Math.max(1, maxRoaming || 3);
 
-    // 1. Enforce explicit user overrides ("always" / "penned") immediately without cooldown!
+    for (var pIdx = 0; pIdx < petConfigs.length; pIdx++) {
+        var pCfg = petConfigs[pIdx];
+        if ((pCfg.roamMode || "auto") === "penned" && currentRoamingIds.indexOf(pCfg.id) !== -1) {
+            return { spawnId: "", retireId: pCfg.id, immediate: true };
+        }
+    }
     for (var i = 0; i < petConfigs.length; i++) {
         var cfg = petConfigs[i];
-        var mode = cfg.roamMode || "auto";
-        var isOut = currentRoamingIds.indexOf(cfg.id) !== -1;
-        if (mode === "always" && !isOut) {
+        if ((cfg.roamMode || "auto") === "always" && currentRoamingIds.indexOf(cfg.id) === -1) {
             return { spawnId: cfg.id, retireId: "", immediate: true };
         }
-    if ( mode === "penned" && isOut ) {
-        return { spawnId: "", retireId: cfg.id, immediate: true };
-    }
     }
 
     var activeAuto = [];
@@ -385,4 +381,47 @@ function _pickRetiringPet(activeAutoIds, livePetMap, hasWaiting, env, now, ignor
         }
     }
     return best;
+}
+
+function patInPen(stateObj, nowMs) {
+    if (!stateObj) return;
+    if (nowMs) stateObj._simNow = nowMs;
+    stateObj.happiness = Util.clamp01(stateObj.happiness + 0.12);
+    stateObj.mood = Util.clamp01(stateObj.mood + 0.18);
+    stateObj.bond = Util.clamp01((stateObj.bond || 0.3) + 0.015);
+    stateObj.trust = Util.clamp01((stateObj.trust || 0.35) + 0.025);
+    stateObj.socialDrive = Math.max(0, stateObj.socialDrive - 0.28);
+    stateObj.penState = "hop";
+    stateObj.sanctuaryActivity = "Enjoying warm headpats in the Sanctuary";
+    Memory.recordEpisode(stateObj, "petted", { valence: 0.65, salience: 0.6 });
+    Memory.thinkAloud(stateObj, "pen_pat", "Leaned into gentle headpats in the Sanctuary", { minGapMs: 2000 });
+    if (nowMs) delete stateObj._simNow;
+}
+
+function feedInPen(stateObj, nowMs) {
+    if (!stateObj) return;
+    if (nowMs) stateObj._simNow = nowMs;
+    stateObj.satiety = Util.clamp01((stateObj.satiety === undefined ? 0.5 : stateObj.satiety) + 0.45);
+    stateObj.happiness = Util.clamp01(stateObj.happiness + 0.16);
+    stateObj.mood = Util.clamp01(stateObj.mood + 0.22);
+    stateObj.trust = Util.clamp01((stateObj.trust || 0.35) + 0.035);
+    stateObj.penState = "eat";
+    stateObj.sanctuaryActivity = "Happily munching a berry snack";
+    Memory.recordEpisode(stateObj, "fed_snack", { valence: 0.8, salience: 0.72 });
+    Memory.thinkAloud(stateObj, "pen_fed", "Happily ate a sweet berry in the Sanctuary", { minGapMs: 2000 });
+    if (nowMs) delete stateObj._simNow;
+}
+
+function playInPen(stateObj, nowMs) {
+    if (!stateObj) return;
+    if (nowMs) stateObj._simNow = nowMs;
+    stateObj.happiness = Util.clamp01(stateObj.happiness + 0.10);
+    stateObj.mood = Util.clamp01(stateObj.mood + 0.16);
+    stateObj.trust = Util.clamp01((stateObj.trust || 0.35) + 0.02);
+    stateObj.playDrive = Math.max(0, stateObj.playDrive - 0.25);
+    stateObj.penState = "wander";
+    stateObj.sanctuaryActivity = "Romping playfully across the Sanctuary pasture";
+    Memory.recordEpisode(stateObj, "played_solo", { valence: 0.6, salience: 0.55 });
+    Memory.thinkAloud(stateObj, "pen_play", "Played a lively game in the Sanctuary", { minGapMs: 2000 });
+    if (nowMs) delete stateObj._simNow;
 }

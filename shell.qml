@@ -23,7 +23,6 @@ ShellRoot {
         }
     }
 
-    // Persistent cognitive/soul records for all adopted companions (roaming + Sanctuary pen).
     Variants {
         model: root.allPetIds
 
@@ -33,7 +32,6 @@ ShellRoot {
         }
     }
 
-    // Wayland overlay windows only for companions currently roaming on the desktop.
     Variants {
         model: PetManager.roamingIds
 
@@ -43,44 +41,44 @@ ShellRoot {
         }
     }
 
-    // Zero-input-mask cross-monitor drag ghost so carrying a pet across displays never drops grab.
-    PanelWindow {
-        id: dragGhostWindow
-        screen: PetManager.dragGhostScreen ?? (Quickshell.screens.length > 0 ? Quickshell.screens[0] : null)
-        visible: PetManager.dragGhostActive && PetManager.dragGhostScreen !== null && !PetManager.hidden
+    Loader {
+        active: PetManager.dragGhostActive && PetManager.dragGhostScreen !== null && !PetManager.hidden
+        sourceComponent: PanelWindow {
+            screen: PetManager.dragGhostScreen
+            visible: true
 
-        WlrLayershell.layer: WlrLayer.Overlay
-        WlrLayershell.namespace: "qs-vpets:drag-ghost"
-        WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
-        WlrLayershell.exclusionMode: ExclusionMode.Ignore
+            WlrLayershell.layer: WlrLayer.Overlay
+            WlrLayershell.namespace: "qs-vpets:drag-ghost"
+            WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+            WlrLayershell.exclusionMode: ExclusionMode.Ignore
 
-        anchors {
-            top: true
-            bottom: true
-            left: true
-            right: true
-        }
-        color: "transparent"
+            anchors {
+                top: true
+                bottom: true
+                left: true
+                right: true
+            }
+            color: "transparent"
 
-        Item { id: emptyGhostMask; width: 0; height: 0 }
-        mask: Region { item: emptyGhostMask }
+            Item { id: emptyGhostMask; width: 0; height: 0 }
+            mask: Region { item: emptyGhostMask }
 
-        SpriteAnimation {
-            x: PetManager.dragGhostX
-            y: PetManager.dragGhostY
-            width: PetManager.dragGhostSize
-            height: PetManager.dragGhostSize
-            speciesName: PetManager.dragGhostSprite
-            currentState: "drag"
-            altitude: 18
-            mirror: PetManager.dragGhostMirror
-            spriteDir: PetManager.dragGhostSprite
-                ? Qt.resolvedUrl("assets/sprites/" + PetManager.dragGhostSprite)
-                : ""
+            SpriteAnimation {
+                x: PetManager.dragGhostX
+                y: PetManager.dragGhostY
+                width: PetManager.dragGhostSize
+                height: PetManager.dragGhostSize
+                speciesName: PetManager.dragGhostSprite
+                currentState: "drag"
+                altitude: 18
+                mirror: PetManager.dragGhostMirror
+                spriteDir: PetManager.dragGhostSprite
+                    ? Qt.resolvedUrl("assets/sprites/" + PetManager.dragGhostSprite)
+                    : ""
+            }
         }
     }
 
-    // Lazy-loaded floating Sanctuary / Pet Pen management GUI (`qs-vpets pen`).
     Loader {
         active: PetManager.penVisible
         sourceComponent: SanctuaryWindow {}

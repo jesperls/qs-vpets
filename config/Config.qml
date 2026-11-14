@@ -1,4 +1,5 @@
 pragma Singleton
+pragma ComponentBehavior: Bound
 
 import QtQuick
 import Quickshell
@@ -16,6 +17,7 @@ Singleton {
             personality: "emergent",
             scale: 2,
             monitor: "",
+            roamMode: "auto",
             actions: {}
         },
         {
@@ -25,6 +27,7 @@ Singleton {
             personality: "curious",
             scale: 2,
             monitor: "",
+            roamMode: "auto",
             actions: {}
         }
     ]
@@ -100,10 +103,27 @@ Singleton {
         return out;
     }
 
-    function _matchesPet(p: var, idOrName: string): bool {
-        if (!p || !idOrName) return false;
-        const q = String(idOrName).trim().toLowerCase();
-        return String(p.id).toLowerCase() === q || String(p.name).toLowerCase() === q;
+    function petById(id: string): var {
+        if (!id) return null;
+        for (let i = 0; i < root.pets.length; i++) {
+            if (root.pets[i].id === id) return root.pets[i];
+        }
+        return null;
+    }
+
+    function findPet(idOrName: string): var {
+        const raw = String(idOrName || "").trim();
+        if (!raw) return null;
+        const exact = petById(raw);
+        if (exact) return exact;
+        const q = raw.toLowerCase();
+        for (let i = 0; i < root.pets.length; i++) {
+            if (String(root.pets[i].id).toLowerCase() === q) return root.pets[i];
+        }
+        for (let i = 0; i < root.pets.length; i++) {
+            if (String(root.pets[i].name).toLowerCase() === q) return root.pets[i];
+        }
+        return null;
     }
 
     function _serialize(): string {
@@ -125,20 +145,20 @@ Singleton {
     }
 
     function flush(): void {
-        if (!saveTimer.running && root._pendingJson === root._lastSavedJson && root._lastSavedJson.length > 0) {
+        const nextJson = root._serialize();
+        if (!saveTimer.running && nextJson === root._lastSavedJson && root._lastSavedJson.length > 0) {
             return;
         }
         saveTimer.stop();
-        root._pendingJson = root._serialize();
-        root._lastSavedJson = root._pendingJson;
+        root._pendingJson = nextJson;
+        root._lastSavedJson = nextJson;
         if (root._dirsCreated) {
             configFile.setText(root._pendingJson);
         }
     }
 
-    function load(): void {
-        const raw = configFile.text();
-        if (!raw || !raw.trim() || raw === root._lastSavedJson) return;
+    function load(raw: string): bool {
+        if (!raw || !raw.trim() || raw === root._lastSavedJson) return false;
         try {
             const data = JSON.parse(raw);
             if (Array.isArray(data.pets)) root.pets = root._normalizePets(data.pets);
@@ -153,12 +173,15 @@ Singleton {
                     root.maxActiveRoaming = Math.max(1, Math.min(10, Math.round(Number(b.maxActiveRoaming) || 3)));
                 }
             }
+            root._lastSavedJson = raw;
+            return true;
         } catch (e) {
             console.warn("qs-vpets: failed to parse config.json:", e);
+            return false;
         }
     }
 
-    function addPet(species: string, customName: string, preset: string, roamMode = "auto"): var {
+    function addPet(species: string, customName: string, preset = "", roamMode = "auto"): var {
         const sp = SpriteSheet.SPECIES_LIST.indexOf(species) !== -1 ? species : "zorua";
         const defaultName = customName && customName.trim().length > 0
             ? customName.trim()
@@ -169,11 +192,14 @@ Singleton {
             finalName = defaultName + " " + idx++;
         }
         const rm = (roamMode === "always" || roamMode === "penned") ? roamMode : "auto";
+        const resolvedPreset = preset && preset.trim().length > 0
+            ? preset.trim()
+            : (SpriteSheet.SPECIES_TEMPERAMENT[sp] || "emergent");
         const entry = {
             id: _slug(finalName) + "-" + Date.now().toString(36).slice(-4),
             name: finalName,
             sprite: sp,
-            personality: preset || "emergent",
+            personality: resolvedPreset,
             scale: 2,
             monitor: "",
             roamMode: rm,
@@ -182,12 +208,14 @@ Singleton {
         root.pets = root._normalizePets(root.pets.concat([entry]));
         root.save();
         root.configReady();
-        return entry;
+        return root.petById(entry.id) ?? entry;
     }
 
     function removePet(idOrName: string): bool {
         if (root.pets.length <= 1) return false;
-        const next = root.pets.filter(p => !root._matchesPet(p, idOrName));
+        const target = root.findPet(idOrName);
+        if (!target) return false;
+        const next = root.pets.filter(p => p.id !== target.id);
         if (next.length === root.pets.length) return false;
         root.pets = next;
         root.save();
@@ -198,7 +226,7 @@ Singleton {
     function renamePet(idOrName: string, newName: string): string {
         const trimmed = String(newName || "").trim();
         if (!trimmed) return "";
-        const target = root.pets.find(p => root._matchesPet(p, idOrName));
+        const target = root.findPet(idOrName);
         if (!target) return "";
         let finalName = trimmed;
         let idx = 2;
@@ -212,43 +240,51 @@ Singleton {
         return finalName;
     }
 
-    function updatePetSpecies(idOrName: string, species: string): void {
-        if (SpriteSheet.SPECIES_LIST.indexOf(species) === -1) return;
-        root.pets = root.pets.map(p => root._matchesPet(p, idOrName) ? Object.assign({}, p, { sprite: species }) : p);
+    function updatePetSpecies(idOrName: string, species: string): bool {
+        if (SpriteSheet.SPECIES_LIST.indexOf(species) === -1) return false;
+        const target = root.findPet(idOrName);
+        if (!target || target.sprite === species) return false;
+        root.pets = root.pets.map(p => p.id === target.id ? Object.assign({}, p, { sprite: species }) : p);
         root.save();
         root.configReady();
+        return true;
     }
 
     function updatePetScale(idOrName: string, scale: int): void {
+        const target = root.findPet(idOrName);
+        if (!target) return;
         const s = Math.max(1, Math.min(5, scale));
-        root.pets = root.pets.map(p => root._matchesPet(p, idOrName) ? Object.assign({}, p, { scale: s }) : p);
+        if (target.scale === s) return;
+        root.pets = root.pets.map(p => p.id === target.id ? Object.assign({}, p, { scale: s }) : p);
         root.save();
         root.configReady();
     }
 
     function updatePetRoamMode(idOrName: string, mode: string): bool {
         if (mode !== "auto" && mode !== "always" && mode !== "penned") return false;
-        let changed = false;
-        root.pets = root.pets.map(p => {
-            if (!root._matchesPet(p, idOrName)) return p;
-            changed = true;
-            return Object.assign({}, p, { roamMode: mode });
-        });
-        if (!changed) return false;
+        const target = root.findPet(idOrName);
+        if (!target) return false;
+        if (target.roamMode === mode) return true;
+        root.pets = root.pets.map(p => p.id === target.id ? Object.assign({}, p, { roamMode: mode }) : p);
         root.save();
         root.configReady();
         return true;
     }
 
     function updatePetMonitor(idOrName: string, monitorName: string): void {
+        const target = root.findPet(idOrName);
+        if (!target) return;
         const m = String(monitorName || "");
-        root.pets = root.pets.map(p => root._matchesPet(p, idOrName) ? Object.assign({}, p, { monitor: m }) : p);
+        if (target.monitor === m) return;
+        root.pets = root.pets.map(p => p.id === target.id ? Object.assign({}, p, { monitor: m }) : p);
         root.save();
         root.configReady();
     }
 
     function updateMaxRoaming(count: int): void {
-        root.maxActiveRoaming = Math.max(1, Math.min(10, count));
+        const next = Math.max(1, Math.min(10, count));
+        if (root.maxActiveRoaming === next) return;
+        root.maxActiveRoaming = next;
         root.save();
         root.configReady();
     }
@@ -290,17 +326,23 @@ Singleton {
         printErrors: false
         onFileChanged: reload()
         onLoaded: {
-            root.load();
-            root.ready = true;
-            root.configReady();
+            const raw = text();
+            if (root.ready && (saveTimer.running || raw === root._lastSavedJson)) return;
+            const changed = root.load(raw);
+            if (!root.ready || changed) {
+                root.ready = true;
+                root.configReady();
+            }
         }
         onLoadFailed: err => {
             if (err !== FileViewError.FileNotFound) {
                 console.warn("qs-vpets: config read failed:", err);
             }
-            root.ready = true;
-            root.save();
-            root.configReady();
+            if (!root.ready) {
+                root.ready = true;
+                root.save();
+                root.configReady();
+            }
         }
     }
 }

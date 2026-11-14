@@ -1,3 +1,5 @@
+.pragma library
+
 var BIOME = "Shadow Hollow";
 
 var SPECIES = {

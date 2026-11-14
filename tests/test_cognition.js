@@ -1,31 +1,7 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
-const vm = require("node:vm");
-
-const rootDir = path.resolve(__dirname, "..");
-
-const moduleCache = new Map();
-function loadQmlJs(relPath) {
-    const norm = path.normalize(relPath);
-    if (moduleCache.has(norm)) return moduleCache.get(norm);
-    const full = path.join(rootDir, norm);
-    const dir = path.dirname(norm);
-    let src = fs.readFileSync(full, "utf8");
-    const imports = {};
-    src = src.replace(/^\.import\s+"([^"]+)"\s+as\s+([A-Za-z0-9_]+)\s*$/gm, (_, impPath, alias) => {
-        imports[alias] = loadQmlJs(path.join(dir, impPath));
-        return "";
-    });
-    const ctx = Object.assign(
-        { Math, Date, Number, Object, Array, String, Boolean, JSON, parseInt, parseFloat, isFinite, console },
-        imports
-    );
-    vm.createContext(ctx);
-    vm.runInContext(src, ctx, { filename: norm });
-    moduleCache.set(norm, ctx);
-    return ctx;
-}
+const { loadQmlJs, rootDir } = require("./loadQmlJs");
 
 const SpeciesProfile = loadQmlJs("components/SpeciesProfile.js");
 const SpriteSheet = loadQmlJs("components/SpriteSheet.js");
@@ -1527,6 +1503,140 @@ function stepNavigationSim(world, pet, maxSeconds = 120) {
         assert.ok(eevee.episodes.length > epCountBefore, "Evolution appends milestone without wiping prior episodes");
         assert.ok(eevee.journal.some(j => j.text.includes("Umbreon")), "Evolution records permanent journal milestone");
         assert.ok(Memory.relationWith(eevee, "Bestie").affinity > 0.6, "Evolution preserves companion relationships");
+    }
+}
+
+// 17. Architecture & runtime safety regressions
+{
+    // 17a. Sealed QObject-like pet applySaved + penned hasSavedPos:false roundtrip
+    {
+        const world = createSimWorld();
+        const qobjPet = createSimPet(world, "Sealed", "playful", 0, "zorua");
+        delete qobjPet.enteredPenAt;
+        delete qobjPet.gx;
+        delete qobjPet.gy;
+        delete qobjPet.hasSavedPos;
+        Object.seal(qobjPet);
+
+        const pennedState = Sanctuary.createDefaultResident(
+            { id: "sealed_1", name: "Sealed", sprite: "zorua" },
+            world.now
+        );
+        pennedState.enteredPenAt = world.now - 50000;
+        const json = Persist.serialize(pennedState);
+        const parsed = JSON.parse(json);
+        assert.equal(parsed.hasSavedPos, false, "Penned resident without desktop coords saves hasSavedPos=false");
+
+        assert.doesNotThrow(() => {
+            Persist.applySaved(qobjPet, json);
+        }, "applySaved never assigns undeclared properties onto sealed QObject-like Pet");
+        assert.notEqual(qobjPet.worldX, 0, "hasSavedPos=false does not clobber live Pet worldX to 0");
+    }
+
+    // 17b. Plain stateObj Sanctuary care interactions record episodes safely without screenX()
+    {
+        const recState = Sanctuary.createDefaultResident(
+            { id: "pen_care_1", name: "Pip", sprite: "eevee" },
+            1_700_000_000_000
+        );
+        assert.doesNotThrow(() => {
+            Sanctuary.patInPen(recState, 1_700_000_010_000);
+            Sanctuary.feedInPen(recState, 1_700_000_020_000);
+            Sanctuary.playInPen(recState, 1_700_000_030_000);
+        }, "Sanctuary care actions work on plain stateObj without QObject methods");
+        assert.equal(recState.episodes.length, 3, "All 3 Sanctuary care episodes recorded");
+    }
+
+    // 17c. Stable id-seeded basePersonality across companion renames
+    {
+        const baseA = Personality.resolveBase("curious", "pet_abc_123", null);
+        const baseB = Personality.resolveBase("curious", "pet_abc_123", null);
+        const baseDiff = Personality.resolveBase("curious", "different_seed", null);
+        assert.deepEqual(Object.assign({}, baseA), Object.assign({}, baseB), "Stable pet id produces identical basePersonality");
+        assert.notDeepEqual(Object.assign({}, baseA), Object.assign({}, baseDiff), "Different seed key produces distinct jitter");
+        const recState = Sanctuary.createDefaultResident(
+            { id: "pet_abc_123", name: "OldName", sprite: "zorua", personality: "curious" },
+            1_700_000_000_000
+        );
+        const restored = Sanctuary.createDefaultResident(
+            { id: "different_seed", name: "NewName", sprite: "zorua", personality: "sleepy" },
+            1_700_000_000_000
+        );
+        assert.notDeepEqual(Object.assign({}, restored.basePersonality), Object.assign({}, recState.basePersonality));
+        Persist.applySaved(restored, Persist.serialize(recState));
+        assert.deepEqual(
+            Object.assign({}, restored.basePersonality),
+            Object.assign({}, recState.basePersonality),
+            "Persisted basePersonality survives rename and preset drift"
+        );
+    }
+
+    // 17d. user_idle never strands active plans; user interaction cancels _retiringToPen
+    {
+        const world = createSimWorld();
+        const sleeper = createSimPet(world, "Drowse", "sleepy", 0, "snorlax");
+        sleeper.basePersonality.energy = 0.1;
+        sleeper.basePersonality.curiosity = 0.1;
+        sleeper.basePersonality.playfulness = 0.1;
+        sleeper.basePersonality.sleepiness = 0.9;
+        Plans.startPlan(sleeper, Plans.buildScoutPlan({ gx: 900, gy: 600, otherScreen: false }), Nav, Brain._pick);
+        assert.equal(Plans.hasActivePlan(sleeper), true);
+        for (let i = 0; i < 10; i++) {
+            Brain.onEvent(sleeper, "user_idle", null, Nav);
+        }
+        assert.notEqual(sleeper.state_, "loaf", "user_idle does not strand an active plan in loaf");
+
+        let retireCancelled = false;
+        sleeper._retiringToPen = true;
+        sleeper.cancelRetireIfInterrupted = function() {
+            this._retiringToPen = false;
+            retireCancelled = true;
+        };
+        Plans.startPlan(sleeper, Plans.buildRetirePlan(sleeper, Perception.perceive(sleeper)), Nav, Brain._pick);
+        assert.equal(sleeper._retiringToPen, true, "retire_to_pen keeps _retiringToPen armed");
+        Brain.onEvent(sleeper, "petted", null, Nav);
+        assert.equal(retireCancelled, true, "Petting a retiring companion cancels _retiringToPen");
+        assert.equal(sleeper._retiringToPen, false);
+    }
+
+    // 17e. Sanctuary rotation retires 'penned' even when 'always' exceeds maxActiveRoaming, and readinessScore is pure
+    {
+        const now = 1_700_050_000_000;
+        const petCfgs = [
+            { id: "a1", name: "A1", sprite: "eevee", roamMode: "always" },
+            { id: "a2", name: "A2", sprite: "zorua", roamMode: "always" },
+            { id: "p1", name: "P1", sprite: "rowlet", roamMode: "penned" }
+        ];
+        const decision = Sanctuary.evaluateRotation(petCfgs, {}, {}, ["a1", "p1"], 1, 0, null, now);
+        assert.equal(decision.retireId, "p1", "Penned policy retires immediately before spawning missing always-out pet");
+
+        const freshRec = Sanctuary.createDefaultResident({ id: "r1", name: "R1", sprite: "pikachu" }, now);
+        freshRec.enteredPenAt = now - 1000;
+        freshRec.restDrive = 0.1;
+        freshRec.alertness = 0.8;
+        const sNormal = Sanctuary.readinessScore(freshRec, [], null, now, false);
+        const sIgnore = Sanctuary.readinessScore(freshRec, [], null, now, true);
+        assert.equal(freshRec.enteredPenAt, now - 1000, "readinessScore never mutates enteredPenAt");
+        assert.ok(sIgnore > sNormal, "ignoreRestCooldown bypasses fresh-pen penalty cleanly");
+    }
+
+    // 17f. Evolution.canEvolveTo enforces unlocked branch; relationWith refreshes peer species
+    {
+        const world = createSimWorld();
+        const eevee = createSimPet(world, "Vee", "nocturnal", 0, "eevee");
+        assert.equal(Evolution.canEvolveTo(eevee, "umbreon", "eevee"), false, "Locked branch rejected by canEvolveTo");
+        eevee.maturity = 0.6;
+        eevee.bond = 0.75;
+        eevee.quirks = ["night_watch"];
+        for (let i = 0; i < 4; i++) Memory.recordEpisode(eevee, "night_vigil", { valence: 0.4 });
+        assert.equal(Evolution.canEvolveTo(eevee, "umbreon", "eevee"), true, "Earned branch accepted by canEvolveTo");
+        assert.equal(Evolution.canEvolveTo(eevee, "glaceon", "eevee"), false, "Unearned sibling branch rejected by canEvolveTo");
+
+        const peer = createSimPet(world, "Buddy", "playful", 0, "zorua");
+        Memory.relationWith(peer, "Vee", eevee.personality, "eevee");
+        assert.equal(peer.relationships.Vee.species, "eevee");
+        Memory.relationWith(peer, "Vee", eevee.personality, "umbreon");
+        assert.equal(peer.relationships.Vee.species, "umbreon", "relationWith updates cached peer species after evolution");
     }
 }
 

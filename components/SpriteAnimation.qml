@@ -1,4 +1,7 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
+import QtQuick.Window
 import Quickshell.Io
 import "SpriteSheet.js" as SpriteSheet
 
@@ -35,6 +38,10 @@ Item {
     readonly property var _currentAnim: useSpriteSheet
         ? (_animData[_animName] || _animData["Walk"] || null)
         : null
+    readonly property bool _holdingStaticFrame: _clip !== null
+        && _clip.loop
+        && _clip.holdAtFrame >= 0
+        && _frame >= _clip.holdAtFrame
 
     function triggerSquash(sx: real, sy: real): void {
         squashAnim.stop();
@@ -128,7 +135,11 @@ Item {
 
     Timer {
         interval: 32
-        running: root.useSpriteSheet && root._currentAnim !== null && root.visible
+        running: root.useSpriteSheet
+            && root._currentAnim !== null
+            && root.visible
+            && root.Window.visibility !== Window.Hidden
+            && !root._holdingStaticFrame
         repeat: true
         onRunningChanged: root._lastFrameTickMs = Date.now()
         onTriggered: {

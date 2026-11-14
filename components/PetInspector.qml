@@ -5,7 +5,7 @@ import QtQuick.Layouts
 import "../config"
 import "../services"
 import "SpeciesProfile.js" as SpeciesProfile
-import "behavior/Personality.js" as Personality
+import "ui/CompanionFormat.js" as Fmt
 
 Rectangle {
     id: root
@@ -16,7 +16,12 @@ Rectangle {
     property int maxHeight: 640
     property int activeTab: 0
     property bool spawnExpanded: false
-    property bool confirmRelease: false
+
+    readonly property var resident: {
+        void PetManager.residentRevision;
+        const id = root.pet && root.pet.petData ? root.pet.petData.id : "";
+        return id ? PetManager.residentFor(id) : null;
+    }
 
     implicitWidth: cardWidth
     implicitHeight: Math.min(maxHeight, mainCol.implicitHeight + 28)
@@ -37,40 +42,6 @@ Rectangle {
     Behavior on opacity { NumberAnimation { duration: Theme.animMs; easing.type: Easing.OutCubic } }
     Behavior on scale { NumberAnimation { duration: Theme.animMs; easing.type: Easing.OutCubic } }
 
-    Timer {
-        id: releaseResetTimer
-        interval: 3500
-        onTriggered: root.confirmRelease = false
-    }
-
-    function formatAge(sec: real): string {
-        const s = Math.max(0, Math.floor(sec || 0));
-        if (s < 3600) return Math.max(1, Math.floor(s / 60)) + "m";
-        if (s < 86400) return Math.floor(s / 3600) + "h";
-        return Math.floor(s / 86400) + "d " + Math.floor((s % 86400) / 3600) + "h";
-    }
-
-    function formatAgo(ts: double): string {
-        if (!ts) return "";
-        const sec = Math.max(0, Math.floor((Date.now() - ts) / 1000));
-        if (sec < 45) return "now";
-        if (sec < 3600) return Math.floor(sec / 60) + "m";
-        if (sec < 86400) return Math.floor(sec / 3600) + "h";
-        return Math.floor(sec / 86400) + "d";
-    }
-
-    function companionSpecies(name: string, rel: var): string {
-        if (rel && rel.species) return rel.species;
-        const found = Config.pets.find(p => p.name === name);
-        return found ? found.sprite : "zorua";
-    }
-
-    function companionId(name: string): string {
-        const found = Config.pets.find(p => p.name === name);
-        return found ? found.id : "";
-    }
-
-    // Specular top rim matching Pangu surfaces.
     Rectangle {
         visible: Theme.specularRim
         anchors.top: parent.top
@@ -83,7 +54,6 @@ Rectangle {
         color: Theme.rimHighlight
     }
 
-    // Swallow clicks on the card background so they don't fall through.
     MouseArea {
         anchors.fill: parent
         acceptedButtons: Qt.LeftButton | Qt.RightButton
@@ -142,7 +112,7 @@ Rectangle {
                                     font.weight: Font.DemiBold
                                 }
                                 Text {
-                                    text: root.formatAge(root.pet.ageSeconds)
+                                    text: Fmt.formatAge(root.pet.ageSeconds)
                                     color: Theme.subtext
                                     font.family: Theme.monoFont
                                     font.pixelSize: 10
@@ -280,6 +250,13 @@ Rectangle {
                 }
             }
 
+            SanctuaryEvolutionCard {
+                petId: root.pet.petData.id
+                species: root.pet.petData.sprite
+                livePet: root.pet
+                resident: root.resident
+            }
+
             RowLayout {
                 Layout.fillWidth: true
                 spacing: 6
@@ -392,418 +369,76 @@ Rectangle {
                 }
             }
 
-            ColumnLayout {
+            SanctuaryVitalsPanel {
                 visible: root.activeTab === 0
                 Layout.fillWidth: true
-                spacing: 6
-
-                Repeater {
-                    model: [
-                        { name: "Mood", val: root.pet.mood, tint: Theme.positive },
-                        { name: "Bond", val: root.pet.bond, tint: Theme.love },
-                        { name: "Trust", val: root.pet.trust, tint: Theme.accent },
-                        { name: "Satiety", val: root.pet.satiety, tint: Theme.positive },
-                        { name: "Energy", val: 1.0 - root.pet.restDrive, tint: Theme.warm },
-                        { name: "Curiosity", val: root.pet.exploreDrive, tint: Theme.accent },
-                        { name: "Social", val: root.pet.socialDrive, tint: Theme.love },
-                        { name: "Play", val: root.pet.playDrive, tint: Theme.positive }
-                    ]
-
-                    RowLayout {
-                        id: driveRow
-                        required property var modelData
-                        Layout.fillWidth: true
-                        spacing: 8
-
-                        Text {
-                            Layout.preferredWidth: 62
-                            text: driveRow.modelData.name
-                            color: Theme.subtext
-                            font.family: Theme.uiFont
-                            font.pixelSize: 11
-                        }
-
-                        Rectangle {
-                            Layout.fillWidth: true
-                            implicitHeight: 6
-                            radius: 3
-                            color: Theme.surface
-
-                            Rectangle {
-                                width: parent.width * Math.max(0.03, Math.min(1, driveRow.modelData.val || 0))
-                                height: parent.height
-                                radius: 3
-                                color: driveRow.modelData.tint
-                                Behavior on width { NumberAnimation { duration: Theme.animMs; easing.type: Easing.OutCubic } }
-                            }
-                        }
-
-                        Text {
-                            Layout.preferredWidth: 32
-                            horizontalAlignment: Text.AlignRight
-                            text: Math.round((driveRow.modelData.val || 0) * 100) + "%"
-                            color: Theme.text
-                            font.family: Theme.monoFont
-                            font.pixelSize: 10
-                        }
-                    }
-                }
-
-                Rectangle {
-                    Layout.fillWidth: true
-                    implicitHeight: 1
-                    color: Theme.borderSubtle
-                }
-
-                Text {
-                    text: "FIELD NOTES"
-                    color: Theme.muted
-                    font.family: Theme.uiFont
-                    font.pixelSize: 9
-                    font.weight: Font.Bold
-                    font.letterSpacing: 0.6
-                }
-
-                Repeater {
-                    model: (root.pet.thoughts || []).slice(-4).reverse()
-
-                    RowLayout {
-                        id: monoLine
-                        required property var modelData
-                        Layout.fillWidth: true
-                        spacing: 6
-
-                        Rectangle {
-                            implicitWidth: 4
-                            implicitHeight: 4
-                            radius: 2
-                            color: Theme.border
-                        }
-
-                        Text {
-                            Layout.fillWidth: true
-                            elide: Text.ElideRight
-                            text: monoLine.modelData.text || ""
-                            color: Theme.text
-                            font.family: Theme.uiFont
-                            font.pixelSize: 11
-                        }
-
-                        Text {
-                            visible: !!monoLine.modelData.t
-                            text: root.formatAgo(monoLine.modelData.t || 0)
-                            color: Theme.muted
-                            font.family: Theme.monoFont
-                            font.pixelSize: 9
-                        }
-                    }
-                }
+                showHeader: false
+                livePet: root.pet
+                resident: root.resident
+                maxNotes: 4
+                labelWidth: 62
             }
 
-            ColumnLayout {
+            SanctuarySoulPanel {
                 visible: root.activeTab === 1
                 Layout.fillWidth: true
-                spacing: 6
-
-                Repeater {
-                    model: Personality.TRAIT_KEYS
-
-                    RowLayout {
-                        id: traitRow
-                        required property string modelData
-                        readonly property real eff: root.pet.personality[traitRow.modelData] ?? 0.5
-                        readonly property real baseVal: root.pet.basePersonality[traitRow.modelData] ?? 0.5
-                        readonly property int deltaPct: Math.round((eff - baseVal) * 100)
-                        Layout.fillWidth: true
-                        spacing: 8
-
-                        Text {
-                            Layout.preferredWidth: 70
-                            text: Personality.TRAIT_LABELS[traitRow.modelData] || traitRow.modelData
-                            color: Theme.subtext
-                            font.family: Theme.uiFont
-                            font.pixelSize: 11
-                        }
-
-                        Rectangle {
-                            Layout.fillWidth: true
-                            implicitHeight: 6
-                            radius: 3
-                            color: Theme.surface
-
-                            Rectangle {
-                                width: parent.width * Math.max(0.03, Math.min(1, traitRow.eff))
-                                height: parent.height
-                                radius: 3
-                                color: Theme.accent
-                                Behavior on width { NumberAnimation { duration: Theme.animMs; easing.type: Easing.OutCubic } }
-                            }
-
-                            // Baseline tick mark showing initial nature before lived drift.
-                            Rectangle {
-                                x: Math.max(0, Math.min(parent.width - 2, parent.width * traitRow.baseVal - 1))
-                                y: -1
-                                width: 2
-                                height: parent.height + 2
-                                radius: 1
-                                color: Theme.alpha(Theme.text, 0.55)
-                            }
-                        }
-
-                        Text {
-                            Layout.preferredWidth: 54
-                            horizontalAlignment: Text.AlignRight
-                            text: Math.round(traitRow.eff * 100)
-                                + (traitRow.deltaPct !== 0 ? (" " + (traitRow.deltaPct > 0 ? "+" : "") + traitRow.deltaPct) : "")
-                            color: traitRow.deltaPct > 0 ? Theme.positive : (traitRow.deltaPct < 0 ? Theme.warm : Theme.subtext)
-                            font.family: Theme.monoFont
-                            font.pixelSize: 10
-                        }
-                    }
-                }
-
-                Rectangle {
-                    Layout.fillWidth: true
-                    implicitHeight: 1
-                    color: Theme.borderSubtle
-                }
-
-                Text {
-                    text: "EARNED HABITS"
-                    color: Theme.muted
-                    font.family: Theme.uiFont
-                    font.pixelSize: 9
-                    font.weight: Font.Bold
-                    font.letterSpacing: 0.6
-                }
-
-                Text {
-                    visible: !root.pet.quirks || root.pet.quirks.length === 0
-                    Layout.fillWidth: true
-                    wrapMode: Text.WordWrap
-                    text: "Habits emerge naturally as memories consolidate during sleep."
-                    color: Theme.muted
-                    font.family: Theme.uiFont
-                    font.pixelSize: 10
-                }
-
-                Flow {
-                    visible: (root.pet.quirks || []).length > 0
-                    Layout.fillWidth: true
-                    spacing: 5
-
-                    Repeater {
-                        model: root.pet.quirks || []
-
-                        Rectangle {
-                            id: quirkBadge
-                            required property string modelData
-                            readonly property var def: Personality.QUIRK_DEFS[quirkBadge.modelData]
-                            radius: Theme.radius(-8)
-                            color: Theme.surfaceAlt
-                            border.width: 1
-                            border.color: quirkHover.containsMouse ? Theme.accent : Theme.borderSubtle
-                            implicitWidth: qRow.implicitWidth + 12
-                            implicitHeight: 22
-
-                            RowLayout {
-                                id: qRow
-                                anchors.centerIn: parent
-                                spacing: 5
-
-                                UiIcon {
-                                    visible: !!quirkBadge.def
-                                    name: quirkBadge.def ? quirkBadge.def.icon : "spark"
-                                    size: 11
-                                    color: Theme.accent
-                                }
-
-                                Text {
-                                    text: quirkBadge.def ? quirkBadge.def.label : quirkBadge.modelData
-                                    color: Theme.text
-                                    font.family: Theme.uiFont
-                                    font.pixelSize: 10
-                                    font.weight: Font.Medium
-                                }
-                            }
-
-                            MouseArea {
-                                id: quirkHover
-                                anchors.fill: parent
-                                hoverEnabled: true
-                            }
-
-                            UiTooltip {
-                                active: quirkHover.containsMouse
-                                text: quirkBadge.def ? quirkBadge.def.summary : ""
-                            }
-                        }
-                    }
-                }
-
-                Text {
-                    visible: Object.keys(root.pet.relationships || {}).length > 0
-                    text: "COMPANION BONDS"
-                    color: Theme.muted
-                    font.family: Theme.uiFont
-                    font.pixelSize: 9
-                    font.weight: Font.Bold
-                    font.letterSpacing: 0.6
-                }
-
-                Repeater {
-                    model: Object.keys(root.pet.relationships || {})
-
-                    Rectangle {
-                        id: relRow
-                        required property string modelData
-                        readonly property var rel: root.pet.relationships[relRow.modelData]
-                        readonly property string spName: root.companionSpecies(relRow.modelData, rel)
-                        readonly property string targetId: root.companionId(relRow.modelData)
-                        readonly property real aff: (rel && rel.affinity !== undefined) ? rel.affinity : 0.5
-                        readonly property color affTint: aff < 0.35 ? Theme.danger : (aff < 0.52 ? Theme.warm : Theme.love)
-
-                        Layout.fillWidth: true
-                        implicitHeight: 28
-                        radius: Theme.radius(-8)
-                        color: relMouse.containsMouse && targetId ? Theme.surfaceAlt : Theme.surface
-                        border.width: 1
-                        border.color: Theme.borderSubtle
-
-                        RowLayout {
-                            anchors.fill: parent
-                            anchors.leftMargin: 6
-                            anchors.rightMargin: 8
-                            spacing: 6
-
-                            SpriteAnimation {
-                                Layout.preferredWidth: 20
-                                Layout.preferredHeight: 20
-                                speciesName: relRow.spName
-                                currentState: "idle"
-                                spriteDir: Qt.resolvedUrl("../assets/sprites/" + relRow.spName)
-                            }
-
-                            Text {
-                                text: relRow.modelData
-                                color: Theme.text
-                                font.family: Theme.uiFont
-                                font.pixelSize: 11
-                                font.weight: Font.DemiBold
-                            }
-
-                            Rectangle {
-                                radius: 4
-                                color: Theme.alpha(relRow.affTint, 0.14)
-                                implicitWidth: relTagTxt.implicitWidth + 8
-                                implicitHeight: 16
-                                Text {
-                                    id: relTagTxt
-                                    anchors.centerIn: parent
-                                    text: Personality.relationshipTag(relRow.rel)
-                                    color: relRow.affTint
-                                    font.family: Theme.uiFont
-                                    font.pixelSize: 9
-                                    font.weight: Font.Medium
-                                }
-                            }
-
-                            Item { Layout.fillWidth: true }
-
-                            Text {
-                                text: Math.round(relRow.aff * 100) + "%"
-                                color: relRow.affTint
-                                font.family: Theme.monoFont
-                                font.pixelSize: 10
-                            }
-                        }
-
-                        MouseArea {
-                            id: relMouse
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: relRow.targetId ? Qt.PointingHandCursor : Qt.ArrowCursor
-                            onClicked: {
-                                if (relRow.targetId) PetManager.openPen(relRow.targetId);
-                            }
-                        }
-                    }
-                }
-
-                Text {
-                    visible: (root.pet.journal || []).length > 0
-                    text: "MILESTONES"
-                    color: Theme.muted
-                    font.family: Theme.uiFont
-                    font.pixelSize: 9
-                    font.weight: Font.Bold
-                    font.letterSpacing: 0.6
-                }
-
-                Repeater {
-                    model: (root.pet.journal || []).slice(-3).reverse()
-
-                    Text {
-                        id: journalLine
-                        required property var modelData
-                        Layout.fillWidth: true
-                        elide: Text.ElideRight
-                        text: journalLine.modelData.text || ""
-                        color: Theme.subtext
-                        font.family: Theme.uiFont
-                        font.pixelSize: 10
-                    }
-                }
+                livePet: root.pet
+                resident: root.resident
+                maxMilestones: 3
+                labelWidth: 70
+                onSelectPeerRequested: peerId => PetManager.openPen(peerId)
             }
 
             ColumnLayout {
+                id: manageCol
                 visible: root.activeTab === 2
                 Layout.fillWidth: true
                 spacing: 8
 
-                Text {
-                    text: "SPECIES FORM"
-                    color: Theme.muted
-                    font.family: Theme.uiFont
-                    font.pixelSize: 9
-                    font.weight: Font.Bold
-                    font.letterSpacing: 0.6
+                UiSectionHeader {
+                    title: "SPECIES FORM"
                 }
 
-                Flow {
+                Loader {
+                    active: root.activeTab === 2
+                    visible: active
                     Layout.fillWidth: true
-                    spacing: 4
 
-                    Repeater {
-                        model: Config.speciesList
+                    sourceComponent: Flow {
+                        width: manageCol.width
+                        spacing: 4
 
-                        Rectangle {
-                            id: spChip
-                            required property string modelData
-                            readonly property bool current: root.pet.petData.sprite === spChip.modelData
-                            radius: Theme.radius(-8)
-                            color: current ? Theme.accentSoft : (spMouse.containsMouse ? Theme.surfaceAlt : Theme.surface)
-                            border.width: 1
-                            border.color: current ? Theme.accent : Theme.borderSubtle
-                            implicitWidth: spLabel.implicitWidth + 10
-                            implicitHeight: 22
+                        Repeater {
+                            model: Config.speciesList
 
-                            Text {
-                                id: spLabel
-                                anchors.centerIn: parent
-                                text: SpeciesProfile.profileFor(spChip.modelData).displayName
-                                color: spChip.current ? Theme.accent : Theme.text
-                                font.family: Theme.uiFont
-                                font.pixelSize: 10
-                                font.weight: spChip.current ? Font.DemiBold : Font.Normal
-                            }
+                            Rectangle {
+                                id: spChip
+                                required property string modelData
+                                readonly property bool current: root.pet.petData.sprite === spChip.modelData
+                                radius: Theme.radius(-8)
+                                color: current ? Theme.accentSoft : (spMouse.containsMouse ? Theme.surfaceAlt : Theme.surface)
+                                border.width: 1
+                                border.color: current ? Theme.accent : Theme.borderSubtle
+                                implicitWidth: spLabel.implicitWidth + 10
+                                implicitHeight: 22
 
-                            MouseArea {
-                                id: spMouse
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: Config.updatePetSpecies(root.pet.petData.id, spChip.modelData)
+                                Text {
+                                    id: spLabel
+                                    anchors.centerIn: parent
+                                    text: SpeciesProfile.profileFor(spChip.modelData).displayName
+                                    color: spChip.current ? Theme.accent : Theme.text
+                                    font.family: Theme.uiFont
+                                    font.pixelSize: 10
+                                    font.weight: spChip.current ? Font.DemiBold : Font.Normal
+                                }
+
+                                MouseArea {
+                                    id: spMouse
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: PetManager.morphCompanion(root.pet.petData.id, spChip.modelData)
+                                }
                             }
                         }
                     }
@@ -982,78 +617,55 @@ Rectangle {
                         }
                     }
 
-                    Rectangle {
-                        visible: Config.pets.length > 1
-                        implicitWidth: relTxt.implicitWidth + 18
-                        implicitHeight: 28
-                        radius: Theme.radius(-7)
-                        color: root.confirmRelease ? Theme.alpha(Theme.danger, 0.2) : Theme.surface
-                        border.width: 1
-                        border.color: Theme.alpha(Theme.danger, 0.65)
-
-                        Text {
-                            id: relTxt
-                            anchors.centerIn: parent
-                            text: root.confirmRelease ? "Confirm?" : "Release"
-                            color: Theme.danger
-                            font.family: Theme.uiFont
-                            font.pixelSize: 11
-                            font.weight: root.confirmRelease ? Font.Bold : Font.Medium
-                        }
-
-                        MouseArea {
-                            anchors.fill: parent
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: {
-                                if (!root.confirmRelease) {
-                                    root.confirmRelease = true;
-                                    releaseResetTimer.restart();
-                                    return;
-                                }
-                                root.confirmRelease = false;
-                                const targetId = root.pet.petData.id;
-                                PetManager.closeInspector();
-                                Config.removePet(targetId);
-                            }
-                        }
+                    SanctuaryConfirmReleaseButton {
+                        petId: root.pet.petData.id
+                        label: "Release"
+                        confirmLabel: "Confirm?"
+                        idleColor: Theme.surface
+                        onReleased: PetManager.closeInspector()
                     }
                 }
 
-                Flow {
-                    visible: root.spawnExpanded
+                Loader {
+                    active: root.spawnExpanded
+                    visible: active
                     Layout.fillWidth: true
-                    spacing: 4
 
-                    Repeater {
-                        model: Config.speciesList
+                    sourceComponent: Flow {
+                        width: manageCol.width
+                        spacing: 4
 
-                        Rectangle {
-                            id: adoptChip
-                            required property string modelData
-                            radius: Theme.radius(-8)
-                            color: adoptChipArea.containsMouse ? Theme.alpha(Theme.positive, 0.16) : Theme.surface
-                            border.width: 1
-                            border.color: Theme.alpha(Theme.positive, 0.45)
-                            implicitWidth: adoptTxt.implicitWidth + 10
-                            implicitHeight: 22
+                        Repeater {
+                            model: Config.speciesList
 
-                            Text {
-                                id: adoptTxt
-                                anchors.centerIn: parent
-                                text: SpeciesProfile.profileFor(adoptChip.modelData).displayName
-                                color: Theme.positive
-                                font.family: Theme.uiFont
-                                font.pixelSize: 10
-                            }
+                            Rectangle {
+                                id: adoptChip
+                                required property string modelData
+                                radius: Theme.radius(-8)
+                                color: adoptChipArea.containsMouse ? Theme.alpha(Theme.positive, 0.16) : Theme.surface
+                                border.width: 1
+                                border.color: Theme.alpha(Theme.positive, 0.45)
+                                implicitWidth: adoptTxt.implicitWidth + 10
+                                implicitHeight: 22
 
-                            MouseArea {
-                                id: adoptChipArea
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: {
-                                    Config.addPet(adoptChip.modelData, "", "emergent");
-                                    root.spawnExpanded = false;
+                                Text {
+                                    id: adoptTxt
+                                    anchors.centerIn: parent
+                                    text: SpeciesProfile.profileFor(adoptChip.modelData).displayName
+                                    color: Theme.positive
+                                    font.family: Theme.uiFont
+                                    font.pixelSize: 10
+                                }
+
+                                MouseArea {
+                                    id: adoptChipArea
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        Config.addPet(adoptChip.modelData, "", "");
+                                        root.spawnExpanded = false;
+                                    }
                                 }
                             }
                         }

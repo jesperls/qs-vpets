@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import "../config"
 
@@ -43,7 +45,7 @@ Item {
         dropletCanvas.requestPaint();
         emoteBadge.opacity = 1;
         emoteBadge.scale = 0.65;
-        emoteBadge.y = root.flipped ? 2 : 10;
+        emoteBadge.popOffsetY = root.flipped ? 0 : 10;
         emotePopAnim.start();
     }
 
@@ -56,7 +58,6 @@ Item {
         function onBorderChanged(): void { dropletCanvas.requestPaint(); }
     }
 
-    // Occasional quiet pixel 'z Z' drift while deeply asleep.
     Item {
         id: sleepDrift
         visible: root.sleeping && Config.showEmotes && emoteBadge.opacity < 0.05
@@ -132,8 +133,9 @@ Item {
         opacity: 0
         width: 28
         height: 28
+        property real popOffsetY: 0
         x: Math.round((root.width - width) * 0.5)
-        y: root.flipped ? 4 : (8 - root.altitude)
+        y: (root.flipped ? 2 : (2 - root.altitude)) + popOffsetY
 
         Canvas {
             id: dropletCanvas
@@ -151,7 +153,6 @@ Item {
                 const brdCol = Theme.border.toString();
                 const rimCol = Theme.rimHighlight.toString();
 
-                // Pixel-stepped speech droplet (26x22 body + 4px pointer tail)
                 ctx.fillStyle = brdCol;
                 ctx.fillRect(3, bodyY, 22, 22);
                 ctx.fillRect(1, bodyY + 2, 26, 18);
@@ -340,7 +341,7 @@ Item {
         ParallelAnimation {
             id: emotePopAnim
             NumberAnimation { target: emoteBadge; property: "scale"; from: 0.65; to: 1.0; duration: 190; easing.type: Easing.OutBack }
-            NumberAnimation { target: emoteBadge; property: "y"; from: root.flipped ? 2 : 12; to: root.flipped ? 8 : 2; duration: 1250; easing.type: Easing.OutCubic }
+            NumberAnimation { target: emoteBadge; property: "popOffsetY"; from: root.flipped ? 0 : 10; to: root.flipped ? 6 : 0; duration: 1250; easing.type: Easing.OutCubic }
             SequentialAnimation {
                 PauseAnimation { duration: 880 }
                 NumberAnimation { target: emoteBadge; property: "opacity"; from: 0.98; to: 0.0; duration: 370 }

@@ -1,3 +1,5 @@
+.pragma library
+
 .import "../SpeciesProfile.js" as SpeciesProfile
 .import "Personality.js" as Personality
 .import "Memory.js" as Memory
@@ -193,6 +195,16 @@ function evaluate(target, explicitSpecies) {
     };
 }
 
+function canEvolveTo(target, toSpecies, explicitSpecies) {
+    if (!target || !toSpecies) return false;
+    var ev = evaluate(target, explicitSpecies);
+    if (!ev.ready) return false;
+    for (var i = 0; i < ev.options.length; i++) {
+        if (ev.options[i].species === toSpecies) return true;
+    }
+    return false;
+}
+
 function recordEvolutionMilestone(target, fromSpecies, toSpecies) {
     if (!target || !toSpecies) return;
     var fromName = SpeciesProfile.profileFor(fromSpecies).displayName;
@@ -208,21 +220,10 @@ function recordEvolutionMilestone(target, fromSpecies, toSpecies) {
         "Evolved into " + toName + " while keeping every shared memory",
         { minGapMs: 0 }
     );
-    if (target.episodes) {
-        target.episodes.push({
-            type: "evolved",
-            time: Date.now(),
-            hour: new Date().getHours(),
-            gx: target.gx || 0,
-            gy: target.gy || 0,
-            valence: 0.92,
-            salience: 1.0,
-            consolidated: true,
-            windowClass: "",
-            withPet: "",
-            otherScreen: false,
-            music: false,
-            note: fromSpecies + "->" + toSpecies
-        });
-    }
+    var ep = Memory.recordEpisode(target, "evolved", {
+        valence: 0.92,
+        salience: 1.0,
+        note: fromSpecies + "->" + toSpecies
+    });
+    if (ep) ep.consolidated = true;
 }

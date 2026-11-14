@@ -22,7 +22,7 @@
         "aarch64-linux"
       ];
       forAllSystems = lib.genAttrs systems;
-      version = self.shortRev or self.dirtyShortRev or "0.2.0";
+      version = self.shortRev or self.dirtyShortRev or "0.5.0";
       packageFor = pkgs: pkgs.callPackage ./nix { inherit version; };
       pkgsFor = system: nixpkgs.legacyPackages.${system};
     in
@@ -50,7 +50,7 @@
         }
       );
 
-      homeManagerModules.default = import ./nix/hm-module.nix { inherit packageFor; };
+      homeModules.default = import ./nix/hm-module.nix { inherit packageFor; };
 
       checks = forAllSystems (
         system:
@@ -89,6 +89,7 @@
               pkg
               pkgs.nodejs
               pkgs.python3
+              pkgs.shellcheck
               pkgs.qt6.qtdeclarative
               pkgs.nixfmt-tree
             ];

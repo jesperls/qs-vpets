@@ -1,3 +1,5 @@
+.pragma library
+
 .import "SpeciesProfile.js" as SpeciesProfile
 
 var SPECIES_LIST = SpeciesProfile.SPECIES_LIST;
@@ -168,8 +170,22 @@ function isLoopingState(state) {
     return !!(d && d.loop);
 }
 
+var _animParseCache = {};
+
+function _xmlCacheKey(xml) {
+    var h = 2166136261;
+    var step = Math.max(1, Math.floor(xml.length / 256));
+    for (var i = 0; i < xml.length; i += step) {
+        h ^= xml.charCodeAt(i);
+        h = Math.imul(h, 16777619) >>> 0;
+    }
+    return xml.length + ":" + h + ":" + xml.slice(0, 48);
+}
+
 function parseAnimData(xml) {
     if (!xml) return { shadowSize: 1, anims: {} };
+    var cacheKey = _xmlCacheKey(xml);
+    if (_animParseCache[cacheKey]) return _animParseCache[cacheKey];
     var shadowMatch = xml.match(/<ShadowSize>(\d+)<\/ShadowSize>/);
     var shadowSize = shadowMatch ? parseInt(shadowMatch[1], 10) : 1;
     var anims = {};
@@ -238,7 +254,9 @@ function parseAnimData(xml) {
         if (anims[cleanupKeys[c]].copyOf) delete anims[cleanupKeys[c]];
     }
 
-    return { shadowSize: shadowSize, anims: anims };
+    var parsed = { shadowSize: shadowSize, anims: anims };
+    _animParseCache[cacheKey] = parsed;
+    return parsed;
 }
 
 function resolveClip(state, anims, actionMap, species) {

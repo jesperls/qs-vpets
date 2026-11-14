@@ -1,3 +1,5 @@
+.pragma library
+
 var BIOME = "Warm Hearth";
 
 var SPECIES = {

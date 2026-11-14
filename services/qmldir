@@ -1,3 +1,4 @@
+module services
 singleton PetManager 1.0 PetManager.qml
 singleton WindowTracker 1.0 WindowTracker.qml
 singleton InputTracker 1.0 InputTracker.qml

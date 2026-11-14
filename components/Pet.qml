@@ -1,16 +1,19 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
-import Quickshell
-import Quickshell.Io
 import "../config"
 import "../services"
 import "SpeciesProfile.js" as SpeciesProfile
 import "SpriteSheet.js" as SpriteSheet
 import "behavior/Personality.js" as Personality
 import "behavior/Brain.js" as Brain
+import "behavior/Gestures.js" as Gestures
 import "behavior/Perception.js" as Perception
 import "behavior/Drives.js" as Drives
 import "behavior/Memory.js" as Memory
 import "behavior/Plans.js" as Plans
+import "behavior/PlanBuildersEnv.js" as PlanBuildersEnv
+import "behavior/PlanBuildersSocial.js" as PlanBuildersSocial
 import "behavior/Abilities.js" as Abilities
 import "behavior/Social.js" as Social
 import "PetNav.js" as Nav
@@ -23,17 +26,21 @@ Item {
     property var petScreen: null
     property var petWindow: null
 
-    readonly property var basePersonality: Personality.resolveBase(
+    property var basePersonality: Personality.resolveBase(
         petData.personality ?? "emergent",
-        petData.name ?? "pet",
+        petData.id || petData.name || "pet",
         petData.traits ?? null
     )
+    property string _lastPreset: ""
+    property string _lastTraitsSig: ""
+
     property var coreDrift: ({})
     property var recentDrift: ({})
     property var quirkProgress: ({})
     property var quirks: []
     readonly property var personality: Personality.compose(basePersonality, coreDrift, recentDrift)
     property string archetype: Personality.archetypeTitle(personality, quirks, maturity, bond)
+    property int memoryRevision: 0
 
     property string state_: "idle"
     property string gait: "trot"
@@ -60,18 +67,18 @@ Item {
 
     property real ageSeconds: 0
     property real maturity: 0
-    property real bond: 0.30
-    property real trust: 0.35
-    property real satiety: 0.50
-    property real happiness: 0.52
-    property real mood: 0.52
-    property real restDrive: 0.12
-    property real exploreDrive: 0.32
-    property real socialDrive: 0.24
-    property real comfortDrive: 0.0
-    property real playDrive: 0.16
-    property real alertness: 0.45
-    property real boredom: 0.05
+    property real bond: Persist.SOUL_DEFAULTS.bond
+    property real trust: Persist.SOUL_DEFAULTS.trust
+    property real satiety: Persist.SOUL_DEFAULTS.satiety
+    property real happiness: Persist.SOUL_DEFAULTS.happiness
+    property real mood: Persist.SOUL_DEFAULTS.mood
+    property real restDrive: Persist.SOUL_DEFAULTS.restDrive
+    property real exploreDrive: Persist.SOUL_DEFAULTS.exploreDrive
+    property real socialDrive: Persist.SOUL_DEFAULTS.socialDrive
+    property real comfortDrive: Persist.SOUL_DEFAULTS.comfortDrive
+    property real playDrive: Persist.SOUL_DEFAULTS.playDrive
+    property real alertness: Persist.SOUL_DEFAULTS.alertness
+    property real boredom: Persist.SOUL_DEFAULTS.boredom
 
     property var thoughts: []
     property var episodes: []
@@ -115,6 +122,8 @@ Item {
     property double nextPeerSocialAt: Date.now() + 90000 + Math.random() * 120000
     property double roamStartedAt: Date.now()
     property bool _retiringToPen: false
+    property bool _loadedState: false
+    property bool _stateReady: false
 
     readonly property bool enablePerching: Config.enablePerching
     readonly property bool enableMusicReact: Config.enableMusicReact
@@ -124,7 +133,22 @@ Item {
     readonly property var systemMonitor: SystemMonitor
     readonly property var inputTracker: InputTracker
     readonly property var mediaTracker: MediaTracker
-    property alias sprite: sprite
+    readonly property alias sprite: spriteAnim
+
+    onPetDataChanged: {
+        const nextPreset = petData.personality ?? "emergent";
+        const nextTraitsSig = JSON.stringify(petData.traits ?? null);
+        if ((_lastPreset !== "" && nextPreset !== _lastPreset)
+                || (_lastTraitsSig !== "" && nextTraitsSig !== _lastTraitsSig)) {
+            basePersonality = Personality.resolveBase(
+                nextPreset,
+                petData.id || petData.name || "pet",
+                petData.traits ?? null
+            );
+        }
+        _lastPreset = nextPreset;
+        _lastTraitsSig = nextTraitsSig;
+    }
 
     function screenW(): real { return petScreen ? petScreen.width : (parent ? parent.width : 1920); }
     function screenH(): real { return petScreen ? petScreen.height : (parent ? parent.height : 1080); }
@@ -132,21 +156,26 @@ Item {
     function screenY(): real { return petScreen ? petScreen.y : 0; }
 
     function allScreens(): var {
+        const screens = WindowTracker.realScreens;
+        const pref = petData && petData.monitor ? String(petData.monitor) : "";
+        let source = screens;
+        if (pref.length > 0) {
+            const pinned = screens.filter(s => s.name === pref);
+            if (pinned.length > 0) source = pinned;
+        }
         const out = [];
-        for (let i = 0; i < Quickshell.screens.length; i++) {
-            const s = Quickshell.screens[i];
-            if (s.width > 100 && s.height > 100 && !s.name.startsWith("Unknown")) {
-                const ins = WindowTracker.insetsFor(s.name);
-                out.push({
-                    x: s.x,
-                    y: s.y,
-                    width: s.width,
-                    height: s.height,
-                    name: s.name,
-                    topInset: ins.top,
-                    bottomInset: ins.bottom
-                });
-            }
+        for (let i = 0; i < source.length; i++) {
+            const s = source[i];
+            const ins = WindowTracker.insetsFor(s.name);
+            out.push({
+                x: s.x,
+                y: s.y,
+                width: s.width,
+                height: s.height,
+                name: s.name,
+                topInset: ins.top,
+                bottomInset: ins.bottom
+            });
         }
         return out;
     }
@@ -174,7 +203,7 @@ Item {
     function _settleFacing(): void {
         if (Date.now() < attentionUntil) return;
         const row = facingRight ? (Math.random() < 0.72 ? 1 : 2) : (Math.random() < 0.72 ? 7 : 6);
-        sprite._dirRow = row;
+        spriteAnim._dirRow = row;
     }
 
     function startPotter(angle: real, durationMs: int): void {
@@ -186,8 +215,8 @@ Item {
         _stopAllTimers();
         state_ = "wander";
         _liveSpeed = targetSpeed * 0.4;
-        sprite.setState("wander");
-        sprite.setDirection(angle);
+        spriteAnim.setState("wander");
+        spriteAnim.setDirection(angle);
         wanderEndTimer.interval = Math.max(650, durationMs);
         wanderEndTimer.restart();
     }
@@ -212,9 +241,9 @@ Item {
         } else {
             _liveSpeed = 0;
         }
-        sprite.setState(s);
+        spriteAnim.setState(s);
         if (s === "walk" || s === "wander" || s === "zoomies") {
-            sprite.setDirection(moveAngle);
+            spriteAnim.setDirection(moveAngle);
         } else if ((s === "idle" || s === "perch") && wasMoving) {
             _settleFacing();
         }
@@ -269,7 +298,7 @@ Item {
         case "airborne":
             break;
         default:
-            actionFallbackTimer.interval = Math.max(900, sprite.currentAnimDurationMs() + 350);
+            actionFallbackTimer.interval = Math.max(900, spriteAnim.currentAnimDurationMs() + 350);
             actionFallbackTimer.restart();
             break;
         }
@@ -310,6 +339,16 @@ Item {
         fidgetRevert.stop();
     }
 
+    function cancelRetireIfInterrupted(): void {
+        if (!_retiringToPen) return;
+        _retiringToPen = false;
+        retireSafetyTimer.stop();
+        if (activePlan && (activePlan.name === "retire_to_pen" || activePlan.name === "joint_retire_to_pen")) {
+            Plans.clearPlan(root);
+            enterState("idle");
+        }
+    }
+
     function scheduleStaggeredWake(delayMs: int, warmGreet: bool): void {
         _wakeWarmGreet = !!warmGreet;
         wakeDelayTimer.interval = Math.max(250, delayMs);
@@ -340,7 +379,7 @@ Item {
             if (root.state_ === "loaf" || root.state_ === "sit" || root.state_ === "deepsleep") {
                 Plans.clearPlan(root);
                 Memory.thinkAloud(root, "staggered_wake", "Stretched awake as the desktop came back to life", { minGapMs: 60000 });
-                if (root._wakeWarmGreet) root.emitEmote("heart");
+                if (root._wakeWarmGreet) root.emitEmote("heart", false);
                 root.enterState(SpeciesProfile.wakeStateFor(root));
             }
         }
@@ -356,10 +395,10 @@ Item {
         id: dreamTwitchTimer
         interval: 22000 + Math.random() * 16000
         repeat: true
-        running: root.state_ === "deepsleep"
+        running: !PetManager.hidden && root.state_ === "deepsleep"
         onTriggered: {
             interval = 22000 + Math.random() * 16000;
-            if (Math.random() < 0.14) sprite.triggerSquash(1.05, 0.96);
+            if (Math.random() < 0.14) spriteAnim.triggerSquash(1.05, 0.96);
         }
     }
     Timer {
@@ -367,10 +406,10 @@ Item {
         onTriggered: {
             root.enterState("idle");
             if (Math.random() < 0.38) {
-                const f = Brain.fidget(root);
+                const f = Gestures.fidget(root);
                 if (f) {
-                    sprite.setState(f);
-                    fidgetRevert.interval = Math.max(700, sprite.currentAnimDurationMs() + 260);
+                    spriteAnim.setState(f);
+                    fidgetRevert.interval = Math.max(700, spriteAnim.currentAnimDurationMs() + 260);
                     fidgetRevert.restart();
                 }
             }
@@ -387,25 +426,27 @@ Item {
         onTriggered: {
             root.moveAngle += (Math.random() - 0.5) * Math.PI * 0.48;
             root.facingRight = Math.cos(root.moveAngle) >= 0;
-            sprite.setDirection(root.moveAngle);
+            spriteAnim.setDirection(root.moveAngle);
         }
     }
 
     Timer {
         id: idleFidgetTimer
         interval: 10000 + Math.random() * 11000
-        running: (root.state_ === "idle" || root.state_ === "perch") && !fidgetRevert.running
+        running: !PetManager.hidden
+            && (root.state_ === "idle" || (root.state_ === "perch" && !root._perchRiding))
+            && !fidgetRevert.running
         repeat: true
         onTriggered: {
-            const act = Brain.idleMicroAction(root);
+            const act = Gestures.idleMicroAction(root);
             if (act) {
                 if (act.kind === "loaf" && !planBeatTimer.running && root.state_ === "idle") {
                     root.enterState("loaf");
                 } else if (act.kind === "potter" && !planBeatTimer.running && root.state_ === "idle") {
                     root.startPotter(act.angle, act.durationMs);
                 } else if (act.kind === "fidget") {
-                    sprite.setState(act.state);
-                    fidgetRevert.interval = Math.max(700, sprite.currentAnimDurationMs() + 280);
+                    spriteAnim.setState(act.state);
+                    fidgetRevert.interval = Math.max(700, spriteAnim.currentAnimDurationMs() + 280);
                     fidgetRevert.restart();
                 }
             }
@@ -417,7 +458,7 @@ Item {
         id: fidgetRevert
         onTriggered: {
             if (root.state_ === "idle" || root.state_ === "perch") {
-                sprite.setState(root.state_);
+                spriteAnim.setState(root.state_);
             }
         }
     }
@@ -426,7 +467,9 @@ Item {
         id: faceAttentionTimer
         interval: 420
         repeat: true
-        running: (root.state_ === "idle" || root.state_ === "perch") && Date.now() < root.attentionUntil
+        running: !PetManager.hidden
+            && (root.state_ === "idle" || root.state_ === "perch")
+            && Date.now() < root.attentionUntil
         onTriggered: {
             if (fidgetRevert.running) return;
             const dx = root.attentionGX - (root.screenX() + root.worldX);
@@ -435,9 +478,9 @@ Item {
                 root.facingRight = dx >= 0;
                 if (root.state_ === "perch") {
                     const row = SpriteSheet.angleToDirectionRow(Math.atan2(Math.max(12, dy), dx));
-                    if (row <= 2 || row >= 6) sprite._dirRow = row;
+                    if (row <= 2 || row >= 6) spriteAnim._dirRow = row;
                 } else {
-                    sprite.setDirection(Math.atan2(dy, dx));
+                    spriteAnim.setDirection(Math.atan2(dy, dx));
                 }
             }
         }
@@ -447,12 +490,12 @@ Item {
         id: ambientGazeTimer
         interval: 5400 + Math.random() * 6800
         repeat: true
-        running: root.state_ === "idle" || root.state_ === "perch"
+        running: !PetManager.hidden && (root.state_ === "idle" || root.state_ === "perch")
         onTriggered: {
             interval = 5400 + Math.random() * 6800;
             if (fidgetRevert.running || Date.now() < root.attentionUntil) return;
-            const nextRow = Brain.ambientGlanceRow(root, sprite._dirRow);
-            sprite._dirRow = nextRow;
+            const nextRow = Gestures.ambientGlanceRow(root, spriteAnim._dirRow);
+            spriteAnim._dirRow = nextRow;
             if (nextRow === 1 || nextRow === 2 || nextRow === 3) root.facingRight = true;
             else if (nextRow === 5 || nextRow === 6 || nextRow === 7) root.facingRight = false;
         }
@@ -462,8 +505,11 @@ Item {
     property int _metabolismTicks: 0
     Timer {
         interval: 5000
-        running: true
+        running: !PetManager.hidden
         repeat: true
+        onRunningChanged: {
+            if (running) root._lastMetabolism = Date.now();
+        }
         onTriggered: {
             root._hour = new Date().getHours();
             const now = Date.now();
@@ -486,7 +532,7 @@ Item {
 
     Timer {
         interval: 15 * 60000
-        running: true
+        running: !PetManager.hidden
         repeat: true
         onTriggered: Brain.reflect(root)
     }
@@ -540,23 +586,23 @@ Item {
     function onCursorNear(): void { Brain.onEvent(root, "cursor_near", null, Nav); }
     function onCursorWiggled(gx: real, gy: real): void { Brain.onEvent(root, "cursor_wiggled", { gx: gx, gy: gy }, Nav); }
     function onPetted(): void {
-        sprite.triggerSquash(1.08, 0.93);
+        spriteAnim.triggerSquash(1.08, 0.93);
         Brain.onEvent(root, "petted", null, Nav);
     }
     function onStroked(): void {
-        sprite.triggerSquash(1.10, 0.91);
+        spriteAnim.triggerSquash(1.10, 0.91);
         Brain.onEvent(root, "stroked", null, Nav);
     }
     function onClicked(): void {
-        sprite.triggerSquash(1.06, 0.95);
+        spriteAnim.triggerSquash(1.06, 0.95);
         Brain.onEvent(root, "clicked", null, Nav);
     }
     function onFed(): void {
-        sprite.triggerSquash(1.10, 0.91);
+        spriteAnim.triggerSquash(1.10, 0.91);
         Brain.onEvent(root, "fed", null, Nav);
     }
     function onPlayTriggered(): void {
-        sprite.triggerSquash(0.92, 1.09);
+        spriteAnim.triggerSquash(0.92, 1.09);
         Brain.onEvent(root, "play_triggered", null, Nav);
     }
     function onWindowEvent(cls: string): void { Brain.onEvent(root, "window_focused", { windowClass: cls }, Nav); }
@@ -599,7 +645,7 @@ Item {
                 travelStep,
                 { kind: "act", label: "Arrived", states: SpeciesProfile.greetGesturesFor(root), faceCursor: InputTracker.cursorKnown, emote: "exclaim", directEmote: true }
             ]
-        }, Nav);
+        }, Nav, Gestures.pickAvailable);
     }
 
     function socialEvent(kind: string, fromPet: var, extra): void {
@@ -612,7 +658,7 @@ Item {
         _retiringToPen = true;
         retireSafetyTimer.restart();
         const perc = Perception.perceive(root);
-        Plans.startPlan(root, Plans.buildRetirePlan(root, perc), Nav, Brain._pick);
+        Plans.startPlan(root, PlanBuildersEnv.buildRetirePlan(root, perc), Nav, Gestures.pickAvailable);
     }
 
     function beginJointRetireWith(partner: var, isFollower: bool): void {
@@ -620,17 +666,17 @@ Item {
         _retiringToPen = true;
         retireSafetyTimer.restart();
         const perc = Perception.perceive(root);
-        Plans.startPlan(root, Plans.buildJointRetirePlan(root, partner, perc, isFollower), Nav, Brain._pick);
+        Plans.startPlan(root, PlanBuildersSocial.buildJointRetirePlan(root, partner, perc, isFollower), Nav, Gestures.pickAvailable);
     }
 
     function greetSanctuaryArrival(arrivingPet: var): void {
         if (!arrivingPet || _retiringToPen || state_ === "drag" || state_ === "airborne") return;
-        Plans.startPlan(root, Plans.buildWelcomeFriendPlan(root, arrivingPet), Nav, Brain._pick);
+        Plans.startPlan(root, PlanBuildersSocial.buildWelcomeFriendPlan(root, arrivingPet), Nav, Gestures.pickAvailable);
     }
 
     function playEvolutionCeremony(): void {
         if (state_ === "drag" || _retiringToPen) return;
-        sprite.triggerSquash(0.86, 1.18);
+        spriteAnim.triggerSquash(0.86, 1.18);
         emitEmote("heart", true);
         Plans.startPlan(root, {
             name: "evolved_ceremony",
@@ -643,7 +689,7 @@ Item {
                 { kind: "act", label: "Evolution flourish", states: ["emit", "pose", "hop"] },
                 { kind: "act", label: "Joyful hop", states: ["hop", "nod"] }
             ]
-        }, Nav, Brain._pick);
+        }, Nav, Gestures.pickAvailable);
     }
 
     Timer {
@@ -661,7 +707,7 @@ Item {
         : (root.petData.sprite ?? "")
 
     SpriteAnimation {
-        id: sprite
+        id: spriteAnim
         anchors.fill: parent
         speciesName: root.renderedSpecies
         petColor: root.petData.color ?? "#cba6f7"
@@ -675,7 +721,7 @@ Item {
         onOneShotFinished: {
             if (root.state_ === "idle" || root.state_ === "perch") {
                 fidgetRevert.stop();
-                sprite.setState(root.state_);
+                spriteAnim.setState(root.state_);
                 return;
             }
             actionFallbackTimer.stop();
@@ -696,70 +742,14 @@ Item {
         altitude: root.altitude
     }
 
-    readonly property bool _managedByResident: PetManager.residentFor(petData.id || "") !== null
-    readonly property string statePath: Config.stateDir + "/state-" + (petData.id || petData.name) + ".json"
-    readonly property string legacyStatePath: Config.configDir + "/state-" + petData.name + ".json"
-    property bool _loadedState: false
-    property bool _stateReady: false
-
-    function saveStateJson(jsonText: string): void {
-        const rec = PetManager.residentFor(petData.id || "");
-        if (rec) {
-            rec.syncFromPet(root, true);
-            return;
-        }
-        stateFile.setText(jsonText);
-    }
-
-    FileView {
-        id: stateFile
-        path: root._managedByResident ? "" : root.statePath
-        printErrors: false
-        onLoaded: {
-            if (!root._loadedState) {
-                root._loadedState = Persist.loadFromText(root, text());
-            }
-            root._stateReady = true;
-        }
-        onLoadFailed: {
-            if (!root._loadedState) legacyStateFile.reload();
-            else root._stateReady = true;
-        }
-    }
-
-    FileView {
-        id: legacyStateFile
-        path: root._managedByResident ? "" : root.legacyStatePath
-        printErrors: false
-        onLoaded: {
-            if (!root._loadedState) {
-                root._loadedState = Persist.loadFromText(root, text());
-                root._stateReady = true;
-                if (root._loadedState) Persist.save(root);
-            } else {
-                root._stateReady = true;
-            }
-        }
-        onLoadFailed: {
-            root._stateReady = true;
-        }
-    }
-
-    Timer {
-        interval: 30000
-        running: true
-        repeat: true
-        onTriggered: {
-            if (root._stateReady) Persist.save(root);
-        }
-    }
-
     Component.onCompleted: {
+        _lastPreset = petData.personality ?? "emergent";
+        _lastTraitsSig = JSON.stringify(petData.traits ?? null);
         roamStartedAt = Date.now();
         PetManager.register(root);
         const rec = PetManager.residentFor(petData.id || "");
         if (rec && rec.loaded) {
-            _loadedState = rec.applyToPet(root);
+            _loadedState = rec.hasSavedState ? rec.applyToPet(root) : false;
             _stateReady = true;
         }
         const arrivedFromPen = PetManager.consumeArrivalFlag(petData.id || "");
@@ -784,14 +774,17 @@ Item {
                     root.facingRight = fromLeft;
                 }
                 const perc = Perception.perceive(root);
-                Plans.startPlan(root, Plans.buildArrivePlan(root, perc, fromLeft), Nav, Brain._pick);
+                Plans.startPlan(root, PlanBuildersEnv.buildArrivePlan(root, perc, fromLeft), Nav, Gestures.pickAvailable);
                 PetManager.notifySanctuaryArrival(root);
             });
         }
     }
 
     Component.onDestruction: {
-        if (root._stateReady) Persist.save(root);
+        const rec = PetManager.residentFor(petData.id || "");
+        if (rec && !rec._released && root._stateReady) {
+            rec.syncFromPet(root, true);
+        }
         PetManager.unregister(root);
     }
 }

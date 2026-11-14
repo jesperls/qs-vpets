@@ -1,3 +1,5 @@
+.pragma library
+
 var BIOME = "Tidepool Cove";
 
 var SPECIES = {

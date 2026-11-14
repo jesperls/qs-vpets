@@ -1,3 +1,5 @@
+.pragma library
+
 var BIOME_LIST = [
     {
         id: "Sunlit Meadow",

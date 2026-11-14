@@ -1,4 +1,5 @@
 pragma Singleton
+pragma ComponentBehavior: Bound
 
 import QtQuick
 import Quickshell
@@ -35,8 +36,10 @@ Singleton {
         for (let i = 0; i < nodes.length; i++) {
             const n = nodes[i];
             if (!n || !n.isStream || n.isSink) continue;
-            if (n.audio && n.audio.muted) continue;
+            if (!n.audio || n.audio.muted) continue;
             const props = n.properties ?? ({});
+            const mediaClass = String(props["media.class"] ?? "");
+            if (mediaClass.length > 0 && mediaClass !== "Stream/Input/Audio") continue;
             if (String(props["stream.capture.sink"] ?? "") === "true") continue;
             const app = String(props["application.name"] ?? props["node.name"] ?? n.name ?? "").toLowerCase();
             if (!app) continue;
@@ -55,6 +58,7 @@ Singleton {
 
     onIsPlayingChanged: {
         if (isPlaying && !_wasPlaying) {
+            _lastTrack = root.trackTitle;
             root.musicStarted(root.trackTitle, root.trackArtist);
         }
         _wasPlaying = isPlaying;

@@ -1,11 +1,14 @@
+.pragma library
+
 .import "../SpeciesProfile.js" as SpeciesProfile
 .import "Personality.js" as Personality
 .import "Topology.js" as Topology
-
-// Dual-tier memory: inner monologue stream + salient episodic memory + sleep dream consolidation.
+.import "Util.js" as Util
 
 var VISITED_CELL_SIZE = 200;
 var PLACE_CELL_SIZE = 380;
+var MAX_SPATIAL_CELLS = 256;
+var MAX_CELL_VISITS = 20;
 var THOUGHTS_LIMIT = 80;
 var EPISODES_LIMIT = 140;
 var JOURNAL_LIMIT = 24;
@@ -18,11 +21,8 @@ function _cellKey(x, y, size) {
     return Math.floor(x / size) + "," + Math.floor(y / size);
 }
 
-function _now(pet) {
-    return (pet && pet._simNow) ? pet._simNow : Date.now();
-}
+var _now = Util.now;
 
-// Record a personality-voiced inner monologue entry (deduplicated within short windows).
 function thinkAloud(pet, kind, text, opts) {
     if (!pet.thoughts) pet.thoughts = [];
     var now = _now(pet);
@@ -36,17 +36,17 @@ function thinkAloud(pet, kind, text, opts) {
         text: text,
         time: now,
         mood: Math.round(pet.mood * 100) / 100,
-        state: pet.state_,
+        state: pet.state_ || "idle",
         plan: pet.activePlan ? pet.activePlan.name : (pet.intention ? pet.intention.name : "")
     };
     pet.thoughts.push(entry);
     if (pet.thoughts.length > THOUGHTS_LIMIT) pet.thoughts.shift();
     pet.lastThoughtText = text;
     pet.lastThoughtTime = now;
+    Util.bumpMemoryRev(pet);
     return entry;
 }
 
-// Encode a salient lived episode for queries and later sleep consolidation.
 function recordEpisode(pet, type, opts) {
     if (!pet.episodes) pet.episodes = [];
     var o = opts || {};
@@ -60,8 +60,8 @@ function recordEpisode(pet, type, opts) {
         type: type,
         time: now,
         hour: pet._hour !== undefined ? pet._hour : new Date(now).getHours(),
-        gx: Math.round(pet.screenX() + pet.worldX),
-        gy: Math.round(pet.screenY() + pet.worldY),
+        gx: Math.round(Util.petGX(pet)),
+        gy: Math.round(Util.petGY(pet)),
         valence: Math.round(valence * 100) / 100,
         salience: Math.round(salience * 100) / 100,
         consolidated: false,
@@ -73,7 +73,6 @@ function recordEpisode(pet, type, opts) {
     };
     pet.episodes.push(ep);
     if (pet.episodes.length > EPISODES_LIMIT) {
-        // Drop oldest already-consolidated low-salience episode first so core memories survive.
         var dropIdx = 0;
         for (var i = 0; i < pet.episodes.length - 1; i++) {
             if (pet.episodes[i].consolidated && pet.episodes[i].salience < 0.6) {
@@ -83,13 +82,12 @@ function recordEpisode(pet, type, opts) {
         }
         pet.episodes.splice(dropIdx, 1);
     }
+    Util.bumpMemoryRev(pet);
     return ep;
 }
 
-// Backwards-compatible convenience wrapper that records an episode and optional monologue.
 function remember(pet, type, data) {
-    var d = data || {};
-    return recordEpisode(pet, type, d);
+    return recordEpisode(pet, type, data || {});
 }
 
 function recent(pet, type, withinMs) {
@@ -126,9 +124,9 @@ function addJournalEntry(pet, text, kind) {
     var now = _now(pet);
     pet.journal.push({ time: now, kind: kind || "milestone", text: text });
     if (pet.journal.length > JOURNAL_LIMIT) pet.journal.shift();
+    Util.bumpMemoryRev(pet);
 }
 
-// Replay unconsolidated episodes during sleep ("dreaming") -> crystallize character & quirks!
 function consolidateSleep(pet) {
     if (!pet.episodes || pet.episodes.length === 0) return null;
 
@@ -385,6 +383,7 @@ function consolidateSleep(pet) {
     }
 
     thinkAloud(pet, "dream", dreamLine, { minGapMs: 90000 });
+    Util.bumpMemoryRev(pet);
     return {
         emote: dreamEmote,
         line: dreamLine,
@@ -392,8 +391,6 @@ function consolidateSleep(pet) {
         netValence: positiveCount - negativeCount
     };
 }
-
-// --- Window & Code Class Affinity ---
 
 var CODE_CLASSES = [
     "kitty", "alacritty", "foot", "wezterm", "ghostty", "neovide",
@@ -443,16 +440,18 @@ function favoriteWindowClass(pet) {
     return best;
 }
 
-// --- Spatial Novelty & Emotional Place Memory ---
-
 function trackPosition(pet) {
     if (pet.state_ !== "walk" && pet.state_ !== "wander" && pet.state_ !== "zoomies") return;
     var now = _now(pet);
     if (now - (pet._lastTrackTime || 0) < 4500) return;
     pet._lastTrackTime = now;
     if (!pet.visitedCells) pet.visitedCells = ({});
-    var key = _cellKey(pet.screenX() + pet.worldX, pet.screenY() + pet.worldY, VISITED_CELL_SIZE);
-    pet.visitedCells[key] = (pet.visitedCells[key] || 0) + 1;
+    var key = _cellKey(Util.petGX(pet), Util.petGY(pet), VISITED_CELL_SIZE);
+    pet.visitedCells[key] = Math.min(MAX_CELL_VISITS, (pet.visitedCells[key] || 0) + 1);
+    var keys = Object.keys(pet.visitedCells);
+    if (keys.length > MAX_SPATIAL_CELLS) {
+        delete pet.visitedCells[keys[0]];
+    }
 }
 
 function visitsAt(pet, gx, gy) {
@@ -512,7 +511,7 @@ function explorationTarget(pet) {
 
 function recordPlaceAffect(pet, valence) {
     if (!pet.placeMemory) pet.placeMemory = ({});
-    var gx = pet.screenX() + pet.worldX, gy = pet.screenY() + pet.worldY;
+    var gx = Util.petGX(pet), gy = Util.petGY(pet);
     var key = _cellKey(gx, gy, PLACE_CELL_SIZE);
     var e = pet.placeMemory[key] || { affect: 0, visits: 0, lastVisit: 0, gx: Math.round(gx), gy: Math.round(gy) };
     var weight = Math.min(0.32, 1.0 / (e.visits + 2));
@@ -522,6 +521,17 @@ function recordPlaceAffect(pet, valence) {
     e.visits++;
     e.lastVisit = _now(pet);
     pet.placeMemory[key] = e;
+
+    var keys = Object.keys(pet.placeMemory);
+    if (keys.length > MAX_SPATIAL_CELLS) {
+        var evictKey = keys[0], evictScore = Infinity;
+        for (var i = 0; i < keys.length; i++) {
+            var pm = pet.placeMemory[keys[i]];
+            var sc = (pm.visits || 0) * 1e13 + (pm.lastVisit || 0);
+            if (sc < evictScore) { evictScore = sc; evictKey = keys[i]; }
+        }
+        delete pet.placeMemory[evictKey];
+    }
 }
 
 function placeAffectAt(pet, gx, gy) {
@@ -595,8 +605,6 @@ function decayMemories(pet) {
     }
 }
 
-// --- Learned User Presence Rhythm (24h EWMA) ---
-
 function observeUser(pet, perc) {
     if (!pet.userRhythm) pet.userRhythm = ({});
     var cur = pet.userRhythm[perc.hour] !== undefined ? pet.userRhythm[perc.hour] : 0.5;
@@ -608,8 +616,6 @@ function usualUserActivity(pet, hour) {
     var v = pet.userRhythm[hour];
     return v !== undefined ? v : 0.5;
 }
-
-// --- Inter-Pet Relationships ---
 
 function relationWith(pet, name, otherPersonality, otherSpecies) {
     if (!pet.relationships) pet.relationships = ({});
@@ -640,8 +646,12 @@ function relationWith(pet, name, otherPersonality, otherSpecies) {
             lastInteract: 0
         };
         pet.relationships[name] = r;
+        Util.bumpMemoryRev(pet);
     } else {
-        if (otherSpecies && !r.species) r.species = otherSpecies;
+        if (otherSpecies && r.species !== otherSpecies) {
+            r.species = otherSpecies;
+            Util.bumpMemoryRev(pet);
+        }
         if (r.respect === undefined) r.respect = 0.50;
         if (r.sparCount === undefined) r.sparCount = 0;
         if (r.unrequitedCount === undefined) r.unrequitedCount = 0;
@@ -693,5 +703,6 @@ function adjustRelation(pet, name, affinityDelta, familiarityDelta, kind, extra)
             addJournalEntry(pet, "Started a prickly rivalry with " + name + ".", "social");
         }
     }
+    Util.bumpMemoryRev(pet);
     return r;
 }

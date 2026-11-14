@@ -1,3 +1,4 @@
+module components
 PetWindow 1.0 PetWindow.qml
 Pet 1.0 Pet.qml
 SpriteAnimation 1.0 SpriteAnimation.qml
@@ -5,5 +6,17 @@ EmoteBubble 1.0 EmoteBubble.qml
 PetInspector 1.0 PetInspector.qml
 ResidentRecord 1.0 ResidentRecord.qml
 SanctuaryWindow 1.0 SanctuaryWindow.qml
+SanctuaryHeaderBar 1.0 SanctuaryHeaderBar.qml
+SanctuaryPrefsDrawer 1.0 SanctuaryPrefsDrawer.qml
+SanctuaryPastureStrip 1.0 SanctuaryPastureStrip.qml
+SanctuaryRosterPane 1.0 SanctuaryRosterPane.qml
+SanctuaryDetailPane 1.0 SanctuaryDetailPane.qml
+SanctuaryAdoptPane 1.0 SanctuaryAdoptPane.qml
+SanctuaryVitalsPanel 1.0 SanctuaryVitalsPanel.qml
+SanctuarySoulPanel 1.0 SanctuarySoulPanel.qml
+SanctuaryEvolutionCard 1.0 SanctuaryEvolutionCard.qml
+SanctuaryConfirmReleaseButton 1.0 SanctuaryConfirmReleaseButton.qml
 UiIcon 1.0 UiIcon.qml
 UiTooltip 1.0 UiTooltip.qml
+UiSectionHeader 1.0 UiSectionHeader.qml
+UiStatBar 1.0 UiStatBar.qml

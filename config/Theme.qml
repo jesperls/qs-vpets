@@ -1,4 +1,5 @@
 pragma Singleton
+pragma ComponentBehavior: Bound
 
 import QtQuick
 import Quickshell
@@ -52,6 +53,23 @@ Singleton {
         return Qt.rgba(c.r, c.g, c.b, a);
     }
 
+    function luminance(hexOrColor: var): real {
+        if (hexOrColor && typeof hexOrColor === "object" && hexOrColor.r !== undefined) {
+            return 0.2126 * hexOrColor.r + 0.7152 * hexOrColor.g + 0.0722 * hexOrColor.b;
+        }
+        let s = String(hexOrColor || "").trim().replace(/^#/, "");
+        if (s.length === 3) {
+            s = s[0] + s[0] + s[1] + s[1] + s[2] + s[2];
+        } else if (s.length === 8) {
+            s = s.slice(2);
+        }
+        if (s.length !== 6) return 0.1;
+        const r = (parseInt(s.slice(0, 2), 16) || 0) / 255;
+        const g = (parseInt(s.slice(2, 4), 16) || 0) / 255;
+        const b = (parseInt(s.slice(4, 6), 16) || 0) / 255;
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    }
+
     readonly property string panguPalettePath: {
         const xdg = Quickshell.env("XDG_CACHE_HOME");
         const base = xdg && xdg.length > 0 ? xdg : (Quickshell.env("HOME") + "/.cache");
@@ -68,7 +86,8 @@ Singleton {
         if (!raw || !raw.trim()) return;
         try {
             const c = JSON.parse(raw);
-            const low = String(c.surfaceContainerLow || c.surface || c.background || "#080d14").replace(/^#/, "");
+            let low = String(c.surfaceContainerLow || c.surface || c.background || "#080d14").replace(/^#/, "");
+            if (low.length === 8) low = low.slice(2);
             if (low.length === 6) root.bg = "#f2" + low;
             if (c.surfaceContainer || c.whiteContainer) {
                 root.panel = c.surfaceContainer || c.whiteContainer;

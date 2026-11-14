@@ -14,23 +14,32 @@ PanelWindow {
     required property string petId
 
     readonly property var petData: {
-        for (let i = 0; i < Config.pets.length; i++) {
-            if (Config.pets[i].id === root.petId) return Config.pets[i];
-        }
-        return { id: root.petId, name: root.petId, sprite: "zorua", personality: "emergent", scale: 2, monitor: "", roamMode: "auto", actions: {} };
+        void Config.pets;
+        return Config.petById(root.petId) ?? {
+            id: root.petId,
+            name: root.petId,
+            sprite: "zorua",
+            personality: "emergent",
+            scale: 2,
+            monitor: "",
+            roamMode: "auto",
+            color: "#cba6f7",
+            traits: null,
+            actions: {}
+        };
     }
 
     readonly property string preferredMonitor: petData.monitor ?? ""
     onPreferredMonitorChanged: {
         if (!preferredMonitor) return;
-        const match = _realScreens().find(s => s.name === preferredMonitor);
+        const match = WindowTracker.realScreens.find(s => s.name === preferredMonitor);
         if (match && match !== root.screen) {
             root.screen = match;
             _clampToViewport();
         }
     }
 
-    readonly property bool inspectorOpen: PetManager.inspectedPet === pet
+    readonly property bool inspectorOpen: PetManager.inspectedPet === petItem
     visible: !PetManager.hidden
 
     WlrLayershell.layer: WlrLayer.Overlay
@@ -63,8 +72,8 @@ PanelWindow {
 
     Item {
         id: petHitbox
-        x: pet.worldX - 4
-        y: pet.worldY - pet.altitude - 6
+        x: petItem.worldX - 4
+        y: petItem.worldY - petItem.altitude - 6
         width: root.petSize + 8
         height: root.petSize + 10
     }
@@ -76,15 +85,15 @@ PanelWindow {
                 item: petHitbox
             },
             Region {
-                item: inspectorLoader.active ? inspectorLoader : null
+                item: (inspectorLoader.active && !dragArea.dragging) ? inspectorLoader : null
             }
         ]
     }
 
     Pet {
-        id: pet
-        x: pet.worldX
-        y: pet.worldY
+        id: petItem
+        x: petItem.worldX
+        y: petItem.worldY
         width: root.petSize
         height: root.petSize
         opacity: dragArea.offScreenDragging ? 0.0 : 1.0
@@ -93,18 +102,22 @@ PanelWindow {
         petWindow: root
     }
 
+    readonly property bool _needsMotionTick: petItem.currentSpeed > 0
+        || petItem.state_ === "airborne"
+        || petItem.state_ === "perch"
+
     Timer {
         interval: {
-            const s = pet.state_;
+            const s = petItem.state_;
             if (s === "walk" || s === "wander" || s === "zoomies" || s === "airborne") return 16;
-            if (s === "perch") return pet._perchRiding ? 32 : 90;
+            if (s === "perch") return petItem._perchRiding ? 32 : 90;
             return 250;
         }
-        running: root.visible && pet.state_ !== "drag"
+        running: root.visible && petItem.state_ !== "drag" && root._needsMotionTick
         repeat: true
         onTriggered: {
-            pet.updateMovement(interval / 1000);
-            if (pet.currentSpeed > 0 || pet.state_ === "airborne") root._resolveBounds();
+            petItem.updateMovement(interval / 1000);
+            if (petItem.currentSpeed > 0 || petItem.state_ === "airborne") root._resolveBounds();
         }
     }
 
@@ -112,10 +125,10 @@ PanelWindow {
         if (root.width <= 100 || root.height <= 100 || dragArea.dragging) return;
         const maxX = Math.max(0, root.width - root.petSize);
         const maxY = Math.max(0, root.height - root.petSize);
-        if (pet.worldX > maxX) pet.worldX = maxX;
-        else if (pet.worldX < 0) pet.worldX = 0;
-        if (pet.worldY > maxY) pet.worldY = maxY;
-        else if (pet.worldY < 0) pet.worldY = 0;
+        if (petItem.worldX > maxX) petItem.worldX = maxX;
+        else if (petItem.worldX < 0) petItem.worldX = 0;
+        if (petItem.worldY > maxY) petItem.worldY = maxY;
+        else if (petItem.worldY < 0) petItem.worldY = 0;
     }
 
     onWidthChanged: _clampToViewport()
@@ -126,46 +139,37 @@ PanelWindow {
         const s = root.petSize;
         const maxX = Math.max(0, root.width - s);
         const maxY = Math.max(0, root.height - s);
-        const probeY = Math.max(0, Math.min(maxY, pet.worldY));
-        const probeX = Math.max(0, Math.min(maxX, pet.worldX));
+        const probeY = Math.max(0, Math.min(maxY, petItem.worldY));
+        const probeX = Math.max(0, Math.min(maxX, petItem.worldX));
         let hitX = false, hitY = false;
 
-        if (pet.worldX < 0) {
+        if (petItem.worldX < 0) {
             const adj = _adjacentScreen("left", probeY);
             if (adj) { _hop(adj, adj.width - s, _mapY(probeY, adj)); return; }
-            pet.worldX = 0; hitX = true;
-        } else if (pet.worldX > maxX) {
+            petItem.worldX = 0; hitX = true;
+        } else if (petItem.worldX > maxX) {
             const adj = _adjacentScreen("right", probeY);
             if (adj) { _hop(adj, 0, _mapY(probeY, adj)); return; }
-            pet.worldX = maxX; hitX = true;
+            petItem.worldX = maxX; hitX = true;
         }
-        if (pet.worldY < 0) {
+        if (petItem.worldY < 0) {
             const adj = _adjacentScreen("up", probeX);
             if (adj) { _hop(adj, _mapX(probeX, adj), adj.height - s); return; }
-            pet.worldY = 0; hitY = true;
-        } else if (pet.worldY > maxY) {
+            petItem.worldY = 0; hitY = true;
+        } else if (petItem.worldY > maxY) {
             const adj = _adjacentScreen("down", probeX);
             if (adj) { _hop(adj, _mapX(probeX, adj), 0); return; }
-            pet.worldY = maxY; hitY = true;
+            petItem.worldY = maxY; hitY = true;
         }
 
-        if (hitX || hitY) pet.reflectOffWall(hitX, hitY);
-    }
-
-    function _isRealScreen(s: var): bool {
-        return s !== null && s !== undefined && s.width > 100 && s.height > 100 && !s.name.startsWith("Unknown");
-    }
-
-    function _realScreens(): var {
-        const out = [];
-        for (const s of Quickshell.screens) {
-            if (_isRealScreen(s)) out.push(s);
-        }
-        return out;
+        if (hitX || hitY) petItem.reflectOffWall(hitX, hitY);
     }
 
     function _adjacentScreen(dir: string, pos: real): var {
-        return Topology.adjacentScreenAt(_realScreens(), root.screen, dir, pos, root.petSize);
+        if (root.preferredMonitor && root.screen && root.screen.name === root.preferredMonitor) {
+            return null;
+        }
+        return Topology.adjacentScreenAt(WindowTracker.realScreens, root.screen, dir, pos, root.petSize);
     }
 
     function _mapY(ly: real, adj: var): real {
@@ -178,8 +182,8 @@ PanelWindow {
 
     function _hop(scr: var, nx: real, ny: real): void {
         root.screen = scr;
-        pet.worldX = nx;
-        pet.worldY = ny;
+        petItem.worldX = nx;
+        petItem.worldY = ny;
     }
 
     onScreenChanged: {
@@ -189,32 +193,37 @@ PanelWindow {
     }
 
     function _screenAt(gx: real, gy: real): var {
-        return Topology.screenAt(_realScreens(), gx, gy);
+        return Topology.screenAt(WindowTracker.realScreens, gx, gy);
     }
 
     function moveToGlobal(gx: real, gy: real): void {
-        const screens = _realScreens();
-        const exact = Topology.screenAt(screens, gx, gy);
-        const target = exact ?? Topology.nearestScreen(screens, gx, gy);
+        const screens = WindowTracker.realScreens;
+        let target = null;
+        if (root.preferredMonitor) {
+            target = screens.find(s => s.name === root.preferredMonitor) ?? null;
+        }
+        const exact = target ? (gx >= target.x && gx < target.x + target.width && gy >= target.y && gy < target.y + target.height ? target : null)
+                             : Topology.screenAt(screens, gx, gy);
+        if (!target) target = exact ?? Topology.nearestScreen(screens, gx, gy);
         if (target && target !== root.screen) root.screen = target;
         const scr = root.screen;
         if (!scr) return;
         const maxX = Math.max(0, scr.width - petSize);
         const maxY = Math.max(0, scr.height - petSize);
         if (exact) {
-            pet.worldX = Math.max(0, Math.min(maxX, gx - scr.x));
-            pet.worldY = Math.max(0, Math.min(maxY, gy - scr.y));
+            petItem.worldX = Math.max(0, Math.min(maxX, gx - scr.x));
+            petItem.worldY = Math.max(0, Math.min(maxY, gy - scr.y));
         } else {
             const ins = WindowTracker.insetsFor(scr.name);
             const minSafeY = Math.min(maxY, (ins.top || 0) + 20);
             const maxSafeY = Math.max(minSafeY, maxY - (ins.bottom || 0) - 20);
-            pet.worldX = Math.max(Math.min(32, maxX), Math.min(Math.max(0, maxX - 32), gx - scr.x));
-            pet.worldY = Math.max(minSafeY, Math.min(maxSafeY, gy - scr.y));
+            petItem.worldX = Math.max(Math.min(32, maxX), Math.min(Math.max(0, maxX - 32), gx - scr.x));
+            petItem.worldY = Math.max(minSafeY, Math.min(maxSafeY, gy - scr.y));
         }
     }
 
     function _ensureValidScreen(): void {
-        const screens = _realScreens();
+        const screens = WindowTracker.realScreens;
         if (screens.length === 0) return;
 
         if (PetManager.dragGhostScreen && screens.indexOf(PetManager.dragGhostScreen) === -1) {
@@ -223,26 +232,26 @@ PanelWindow {
 
         if (!root.screen || screens.indexOf(root.screen) === -1) {
             let next = null;
-            if (root.petData.monitor) {
-                next = screens.find(s => s.name === root.petData.monitor) ?? null;
+            if (root.preferredMonitor) {
+                next = screens.find(s => s.name === root.preferredMonitor) ?? null;
             }
             if (!next) next = screens[0];
             root.screen = next;
             const maxX = Math.max(0, next.width - root.petSize);
             const maxY = Math.max(0, next.height - root.petSize);
             const ins = WindowTracker.insetsFor(next.name);
-            pet.worldX = Math.max(0, Math.min(maxX, pet.worldX || Math.round(maxX * 0.5)));
-            pet.worldY = Math.max(Math.min(maxY, (ins.top || 0) + 24), Math.min(maxY, pet.worldY || Math.round(maxY * 0.6)));
+            petItem.worldX = Math.max(0, Math.min(maxX, petItem.worldX || Math.round(maxX * 0.5)));
+            petItem.worldY = Math.max(Math.min(maxY, (ins.top || 0) + 24), Math.min(maxY, petItem.worldY || Math.round(maxY * 0.6)));
         }
 
-        if (root.screen && !_screenAt(pet.homeGX, pet.homeGY)) {
-            pet.homeGX = root.screen.x + pet.worldX;
-            pet.homeGY = root.screen.y + pet.worldY;
+        if (root.screen && !_screenAt(petItem.homeGX, petItem.homeGY)) {
+            petItem.homeGX = root.screen.x + petItem.worldX;
+            petItem.homeGY = root.screen.y + petItem.worldY;
         }
 
-        if (pet.onJourney && !_screenAt(pet.targetGX, pet.targetGY)) {
-            pet.onJourney = false;
-            pet.enterState("idle");
+        if (petItem.onJourney && !_screenAt(petItem.targetGX, petItem.targetGY)) {
+            petItem.onJourney = false;
+            petItem.enterState("idle");
         }
     }
 
@@ -277,7 +286,7 @@ PanelWindow {
         onPressed: mouse => {
             if (root.screen) InputTracker.updateFromPointer(root.screen.x + mouse.x, root.screen.y + mouse.y);
             if (mouse.button === Qt.RightButton) {
-                PetManager.toggleInspector(pet);
+                PetManager.toggleInspector(petItem);
                 return;
             }
             didDrag = false;
@@ -285,10 +294,10 @@ PanelWindow {
             offScreenDragging = false;
             grabX = mouse.x;
             grabY = mouse.y;
-            grabPetX = pet.worldX;
-            grabPetY = pet.worldY;
-            rawPetX = pet.worldX;
-            rawPetY = pet.worldY;
+            grabPetX = petItem.worldX;
+            grabPetY = petItem.worldY;
+            rawPetX = petItem.worldX;
+            rawPetY = petItem.worldY;
             prevMouseX = mouse.x;
             prevMouseY = mouse.y;
             prevMoveMs = Date.now();
@@ -303,6 +312,7 @@ PanelWindow {
             hoverTime = 0;
             strokeDist = 0;
             PetManager.clearDragGhost();
+            PetManager._syncCursorTracking();
 
             const curScr = root.screen;
             if (!curScr) return;
@@ -311,20 +321,19 @@ PanelWindow {
             const t = root._screenAt(cgx, cgy);
             if (t && t !== root.screen) root.screen = t;
 
-            pet.worldX = Math.max(0, Math.min(root.screen.width - root.petSize, cgx - root.petSize / 2 - root.screen.x));
-            pet.worldY = Math.max(0, Math.min(root.screen.height - root.petSize, cgy - root.petSize / 2 - root.screen.y));
+            petItem.worldX = Math.max(0, Math.min(root.screen.width - root.petSize, cgx - root.petSize / 2 - root.screen.x));
+            petItem.worldY = Math.max(0, Math.min(root.screen.height - root.petSize, cgy - root.petSize / 2 - root.screen.y));
 
-            const gx = root.screen.x + pet.worldX;
-            const gy = root.screen.y + pet.worldY;
-            if (Math.hypot(gx - pet.homeGX, gy - pet.homeGY) > pet.homeRadius * 1.8 && Math.hypot(velX, velY) < 280) {
-                pet.homeGX = gx;
-                pet.homeGY = gy;
+            const gx = root.screen.x + petItem.worldX;
+            const gy = root.screen.y + petItem.worldY;
+            if (Math.hypot(gx - petItem.homeGX, gy - petItem.homeGY) > petItem.homeRadius * 1.8 && Math.hypot(velX, velY) < 280) {
+                petItem.homeGX = gx;
+                petItem.homeGY = gy;
             }
 
-            // Decay stale velocity if pointer paused before release.
             const idleGap = (Date.now() - prevMoveMs) / 1000;
             const decay = idleGap > 0.08 ? Math.exp(-idleGap * 14) : 1.0;
-            Nav.launchFromRelease(pet, velX * decay, velY * decay, pet.altitude);
+            Nav.launchFromRelease(petItem, velX * decay, velY * decay, petItem.altitude);
         }
 
         onReleased: mouse => {
@@ -332,7 +341,7 @@ PanelWindow {
             if (dragging) {
                 finishInteraction();
             } else if (!didDrag) {
-                pet.onClicked();
+                petItem.onClicked();
             }
         }
 
@@ -346,9 +355,10 @@ PanelWindow {
                 if (!dragging && moveFromGrab > 5) {
                     dragging = true;
                     didDrag = true;
-                    pet.altitude = 18;
-                    pet.sprite.triggerSquash(0.88, 1.14);
-                    pet.enterState("drag");
+                    petItem.altitude = 18;
+                    petItem.sprite.triggerSquash(0.88, 1.14);
+                    petItem.enterState("drag");
+                    PetManager._syncCursorTracking();
                 }
                 if (dragging) {
                     const now = Date.now();
@@ -363,7 +373,7 @@ PanelWindow {
 
                     rawPetX = grabPetX + (mouse.x - grabX);
                     rawPetY = grabPetY + (mouse.y - grabY);
-                    if (Math.abs(velX) > 25) pet.facingRight = velX >= 0;
+                    if (Math.abs(velX) > 25) petItem.facingRight = velX >= 0;
 
                     const cgx = root.screen.x + rawPetX + root.petSize / 2;
                     const cgy = root.screen.y + rawPetY + root.petSize / 2;
@@ -375,20 +385,19 @@ PanelWindow {
                             Math.max(0, Math.min(targetScr.width - root.petSize, cgx - root.petSize / 2 - targetScr.x)),
                             Math.max(0, Math.min(targetScr.height - root.petSize, cgy - root.petSize / 2 - targetScr.y)),
                             root.petSize,
-                            pet.renderedSpecies,
-                            !pet.facingRight
+                            petItem.renderedSpecies,
+                            !petItem.facingRight
                         );
                     } else {
                         offScreenDragging = false;
                         PetManager.clearDragGhost();
-                        pet.worldX = Math.max(0, Math.min(root.width - root.petSize, rawPetX));
-                        pet.worldY = Math.max(0, Math.min(root.height - root.petSize, rawPetY));
+                        petItem.worldX = Math.max(0, Math.min(root.width - root.petSize, rawPetX));
+                        petItem.worldY = Math.max(0, Math.min(root.height - root.petSize, rawPetY));
                     }
                 }
                 return;
             }
 
-            // Gentle back-and-forth cursor strokes across the pet trigger tactile petting!
             if (hovering && lastHoverX >= 0) {
                 const d = Math.hypot(mouse.x - lastHoverX, mouse.y - lastHoverY);
                 if (d > 1 && d < 60) {
@@ -398,7 +407,7 @@ PanelWindow {
                         const nowSec = Date.now() / 1000;
                         if (nowSec - root._lastPetTime > 2.4) {
                             root._lastPetTime = nowSec;
-                            pet.onStroked();
+                            petItem.onStroked();
                         }
                     }
                 }
@@ -412,7 +421,7 @@ PanelWindow {
             hoverTime = 0;
             strokeDist = 0;
             lastHoverX = -1;
-            pet.onCursorNear();
+            petItem.onCursorNear();
         }
 
         onExited: {
@@ -426,7 +435,7 @@ PanelWindow {
     property real _lastPetTime: 0
     Timer {
         interval: 200
-        running: dragArea.hovering && !dragArea.pressed
+        running: dragArea.hovering && !dragArea.pressed && (dragArea.hoverTime < 1.6 || dragArea.strokeDist > 0)
         repeat: true
         onTriggered: {
             dragArea.hoverTime += 0.2;
@@ -435,7 +444,7 @@ PanelWindow {
                 const now = Date.now() / 1000;
                 if (now - root._lastPetTime > 3.2) {
                     root._lastPetTime = now;
-                    pet.onPetted();
+                    petItem.onPetted();
                 }
             }
         }
@@ -444,26 +453,27 @@ PanelWindow {
     Loader {
         id: inspectorLoader
         z: 10
-        active: root.inspectorOpen && !dragArea.dragging
-        width: item ? item.implicitWidth : 0
-        height: item ? item.implicitHeight : 0
+        active: root.inspectorOpen
+        visible: !dragArea.dragging
+        width: active ? implicitWidth : 0
+        height: active ? implicitHeight : 0
         x: {
-            const rightX = pet.worldX + root.petSize + 14;
-            const w = item ? item.implicitWidth : 324;
+            const rightX = petItem.worldX + root.petSize + 14;
+            const w = implicitWidth > 0 ? implicitWidth : 324;
             if (rightX + w + 12 <= root.width) return rightX;
-            const leftX = pet.worldX - w - 14;
+            const leftX = petItem.worldX - w - 14;
             if (leftX >= 12) return leftX;
             return Math.max(12, Math.min(root.width - w - 12, (root.width - w) * 0.5));
         }
         y: {
-            const h = item ? item.implicitHeight : 300;
+            const h = implicitHeight > 0 ? implicitHeight : 300;
             const minY = root.topInset + 10;
             const maxY = Math.max(minY, root.height - root.bottomInset - h - 10);
-            const ideal = pet.worldY + root.petSize / 2 - h / 2;
+            const ideal = petItem.worldY + root.petSize / 2 - h / 2;
             return Math.max(minY, Math.min(maxY, ideal));
         }
         sourceComponent: PetInspector {
-            pet: pet
+            pet: petItem
             cardWidth: Math.max(248, Math.min(324, root.width - 24))
             maxHeight: Math.max(220, root.height - root.topInset - root.bottomInset - 24)
         }
@@ -476,38 +486,38 @@ PanelWindow {
 
     Connections {
         target: WindowTracker
-        function onWindowOpened(windowClass: string, title: string): void { pet.onWindowOpened(windowClass); }
-        function onWindowFocused(windowClass: string, title: string): void { pet.onWindowEvent(windowClass); }
+        function onWindowOpened(windowClass: string, title: string): void { petItem.onWindowOpened(windowClass); }
+        function onWindowFocused(windowClass: string, title: string): void { petItem.onWindowEvent(windowClass); }
         function onWindowClosed(windowClass: string, gx: real, gy: real, w: real, h: real, address: string): void {
-            pet.onWindowClosed(windowClass, gx, gy, w, h, address);
+            petItem.onWindowClosed(windowClass, gx, gy, w, h, address);
         }
-        function onWindowUrgent(windowClass: string, gx: real, gy: real): void { pet.onWindowUrgent(windowClass, gx, gy); }
-        function onWorkspaceChanged(): void { pet.onWorkspaceChanged(); }
+        function onWindowUrgent(windowClass: string, gx: real, gy: real): void { petItem.onWindowUrgent(windowClass, gx, gy); }
+        function onWorkspaceChanged(): void { petItem.onWorkspaceChanged(); }
     }
 
     Connections {
         target: InputTracker
-        function onIdleBegan(): void { pet.onIdleBegan(); }
-        function onIdleEnded(idleDurationSec: real): void { pet.onIdleEnded(idleDurationSec); }
-        function onCursorWiggled(gx: real, gy: real): void { pet.onCursorWiggled(gx, gy); }
+        function onIdleBegan(): void { petItem.onIdleBegan(); }
+        function onIdleEnded(idleDurationSec: real): void { petItem.onIdleEnded(idleDurationSec); }
+        function onCursorWiggled(gx: real, gy: real): void { petItem.onCursorWiggled(gx, gy); }
     }
 
     Connections {
         target: MediaTracker
-        function onMusicStarted(title: string, artist: string): void { pet.onMusicStarted(); }
-        function onMicStateChanged(active: bool): void { pet.onMicStateChanged(active); }
+        function onMusicStarted(title: string, artist: string): void { petItem.onMusicStarted(); }
+        function onMicStateChanged(active: bool): void { petItem.onMicStateChanged(active); }
     }
 
     Connections {
         target: SystemMonitor
-        function onBuildCompleted(durationSec: real): void { pet.onBuildCompleted(durationSec); }
+        function onBuildCompleted(durationSec: real): void { petItem.onBuildCompleted(durationSec); }
     }
 
     Component.onCompleted: {
-        const screens = _realScreens();
+        const screens = WindowTracker.realScreens;
         if (!root.screen && screens.length > 0) {
-            if (root.petData.monitor) {
-                const match = screens.find(s => s.name === root.petData.monitor);
+            if (root.preferredMonitor) {
+                const match = screens.find(s => s.name === root.preferredMonitor);
                 if (match) root.screen = match;
             }
             if (!root.screen) root.screen = screens[0];
@@ -517,18 +527,22 @@ PanelWindow {
             const maxY = Math.max(0, root.height - root.petSize);
             const minSpawnY = Math.min(maxY, root.topInset + 48);
             const maxSpawnY = Math.max(minSpawnY, maxY - root.bottomInset - 48);
-            if (!pet._loadedState && pet.worldX === 0 && pet.worldY === 0) {
+            if (!petItem._loadedState && petItem.worldX === 0 && petItem.worldY === 0) {
                 const padX = Math.min(80, Math.floor(maxX * 0.2));
-                pet.worldX = padX + Math.random() * Math.max(1, maxX - padX * 2);
-                pet.worldY = minSpawnY + Math.random() * Math.max(1, maxSpawnY - minSpawnY);
+                petItem.worldX = padX + Math.random() * Math.max(1, maxX - padX * 2);
+                petItem.worldY = minSpawnY + Math.random() * Math.max(1, maxSpawnY - minSpawnY);
             } else {
-                pet.worldX = Math.max(0, Math.min(maxX, pet.worldX));
-                pet.worldY = Math.max(0, Math.min(maxY, pet.worldY));
+                petItem.worldX = Math.max(0, Math.min(maxX, petItem.worldX));
+                petItem.worldY = Math.max(0, Math.min(maxY, petItem.worldY));
             }
-            if (!pet._loadedState && pet.homeGX === 0 && pet.homeGY === 0 && root.screen) {
-                pet.homeGX = root.screen.x + pet.worldX;
-                pet.homeGY = root.screen.y + pet.worldY;
+            if (!petItem._loadedState && petItem.homeGX === 0 && petItem.homeGY === 0 && root.screen) {
+                petItem.homeGX = root.screen.x + petItem.worldX;
+                petItem.homeGY = root.screen.y + petItem.worldY;
             }
         });
+    }
+
+    Component.onDestruction: {
+        if (dragArea.offScreenDragging) PetManager.clearDragGhost();
     }
 }

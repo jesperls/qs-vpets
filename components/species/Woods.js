@@ -1,3 +1,5 @@
+.pragma library
+
 var BIOME = "Moonlit Woods";
 
 var SPECIES = {
