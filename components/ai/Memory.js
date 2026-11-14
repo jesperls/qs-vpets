@@ -318,22 +318,23 @@ function consolidateSleep(pet) {
         }
     }
 
-    var dreamEmote = "💭";
+    var dreamEmote = "dream";
     var dreamLine = "Dreaming quietly";
     if (dreamCandidate) {
         switch (dreamCandidate.type) {
         case "petted":
         case "stroked":
         case "bid_answered":
-            dreamEmote = "♥";
+            dreamEmote = "heart";
             dreamLine = "Dreaming of warm headpats";
             break;
         case "fed_snack":
         case "foraged":
+            dreamEmote = "berry";
             dreamLine = "Dreaming about sweet berries";
             break;
         case "music_groove":
-            dreamEmote = "♪";
+            dreamEmote = "note";
             dreamLine = "Ear twitching to a remembered melody";
             break;
         case "adventure":
@@ -356,7 +357,7 @@ function consolidateSleep(pet) {
             break;
         case "startled":
         case "tossed_rough":
-            dreamEmote = "...";
+            dreamEmote = "ellipses";
             dreamLine = "Shivered briefly in sleep, then settled";
             break;
         }

@@ -138,15 +138,15 @@ function startChase(pet, other) {
     pet.socialDrive = Math.max(0, pet.socialDrive - 0.16);
     pet.mood = Drives.clamp01(pet.mood + 0.07);
     Drives.happier(pet, 0.03);
-    if (pet.emitEmote) pet.emitEmote("!");
+    if (pet.emitEmote) pet.emitEmote("exclaim");
     notifyBystanders(pet, other, "chase");
 }
 
 function reverseChase(pet, other) {
     var oName = other.petData.name;
     Memory.adjustRelation(pet, oName, 0.014, 0.04, "play", { outcome: "tag" });
-    Memory.thinkAloud(pet, "reverse_chase", "Whirled around to chase " + oName + " right back!");
-    if (pet.emitEmote) pet.emitEmote("!");
+    Memory.thinkAloud(pet, "reverse_chase", "Whirled around to chase " + oName + " right back");
+    if (pet.emitEmote) pet.emitEmote("exclaim");
     other.socialEvent("reverse_chase", pet);
 }
 
@@ -197,7 +197,7 @@ function squabble(pet, other) {
     Memory.recordEpisode(pet, "squabbled", { valence: -0.38, salience: 0.58, withPet: oName });
     Memory.thinkAloud(pet, "squabble", "Bristled over personal space with " + oName);
     pet.mood = Math.max(0, pet.mood - 0.04);
-    if (pet.emitEmote) pet.emitEmote("💢");
+    if (pet.emitEmote) pet.emitEmote("frustrated");
     other.socialEvent("squabble", pet);
     notifyBystanders(pet, other, "squabble");
 }
@@ -267,7 +267,7 @@ function rebuff(pet, other) {
     Memory.recordEpisode(pet, "annoyed_by", { valence: -0.4, withPet: oName });
     Memory.thinkAloud(pet, "rebuff", "Snapped a warning at " + oName);
     pet.mood = Math.max(0, pet.mood - 0.06);
-    if (pet.emitEmote) pet.emitEmote("💢");
+    if (pet.emitEmote) pet.emitEmote("frustrated");
     other.socialEvent("rebuff", pet);
 }
 

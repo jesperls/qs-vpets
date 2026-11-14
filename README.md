@@ -14,7 +14,7 @@ Interactive pixel-art desktop companions for Hyprland/Wayland built on [Quickshe
 - **Direct Desktop Interactivity**:
   - **Stroke / Hover Petting, Cursor Wiggle Play, & Carry/Toss Physics**: Brush the cursor across a pet for headpats, wiggle the cursor nearby to bait playful pounces, or carry pets across monitors.
   - **Window Watching, Ledge Perching, Urgent Window Alerts & MPRIS Music**: Pets sit North below active code windows to watch upward, hop onto window titlebars, perk up at urgent window alerts, and sway together to music.
-  - **Live Pangu Palette Sync**: Automatically adopts `~/.cache/pangu/colors.json` when running alongside Pangu.
+  - **Live Pangu Theme & Palette Sync**: Automatically adopts `~/.cache/pangu/colors.json` and `~/.config/pangu/config/theme.json` (fonts, corner radii, specular rims, and OLED/Material tokens) when running alongside Pangu.
 
 ## Bundled Species (25)
 

@@ -815,7 +815,7 @@ function onEvent(pet, type, data, nav) {
             Memory.recordPlaceAffect(pet, -0.08);
             Memory.recordEpisode(pet, "startled", { valence: -0.35 });
             Memory.thinkAloud(pet, "startled", "Startled by fast cursor movement", { minGapMs: 25000 });
-            if (pet.emitEmote) pet.emitEmote("!");
+            if (pet.emitEmote) pet.emitEmote("exclaim");
             if (!resting) {
                 Plans.clearPlan(pet);
                 if (p.boldness < 0.28 && nav && pet.inputTracker) {
@@ -866,7 +866,7 @@ function onEvent(pet, type, data, nav) {
             pet.mood = Drives.clamp01(pet.mood + 0.1);
             Memory.recordEpisode(pet, "petted", { valence: 0.6 });
             Memory.thinkAloud(pet, "sleepy_pat", "Stirred softly under gentle pats");
-            if (pet.emitEmote) pet.emitEmote("♥", true);
+            if (pet.emitEmote) pet.emitEmote("heart", true);
             pet.enterState(SpeciesProfile.wakeStateFor(pet));
             break;
         }
@@ -883,7 +883,7 @@ function onEvent(pet, type, data, nav) {
         Memory.recordEpisode(pet, type, { valence: 0.65, salience: 0.65, windowClass: cls });
         pet.recentDrift = Personality.shiftRecent(pet.recentDrift, "sociability", 0.01);
         Memory.thinkAloud(pet, "petted", "Leaning into warm headpats", { minGapMs: 8000 });
-        if (pet.emitEmote) pet.emitEmote("♥", true);
+        if (pet.emitEmote) pet.emitEmote("heart", true);
         if (!resting && pet.state_ !== "sitNorth") {
             var aff = SpeciesProfile.affectionGesturesFor(pet);
             if (p.playfulness > 0.68) aff = aff.concat(["hop"]);
@@ -902,7 +902,7 @@ function onEvent(pet, type, data, nav) {
             Drives.shiftTrust(pet, -0.015);
             Memory.recordEpisode(pet, "annoyed", { valence: -0.35, note: "over-poked" });
             Memory.thinkAloud(pet, "overpoked", "Annoyed by repeated poking", { minGapMs: 4000 });
-            if (pet.emitEmote) pet.emitEmote("💢", true);
+            if (pet.emitEmote) pet.emitEmote("frustrated", true);
             Plans.clearPlan(pet);
             if (!resting) pet.enterState(_pick(pet, ["cringe", "pain", "attack"]));
             else pet.enterState(SpeciesProfile.wakeStateFor(pet));
@@ -911,7 +911,7 @@ function onEvent(pet, type, data, nav) {
 
         if (resting) {
             Memory.thinkAloud(pet, "woken_poke", "Stretched awake when nudged");
-            if (pet.emitEmote) pet.emitEmote("?", true);
+            if (pet.emitEmote) pet.emitEmote("question", true);
             pet.enterState(SpeciesProfile.wakeStateFor(pet));
             break;
         }
@@ -923,10 +923,10 @@ function onEvent(pet, type, data, nav) {
         if (trust > 0.35 || p.sociability > 0.45) {
             Drives.happier(pet, 0.04);
             Drives.shiftTrust(pet, 0.01);
-            if (pet.emitEmote && pet.mood > 0.55) pet.emitEmote("♪", true);
+            if (pet.emitEmote && pet.mood > 0.55) pet.emitEmote("note", true);
             pet.enterState(_pick(pet, SpeciesProfile.affectionGesturesFor(pet)));
         } else {
-            if (pet.emitEmote) pet.emitEmote("?", true);
+            if (pet.emitEmote) pet.emitEmote("question", true);
             pet.enterState(_pick(pet, ["cringe", "nod"]));
         }
         break;
@@ -945,7 +945,7 @@ function onEvent(pet, type, data, nav) {
         pet.lastDiscovery = "a berry snack";
         pet.lastDiscoveryTime = now;
         Memory.thinkAloud(pet, "fed", "Happily eating a berry snack", { minGapMs: 3000 });
-        if (pet.emitEmote) pet.emitEmote("🍎", true);
+        if (pet.emitEmote) pet.emitEmote("berry", true);
         Plans.clearPlan(pet);
         pet.enterState("eat");
         break;
@@ -960,7 +960,7 @@ function onEvent(pet, type, data, nav) {
         pet.playDrive = Math.max(0, pet.playDrive - 0.25);
         Memory.recordEpisode(pet, "played_solo", { valence: 0.6, salience: 0.6 });
         Memory.thinkAloud(pet, "play_user", "Playing energetically", { minGapMs: 4000 });
-        if (pet.emitEmote) pet.emitEmote("♪", true);
+        if (pet.emitEmote) pet.emitEmote("note", true);
         Plans.startPlan(pet, {
             name: "play_solo",
             label: "Playtime",
@@ -993,7 +993,7 @@ function onEvent(pet, type, data, nav) {
             pet.recentDrift = Personality.shiftRecent(pet.recentDrift, "boldness", 0.01);
             Memory.recordEpisode(pet, "tossed_fun", { valence: 0.65, salience: 0.72 });
             Memory.thinkAloud(pet, "toss_whee", "Landed an acrobatic toss", { minGapMs: 4000 });
-            if (pet.emitEmote) pet.emitEmote("♪", true);
+            if (pet.emitEmote) pet.emitEmote("note", true);
             pet.enterState(_pick(pet, ["hop", "rotate"]));
         } else {
             pet.mood = Math.max(0, pet.mood - 0.08);
@@ -1002,7 +1002,7 @@ function onEvent(pet, type, data, nav) {
             pet.recentDrift = Personality.shiftRecent(pet.recentDrift, "boldness", -0.008);
             Memory.recordEpisode(pet, "tossed_rough", { valence: -0.5, salience: 0.7 });
             Memory.thinkAloud(pet, "toss_oof", "Dizzy from a fast toss", { minGapMs: 4000 });
-            if (pet.emitEmote) pet.emitEmote("!", true);
+            if (pet.emitEmote) pet.emitEmote("exclaim", true);
             pet.enterState(_pick(pet, ["hitGround", "trip", "tumbleBack", "cringe"]));
         }
         break;
@@ -1019,7 +1019,7 @@ function onEvent(pet, type, data, nav) {
         if (_cooldown(pet, "music_started", 90000)) return;
         var melo = Personality.hasQuirk(pet, "melomaniac");
         if (melo || (p.playfulness > 0.58 && Math.random() < 0.45)) {
-            if (pet.emitEmote) pet.emitEmote("♪");
+            if (pet.emitEmote) pet.emitEmote("note");
             Memory.thinkAloud(pet, "music_start", "Ears perked up at music", { minGapMs: 60000 });
             if (pet.state_ === "idle") pet.enterState(_pick(pet, SpeciesProfile.affectionGesturesFor(pet)));
         }
@@ -1061,7 +1061,7 @@ function onEvent(pet, type, data, nav) {
             pet.attentionGY = data.gy || 0;
             pet.attentionUntil = now + 9000;
             _faceGlobal(pet, pet.attentionGX, pet.attentionGY);
-            if (pet.emitEmote) pet.emitEmote("!");
+            if (pet.emitEmote) pet.emitEmote("exclaim");
             Memory.thinkAloud(pet, "urgent_win", "Perked up at an alert in " + (data.windowClass || "a window"), { minGapMs: 60000 });
         }
         break;
@@ -1095,7 +1095,7 @@ function onEvent(pet, type, data, nav) {
         pet.socialDrive = Drives.clamp01(pet.socialDrive + p.sociability * 0.12);
         if ((pet.bond || 0.3) > 0.65) {
             Memory.thinkAloud(pet, "user_back", "Perked up when user returned", { minGapMs: 90000 });
-            if (pet.emitEmote) pet.emitEmote("♥");
+            if (pet.emitEmote) pet.emitEmote("heart");
         }
         if (loafing && Math.random() < 0.30 + p.sociability * 0.35) {
             pet.enterState(SpeciesProfile.wakeStateFor(pet));
@@ -1143,7 +1143,7 @@ function onEvent(pet, type, data, nav) {
                 urgency: 0.6,
                 durationMs: 30000,
                 steps: [
-                    { kind: "act", label: "Swaying together", states: SpeciesProfile.affectionGesturesFor(pet), faceOther: true, emote: "♪" }
+                    { kind: "act", label: "Swaying together", states: SpeciesProfile.affectionGesturesFor(pet), faceOther: true, emote: "note" }
                 ]
             }, nav, _pick);
         }
@@ -1359,7 +1359,7 @@ function onEvent(pet, type, data, nav) {
         Memory.recordEpisode(pet, "squabbled", { valence: -0.36, salience: 0.58, withPet: fromSq.petData.name });
         pet.mood = Math.max(0, pet.mood - 0.05);
         if (p.boldness >= 0.48 && p.patience < 0.62 && !resting && nav) {
-            if (pet.emitEmote) pet.emitEmote("💢");
+            if (pet.emitEmote) pet.emitEmote("frustrated");
             Plans.startPlan(pet, Plans.buildSquabbleReplyPlan(pet, fromSq), nav, _pick);
         } else if (nav) {
             Plans.clearPlan(pet);
@@ -1429,7 +1429,7 @@ function onEvent(pet, type, data, nav) {
         Memory.adjustRelation(pet, fromC.petData.name, relC.affinity < 0.4 ? 0.025 : 0.016, 0.05, "nap");
         Memory.recordEpisode(pet, "rested_with", { valence: 0.4, withPet: fromC.petData.name });
         pet.mood = Drives.clamp01(pet.mood + 0.04);
-        if (pet.emitEmote) pet.emitEmote("♥");
+        if (pet.emitEmote) pet.emitEmote("heart");
         break;
     }
 
@@ -1504,10 +1504,10 @@ function onEvent(pet, type, data, nav) {
         var fromIl = data.fromPet;
         Memory.adjustRelation(pet, fromIl.petData.name, 0.012, 0.05, "play");
         Memory.recordEpisode(pet, "greeted", { valence: 0.35, withPet: fromIl.petData.name, note: "illusion" });
-        Memory.thinkAloud(pet, "saw_illusion", "Did a double-take at " + fromIl.petData.name + "'s Illusion!");
+        Memory.thinkAloud(pet, "saw_illusion", "Did a double-take at " + fromIl.petData.name + "'s Illusion");
         if (!resting) {
             _faceGlobal(pet, fromIl.screenX() + fromIl.worldX, fromIl.screenY() + fromIl.worldY);
-            if (pet.emitEmote) pet.emitEmote("?");
+            if (pet.emitEmote) pet.emitEmote("question");
             if (pet.state_ === "idle") pet.enterState(_pick(pet, ["nod", "hop"]));
         }
         break;

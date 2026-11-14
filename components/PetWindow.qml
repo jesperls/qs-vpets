@@ -251,6 +251,7 @@ PanelWindow {
         anchors.fill: parent
         hoverEnabled: true
         acceptedButtons: Qt.LeftButton | Qt.RightButton
+        cursorShape: dragging ? Qt.ClosedHandCursor : Qt.OpenHandCursor
 
         property bool dragging: false
         property bool offScreenDragging: false
@@ -346,6 +347,7 @@ PanelWindow {
                     dragging = true;
                     didDrag = true;
                     pet.altitude = 18;
+                    pet.sprite.triggerSquash(0.88, 1.14);
                     pet.enterState("drag");
                 }
                 if (dragging) {
@@ -446,15 +448,15 @@ PanelWindow {
         width: item ? item.implicitWidth : 0
         height: item ? item.implicitHeight : 0
         x: {
-            const rightX = pet.worldX + root.petSize + 12;
-            const w = item ? item.implicitWidth : 300;
+            const rightX = pet.worldX + root.petSize + 14;
+            const w = item ? item.implicitWidth : 324;
             if (rightX + w + 12 <= root.width) return rightX;
-            const leftX = pet.worldX - w - 12;
+            const leftX = pet.worldX - w - 14;
             if (leftX >= 12) return leftX;
             return Math.max(12, Math.min(root.width - w - 12, (root.width - w) * 0.5));
         }
         y: {
-            const h = item ? item.implicitHeight : 280;
+            const h = item ? item.implicitHeight : 300;
             const minY = root.topInset + 10;
             const maxY = Math.max(minY, root.height - root.bottomInset - h - 10);
             const ideal = pet.worldY + root.petSize / 2 - h / 2;
@@ -462,8 +464,8 @@ PanelWindow {
         }
         sourceComponent: PetInspector {
             pet: pet
-            cardWidth: Math.max(236, Math.min(300, root.width - 24))
-            maxHeight: Math.max(200, root.height - root.topInset - root.bottomInset - 24)
+            cardWidth: Math.max(248, Math.min(324, root.width - 24))
+            maxHeight: Math.max(220, root.height - root.topInset - root.bottomInset - 24)
         }
     }
 

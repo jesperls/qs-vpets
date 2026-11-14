@@ -67,54 +67,54 @@ var PRESETS = {
 
 var QUIRK_DEFS = {
     terminal_supervisor: {
-        label: "Code Supervisor",
-        icon: "⌘",
-        summary: "Loves perching near editors and terminals while you work."
+        label: "Code Companion",
+        icon: "terminal",
+        summary: "Settles quietly beside editors and terminals while you work."
     },
     melomaniac: {
         label: "Melomaniac",
-        icon: "♪",
-        summary: "Perks up and grooves whenever music plays."
+        icon: "music",
+        summary: "Perks up and sways gently whenever music plays."
     },
     night_watch: {
         label: "Night Watch",
-        icon: "☾",
-        summary: "Stays alert to keep you company during late-night sessions."
+        icon: "moon",
+        summary: "Stays alert to keep quiet company during late-night sessions."
     },
     screen_hopper: {
         label: "Horizon Walker",
-        icon: "⇄",
-        summary: "Treats multiple monitors as one big playground."
+        icon: "compass",
+        summary: "Roams freely across connected displays as one wide territory."
     },
     velcro_companion: {
-        label: "Velcro Buddy",
-        icon: "♥",
-        summary: "Deeply bonded; greets you warmly and shadows your focus."
+        label: "Devoted Shadow",
+        icon: "heart",
+        summary: "Deeply bonded; greets you warmly and stays near your focus."
     },
     cozy_hermit: {
-        label: "Corner Sage",
-        icon: "☕",
-        summary: "Cherishes a quiet sanctuary corner and restores peace there."
+        label: "Quiet Hermit",
+        icon: "leaf",
+        summary: "Cherishes a calm corner and restores composure there."
     },
     pack_spark: {
         label: "Pack Spark",
-        icon: "✦",
-        summary: "Initiates playdates, tandem zoomies, and group naps."
+        icon: "spark",
+        summary: "Initiates playful bouts, tag chases, and shared naps."
     },
     sky_acrobat: {
         label: "Sky Acrobat",
-        icon: "☄",
-        summary: "Delights in being picked up and tossed across the screen."
+        icon: "wind",
+        summary: "Delights in being lifted and tossed gently across the screen."
     },
     window_percher: {
         label: "Ledge Percher",
-        icon: "⊤",
-        summary: "Likes hopping onto top window edges to survey the desktop."
+        icon: "perch",
+        summary: "Hops onto top window ledges to survey the desktop below."
     },
     daydreamer: {
         label: "Daydreamer",
-        icon: "💭",
-        summary: "Vivid sleeper whose naps weave rich reflections."
+        icon: "dream",
+        summary: "Vivid sleeper whose naps weave lasting reflections."
     }
 };
 

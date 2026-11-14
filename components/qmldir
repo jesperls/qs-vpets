@@ -5,3 +5,5 @@ EmoteBubble 1.0 EmoteBubble.qml
 PetInspector 1.0 PetInspector.qml
 ResidentRecord 1.0 ResidentRecord.qml
 SanctuaryWindow 1.0 SanctuaryWindow.qml
+UiIcon 1.0 UiIcon.qml
+UiTooltip 1.0 UiTooltip.qml

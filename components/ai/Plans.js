@@ -448,7 +448,7 @@ function _resolvePeerPlayBid(pet, plan, step, nav, pickFn) {
         pet.mood = Math.max(0, pet.mood - 0.04);
         pet.playDrive = Math.max(0, pet.playDrive - 0.08);
         plan.steps = plan.steps.slice(0, plan.stepIndex + 1).concat([
-            { kind: "act", label: "Wilting quietly", states: ["cringe", "sitDown", "nod"], emote: "..." },
+            { kind: "act", label: "Wilting quietly", states: ["cringe", "sitDown", "nod"], emote: "ellipses" },
             { kind: "wander_apart", dist: 150, gait: "amble", label: "Ambling off quietly" }
         ]);
         advanceStep(pet, nav, pickFn);
@@ -627,7 +627,7 @@ function resolveBidSuccess(pet, nav, pickFn) {
     Memory.recordEpisode(pet, "bid_answered", { valence: 0.75, salience: 0.8 });
     Memory.thinkAloud(pet, "bid_yes", "Delighted to get attention", { minGapMs: 5000 });
     clearPlan(pet);
-    if (pet.emitEmote) pet.emitEmote("♥", true);
+    if (pet.emitEmote) pet.emitEmote("heart", true);
     var happyPool = SpeciesProfile.affectionGesturesFor(pet);
     pet.enterState(pickFn ? pickFn(pet, happyPool) : happyPool[0]);
     return true;
@@ -645,7 +645,7 @@ function _onBidIgnored(pet, pickFn) {
         pet.mood = Math.max(0, pet.mood - 0.05);
         pet.recentDrift = Personality.shiftRecent(pet.recentDrift, "sociability", -0.006);
         Memory.thinkAloud(pet, "bid_pout", "Gave up and wandered off quietly");
-        if (pet.emitEmote) pet.emitEmote("...");
+        if (pet.emitEmote) pet.emitEmote("ellipses");
         pet.enterState(pickFn ? pickFn(pet, ["cringe", "nod"]) : "nod");
     }
 }
@@ -769,7 +769,7 @@ function buildAttentionBidPlan(perc, bold, hungry) {
     var side = perc.petGX < perc.cursor.gx ? -offset : offset;
     var steps = [
         { kind: "travel", gait: "trot", label: "Approaching cursor", dynamic: "cursor", offsetX: side, offsetY: 14 },
-        { kind: "vocal", label: "Calling for attention", excited: false, faceCursor: true, emote: hungry ? "🍎" : "?" },
+        { kind: "vocal", label: "Calling for attention", excited: false, faceCursor: true, emote: hungry ? "berry" : "question" },
         { kind: "wait_bid", label: "Waiting hopefully", durationMs: 8500, allowRetry: !!(bold || hungry) }
     ];
     if (bold || hungry) {
@@ -797,7 +797,7 @@ function buildCursorChasePlan(gx, gy) {
         durationMs: 35000,
         thought: "Stalked and pounced after the wiggling cursor",
         steps: [
-            { kind: "act", label: "Play-crouching", states: ["nod"], facePoint: { gx: gx, gy: gy }, emote: "!" },
+            { kind: "act", label: "Play-crouching", states: ["nod"], facePoint: { gx: gx, gy: gy }, emote: "exclaim" },
             { kind: "travel", gait: "scamper", label: "Scampering after cursor", dynamic: "cursor", offsetX: 0, offsetY: 0 },
             { kind: "act", label: "Playful pounce", states: ["hop"], faceCursor: true }
         ]
@@ -808,7 +808,7 @@ function buildMusicGroovePlan(perc, friendName, pet) {
     var track = perc.mediaTitle ? ("\"" + perc.mediaTitle.slice(0, 26) + "\"") : "music";
     var swayStates = SpeciesProfile.affectionGesturesFor(pet);
     var steps = [
-        { kind: "act", label: "Swaying to music", states: swayStates, emote: "♪" }
+        { kind: "act", label: "Swaying to music", states: swayStates, emote: "note" }
     ];
     if (friendName) {
         steps.unshift({ kind: "social", label: "Swaying near " + friendName, interaction: "groove" });
@@ -1089,8 +1089,8 @@ function buildSyncDancePlan(pet, partnerName) {
         durationMs: 36000,
         thought: "Dancing in sync with " + partnerName,
         steps: [
-            { kind: "act", label: "Synchronized spin!", states: moves, faceOther: true, emote: "♪" },
-            { kind: "act", label: "Joyful hop!", states: ["twirl", "dance", "hop", "rotate"], faceOther: true },
+            { kind: "act", label: "Synchronized spin", states: moves, faceOther: true, emote: "note" },
+            { kind: "act", label: "Joyful hop", states: ["twirl", "dance", "hop", "rotate"], faceOther: true },
             { kind: "wander_apart", dist: 140, gait: "amble", label: "Parting cheerfully" }
         ]
     };
@@ -1313,7 +1313,7 @@ function buildRetirePlan(pet, perc) {
         thought: sleepy ? "Padding off-screen to rest in the Sanctuary" : "Trotting off for a break in the Sanctuary",
         steps: [
             { kind: "travel", gait: sleepy ? "amble" : "trot", label: "Walking toward Sanctuary", gx: edgeX, gy: edgeY },
-            { kind: "act", label: sleepy ? "Yawning goodnight" : "Waving goodbye", states: sleepy ? SpeciesProfile.settleGesturesFor(pet) : SpeciesProfile.greetGesturesFor(pet), emote: sleepy ? "💤" : undefined },
+            { kind: "act", label: sleepy ? "Yawning goodnight" : "Waving goodbye", states: sleepy ? SpeciesProfile.settleGesturesFor(pet) : SpeciesProfile.greetGesturesFor(pet), emote: sleepy ? "sleepy" : undefined },
             { kind: "retire_finish", label: "Entered Sanctuary" }
         ]
     };

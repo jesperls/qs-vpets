@@ -27,6 +27,7 @@ Item {
     property double _lastFrameTickMs: 0
     property real squashX: 1.0
     property real squashY: 1.0
+    property bool _inSetState: false
 
     signal oneShotFinished(stateName: string)
 
@@ -50,7 +51,8 @@ Item {
 
     function _stateSpeedMult(s: string): real {
         if (s === "walk" || s === "wander" || s === "zoomies") {
-            return Math.max(0.38, Math.min(1.85, root.moveSpeed / 82));
+            const spd = root.moveSpeed > 0 ? root.moveSpeed : 68;
+            return Math.max(0.38, Math.min(1.85, spd / 82));
         }
         if (s === "idle" || s === "perch") {
             return SpeciesProfile.standSpec(root.speciesName).speed;
@@ -81,8 +83,7 @@ Item {
         return 0;
     }
 
-    function setState(name: string): void {
-        currentState = name;
+    function _applyState(name: string): void {
         const nextAnim = SpriteSheet.resolveAnimName(name, _animData, actionMap, root.speciesName);
         if (nextAnim !== _animName || !SpriteSheet.isLoopingState(name)) {
             _animName = nextAnim;
@@ -99,6 +100,17 @@ Item {
         } else if (name === "sitNorth" || name === "lookUpNorth" || name === "sitDown" || name === "lookUp") {
             _dirRow = 4; // PMD Sit and LookUp sheets are drawn facing North (row 4)
         }
+    }
+
+    function setState(name: string): void {
+        _inSetState = true;
+        currentState = name;
+        _inSetState = false;
+        _applyState(name);
+    }
+
+    onCurrentStateChanged: {
+        if (!_inSetState && _animData) _applyState(currentState);
     }
 
     function setDirection(angle: real): void {

@@ -469,11 +469,26 @@ Item {
 
     function onCursorNear(): void { Brain.onEvent(root, "cursor_near", null, Nav); }
     function onCursorWiggled(gx: real, gy: real): void { Brain.onEvent(root, "cursor_wiggled", { gx: gx, gy: gy }, Nav); }
-    function onPetted(): void { Brain.onEvent(root, "petted", null, Nav); }
-    function onStroked(): void { Brain.onEvent(root, "stroked", null, Nav); }
-    function onClicked(): void { Brain.onEvent(root, "clicked", null, Nav); }
-    function onFed(): void { Brain.onEvent(root, "fed", null, Nav); }
-    function onPlayTriggered(): void { Brain.onEvent(root, "play_triggered", null, Nav); }
+    function onPetted(): void {
+        sprite.triggerSquash(1.08, 0.93);
+        Brain.onEvent(root, "petted", null, Nav);
+    }
+    function onStroked(): void {
+        sprite.triggerSquash(1.10, 0.91);
+        Brain.onEvent(root, "stroked", null, Nav);
+    }
+    function onClicked(): void {
+        sprite.triggerSquash(1.06, 0.95);
+        Brain.onEvent(root, "clicked", null, Nav);
+    }
+    function onFed(): void {
+        sprite.triggerSquash(1.10, 0.91);
+        Brain.onEvent(root, "fed", null, Nav);
+    }
+    function onPlayTriggered(): void {
+        sprite.triggerSquash(0.92, 1.09);
+        Brain.onEvent(root, "play_triggered", null, Nav);
+    }
     function onWindowEvent(cls: string): void { Brain.onEvent(root, "window_focused", { windowClass: cls }, Nav); }
     function onWindowOpened(cls: string): void { Brain.onEvent(root, "window_opened", { windowClass: cls }, Nav); }
     function onWindowUrgent(cls: string, gx: real, gy: real): void { Brain.onEvent(root, "window_urgent", { windowClass: cls, gx: gx, gy: gy }, Nav); }
@@ -507,7 +522,7 @@ Item {
             thought: "Trotted over when called",
             steps: [
                 travelStep,
-                { kind: "act", label: "Arrived", states: SpeciesProfile.greetGesturesFor(root), faceCursor: InputTracker.cursorKnown, emote: "!", directEmote: true }
+                { kind: "act", label: "Arrived", states: SpeciesProfile.greetGesturesFor(root), faceCursor: InputTracker.cursorKnown, emote: "exclaim", directEmote: true }
             ]
         }, Nav);
     }

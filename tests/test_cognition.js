@@ -1106,4 +1106,27 @@ function stepNavigationSim(world, pet, maxSeconds = 120) {
     }
 }
 
+// 14. Test semantic pixel-art emote tokens & emoji-free UI icon definitions
+{
+    const validEmoteTokens = new Set([
+        "heart", "note", "exclaim", "question", "ellipses",
+        "frustrated", "berry", "sleepy", "dream"
+    ]);
+    for (const [id, def] of Object.entries(Personality.QUIRK_DEFS)) {
+        assert.match(def.icon, /^[a-zA-Z]+$/, `Quirk '${id}' uses clean UiIcon name ('${def.icon}')`);
+    }
+
+    const world = createSimWorld();
+    const mochi = createSimPet(world, "Mochi", "playful", 0, "zorua");
+    Brain.onEvent(mochi, "stroked", null, Nav);
+    Brain.onEvent(mochi, "fed", null, Nav);
+    Brain.onEvent(mochi, "music_started", null, Nav);
+    Memory.recordEpisode(mochi, "petted", { valence: 0.7, salience: 0.7 });
+    const dream = Brain.reflect(mochi);
+    assert.ok(dream && validEmoteTokens.has(dream.emote), `Dream reflection uses semantic pixel emote ('${dream && dream.emote}')`);
+    for (const tok of mochi.emotes) {
+        assert.ok(validEmoteTokens.has(tok), `Emitted emote '${tok}' is a pixel-droplet token`);
+    }
+}
+
 console.log("All cognitive, developmental, social, Sanctuary rotation, physics, multi-monitor, species ethology, and persistence tests passed!");
