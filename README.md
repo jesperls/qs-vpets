@@ -1,6 +1,6 @@
 # qs-vpets — Pokémon Sanctuary for Wayland
 
-Interactive pixel-art Pokémon companions for **any `wlr-layer-shell` Wayland desktop** — built on [Quickshell](https://quickshell.outfoxxed.me/) with multi-timescale cognition, sleep memory consolidation, inter-Pokémon social dynamics, a full **Pokémon Sanctuary** desktop app & launcher, and 25 pixel-verified [PMD Collab](https://sprites.pmdcollab.org/#/) species.
+Interactive pixel-art Pokémon companions for **any `wlr-layer-shell` Wayland desktop** — built on [Quickshell](https://quickshell.outfoxxed.me/) with multi-timescale cognition, sleep memory consolidation, inter-Pokémon social dynamics, pluggable species abilities, a full **Pokémon Sanctuary** desktop app & launcher, and 56 pixel-verified [PMD Collab](https://sprites.pmdcollab.org/#/) species.
 
 ---
 
@@ -13,9 +13,9 @@ Interactive pixel-art Pokémon companions for **any `wlr-layer-shell` Wayland de
   - Adopt 10–25+ companions without cluttering your screen: set `maxActiveRoaming` (default `3`) and per-pet roaming policy (`Auto Rotate`, `Always Out`, or `Stay in Pen`).
   - Off-screen companions rest in the Sanctuary with zero Wayland window overhead while eating snacks, consolidating dreams, and forming friendships.
   - Roaming companions emergently pad off the screen edge into the Sanctuary when sleepy, while rested, nocturnal, or music-loving companions stroll out to take their turn.
-- **25 Pixel-Verified PMDCollab Species & Deep Inter-Pokémon Dynamics**:
-  - Bespoke standing, loafing, gait, biome, and signature behavior profiles (`EventSleep` 8-direction loafing, Zorua *Illusion* pranks, Umbreon moonlight ring pulses, Rowlet head-tilts, Litwick candle glow, Munchlax snack naps, Mew playful floats, Toxapex shell-bunkering).
-  - Spontaneous proximity-gated social interactions: tag/chase games, play-sparring, side-by-side loafing, synchronized music dancing, playful ambushes, rivalries, unrequited play bids, and multi-pet group huddles.
+- **56 Pixel-Verified PMDCollab Species, Pluggable Abilities & Deep Social Dynamics**:
+  - Modular biome catalogs (`components/species/*.js`), declarative frame-slice clip playback (`SpriteSheet.resolveClip`), kin-group chemistry, and 14 composable abilities (`components/behavior/Abilities.js`: *Illusion Craft*, *Psychic Blink*, *Hearth Ember*, *Moonlight Pulse*, *Sunlit Bask*, *Shell Bunker*, *Wind Glide*, *Aura Watch*, *Melody Spark*, *Shadow Slip*, *Tidepool Joy*, *Berry Stash*, *Frost Serene*, *Soothing Aura*).
+  - Spontaneous proximity-gated social interactions: tag/chase games with role-reversal, choreographed play-sparring, side-by-side loafing, synchronized music dancing, unrequited play bids, personal-space squabbles, and peacekeeper mediation.
 - **Works Across Wayland Desktops**:
   - Runs on **KDE Plasma Wayland (including SteamOS Desktop Mode)**, **Hyprland**, **Sway**, **Niri**, **COSMIC**, **River**, **Wayfire**, **Labwc**, and **MangoWC**.
   - Uses `Quickshell.Wayland` (`wlr-layer-shell`, `ToplevelManager`, `IdleMonitor`) for fullscreen game awareness, active-app perception, window focus activation, and compositor idle tracking — with enhanced Hyprland IPC window-ledge perching when running under Hyprland.
@@ -153,11 +153,30 @@ Leave `programs.qs-vpets.pets = null` (the default) to adopt, rename, and manage
 
 ---
 
-## Bundled Species (25)
+## Bundled Species (56 across 6 Biomes)
 
-`absol`, `charizard`, `cyndaquil`, `eevee`, `ferrothorn`, `gengar`, `giratina`, `grovyle`, `infernape`, `litwick`, `mew`, `mudkip`, `munchlax`, `phantump`, `pikachu`, `riolu`, `rowlet`, `shiftry`, `sprigatito`, `toxapex`, `umbreon`, `vulpix`, `whimsicott`, `wooper`, `zorua`.
+- **Sunlit Meadow (11)**: `bulbasaur`, `eevee`, `grovyle`, `jolteon`, `leafeon`, `munchlax`, `pikachu`, `shaymin`, `shinx`, `sprigatito`, `whimsicott`
+- **Moonlit Woods (11)**: `absol`, `celebi`, `emolga`, `ferrothorn`, `phantump`, `rockruff`, `rowlet`, `shiftry`, `turtwig`, `umbreon`, `zorua`
+- **Warm Hearth (9)**: `charizard`, `charmander`, `cyndaquil`, `fennekin`, `flareon`, `fuecoco`, `infernape`, `ninetales`, `vulpix`
+- **Shadow Hollow (8)**: `darkrai`, `espurr`, `gengar`, `giratina`, `litwick`, `marshadow`, `misdreavus`, `sneasel`
+- **Tidepool Cove (9)**: `glaceon`, `mudkip`, `oshawott`, `piplup`, `spheal`, `squirtle`, `totodile`, `toxapex`, `wooper`
+- **Starlight Loft (8)**: `altaria`, `cresselia`, `jirachi`, `latias`, `lucario`, `meloetta`, `mew`, `riolu`
 
 Sprite sheets and animations courtesy of the [PMD Sprite Repository (SpriteCollab)](https://sprites.pmdcollab.org/#/) community artists; per-species artist attributions are included in `assets/sprites/<species>/credits.txt`.
+
+---
+
+## Adding New Species & Abilities
+
+Species, clips, and abilities are data-driven with zero per-species engine branches:
+
+1. Search and import clean `*-Anim.png` sheets + `credits.txt` from PMDCollab:
+   ```sh
+   node scripts/pmd-species.js search <name>
+   node scripts/pmd-species.js import <dexId> <slug>
+   node scripts/pmd-species.js audit --frames <slug>
+   ```
+2. Add the species entry to its habitat module in `components/species/{Meadow,Woods,Hearth,Hollow,Tidepool,Loft}.js` with declarative `clips`, `kinGroup`, `abilities` (from `components/behavior/Abilities.js`), gait speeds, and gesture pools. `SPECIES_LIST`, Sanctuary habitat filters, and the Home Manager `sprite` enum derive automatically.
 
 ---
 

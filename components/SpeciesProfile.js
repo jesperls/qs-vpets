@@ -1,741 +1,32 @@
-var PROFILES = {
-    absol: {
-        displayName: "Absol",
-        biome: "Moonlit Woods",
-        blurb: "Quiet sentinel that keeps calm watch below active windows.",
-        nocturnalAffinity: true,
-        socialStyle: "guardian",
-        standMode: "hold0", // Idle frame 1 is an open-mouth cry; frame 0 stands watch
-        idleSpeed: 0.52,
-        vocalState: "idleOnce",
-        altVocalState: "pose",
-        calmGestures: ["nod", "pose"],
-        affectionGestures: ["nod", "pose"],
-        greetGestures: ["nod", "pose"],
-        settleGestures: ["nod"],
-        sparMoves: ["quickStrike", "spAttack", "leapForth", "swing"],
-        showOffMoves: ["pose", "spAttack", "leapForth"],
-        dodgeMoves: ["hop", "tumbleBack", "rotate"],
-        standoffMoves: ["pose", "charge"],
-        dismissMoves: ["pose", "rotate"],
-        signature: { state: "pose", minPlay: 0.44, label: "Scanning the horizon quietly" },
-        loafAnim: "EventSleep",
-        sleepAnim: "Sleep",
-        wakeState: "wake",
-        pantState: "deepBreath",
-        northWatch: true,
-        gait: { amble: 0.48, trot: 0.92, scamper: 1.55 },
-        perchAffinity: 0.45,
-        windowWatchAffinity: 1.35
-    },
-    charizard: {
-        displayName: "Charizard",
-        biome: "Warm Hearth",
-        blurb: "Proud flame dragon that patrols screens and naps by warm corners.",
-        nocturnalAffinity: false,
-        socialStyle: "brawler",
-        standMode: "loop",
-        idleSpeed: 0.55,
-        vocalState: "charge",
-        altVocalState: "hop",
-        calmGestures: ["rotate"],
-        affectionGestures: ["rotate", "hop"],
-        greetGestures: ["rotate", "hop"],
-        settleGestures: ["rotate"],
-        sparMoves: ["strike", "spAttack", "double", "swing", "charge"],
-        showOffMoves: ["charge", "spAttack", "hop"],
-        dodgeMoves: ["hop", "rotate"],
-        standoffMoves: ["charge", "spAttack"],
-        dismissMoves: ["rotate"],
-        signature: { state: "charge", minPlay: 0.52, label: "Stretching its wings wide" },
-        loafAnim: "Sleep",
-        sleepAnim: "Sleep",
-        wakeState: "rotate",
-        pantState: "",
-        northWatch: false,
-        gait: { amble: 0.50, trot: 0.96, scamper: 1.56 },
-        perchAffinity: 0.80,
-        windowWatchAffinity: 1.00
-    },
-    cyndaquil: {
-        displayName: "Cyndaquil",
-        biome: "Warm Hearth",
-        blurb: "Shy hearth-mouse that curls into a warm ball near your work.",
-        nocturnalAffinity: false,
-        socialStyle: "parallel",
-        standMode: "hold0",
-        idleSpeed: 0.52,
-        vocalState: "idleOnce",
-        altVocalState: "hop",
-        calmGestures: ["nod", "pose"],
-        affectionGestures: ["twirl", "nod"],
-        greetGestures: ["nod"],
-        settleGestures: ["rotate", "nod"],
-        sparMoves: ["shoot", "charge", "strike", "twirl"],
-        showOffMoves: ["twirl", "pose", "hop"],
-        dodgeMoves: ["tumbleBack", "hop", "sink"],
-        standoffMoves: ["charge", "cringe"],
-        dismissMoves: ["cringe", "rotate"],
-        signature: { state: "twirl", minPlay: 0.36, label: "Warming up with a back-flame spin" },
-        loafAnim: "EventSleep",
-        sleepAnim: "Sleep",
-        wakeState: "wake",
-        pantState: "deepBreath",
-        northWatch: true,
-        gait: { amble: 0.46, trot: 0.92, scamper: 1.52 },
-        perchAffinity: 0.65,
-        windowWatchAffinity: 1.25
-    },
-    eevee: {
-        displayName: "Eevee",
-        biome: "Sunlit Meadow",
-        blurb: "Inquisitive fox-kit with expressive tail-wags and adaptable habits.",
-        nocturnalAffinity: false,
-        socialStyle: "sprinter",
-        standMode: "loop",
-        idleSpeed: 0.50,
-        vocalState: "appeal",
-        altVocalState: "hop",
-        calmGestures: ["nod", "tailWhip"],
-        affectionGestures: ["appeal", "tailWhip", "rotate"],
-        greetGestures: ["tailWhip", "nod"],
-        settleGestures: ["rotate", "nod"],
-        sparMoves: ["leapForth", "tailWhip", "double", "strike"],
-        showOffMoves: ["appeal", "tailWhip", "hop", "pose"],
-        dodgeMoves: ["hop", "tumble", "rotate"],
-        standoffMoves: ["tailWhip", "charge"],
-        dismissMoves: ["tailWhip", "rotate"],
-        signature: { state: "appeal", minPlay: 0.34, label: "Wagging its fluffy tail happily" },
-        loafAnim: "EventSleep",
-        sleepAnim: "Sleep",
-        wakeState: "wake",
-        pantState: "deepBreath",
-        northWatch: true,
-        gait: { amble: 0.54, trot: 1.02, scamper: 1.70 },
-        perchAffinity: 1.15,
-        windowWatchAffinity: 1.28
-    },
-    ferrothorn: {
-        displayName: "Ferrothorn",
-        biome: "Moonlit Woods",
-        blurb: "Stoic iron pod that anchors peacefully in a chosen sanctuary spot.",
-        nocturnalAffinity: false,
-        socialStyle: "parallel",
-        standMode: "loop",
-        idleSpeed: 0.45,
-        vocalState: "special0",
-        altVocalState: "charge",
-        calmGestures: ["special0"],
-        affectionGestures: ["special0", "rotate"],
-        greetGestures: ["special0"],
-        settleGestures: ["special0"],
-        sparMoves: ["swing", "double", "shoot", "attack"],
-        showOffMoves: ["special0", "charge", "rotate"],
-        dodgeMoves: ["special0", "rotate"],
-        standoffMoves: ["charge", "special0"],
-        dismissMoves: ["special0", "rotate"],
-        signature: { state: "special0", minPlay: 0.28, label: "Anchoring its iron pod" },
-        loafAnim: "Sleep",
-        sleepAnim: "Sleep",
-        wakeState: "special0",
-        pantState: "",
-        northWatch: false,
-        gait: { amble: 0.38, trot: 0.72, scamper: 1.18 },
-        perchAffinity: 0.20,
-        windowWatchAffinity: 0.85
-    },
-    gengar: {
-        displayName: "Gengar",
-        biome: "Shadow Hollow",
-        blurb: "Mischievous shadow spirit that melts into floors and loves night sessions.",
-        nocturnalAffinity: true,
-        socialStyle: "trickster",
-        standMode: "hold0", // Frames 1-7 are a full-body cackle
-        idleSpeed: 0.54,
-        vocalState: "idleOnce",
-        altVocalState: "lick",
-        calmGestures: ["nod", "pose"],
-        affectionGestures: ["twirl", "pose"],
-        greetGestures: ["pose", "nod"],
-        settleGestures: ["sink", "nod"],
-        sparMoves: ["lick", "shoot", "double", "strike"],
-        showOffMoves: ["sink", "lick", "twirl", "pose"],
-        dodgeMoves: ["sink", "hop", "tumbleBack"],
-        standoffMoves: ["pose", "lick", "charge"],
-        dismissMoves: ["sink", "pose"],
-        signature: { state: "sink", minPlay: 0.36, label: "Melting mischievously into floor shadow" },
-        loafAnim: "EventSleep",
-        sleepAnim: "Sleep",
-        wakeState: "wake",
-        pantState: "deepBreath",
-        northWatch: true,
-        gait: { amble: 0.52, trot: 0.98, scamper: 1.62 },
-        perchAffinity: 0.90,
-        windowWatchAffinity: 1.15
-    },
-    giratina: {
-        displayName: "Giratina",
-        biome: "Shadow Hollow",
-        blurb: "Ancient distortion guardian that drifts calmly during late hours.",
-        nocturnalAffinity: true,
-        socialStyle: "guardian",
-        standMode: "loop",
-        idleSpeed: 0.50,
-        vocalState: "spAttack",
-        altVocalState: "charge",
-        calmGestures: ["rotate"],
-        affectionGestures: ["rotate", "spAttack"],
-        greetGestures: ["rotate"],
-        settleGestures: ["rotate"],
-        sparMoves: ["spAttack", "strike", "double", "swing"],
-        showOffMoves: ["spAttack", "charge", "rotate"],
-        dodgeMoves: ["rotate", "hop"],
-        standoffMoves: ["charge", "spAttack"],
-        dismissMoves: ["rotate"],
-        signature: { state: "spAttack", minPlay: 0.42, label: "Rippling its shadow wings" },
-        loafAnim: "Sleep",
-        sleepAnim: "Sleep",
-        wakeState: "rotate",
-        pantState: "",
-        northWatch: false,
-        gait: { amble: 0.46, trot: 0.90, scamper: 1.46 },
-        perchAffinity: 0.35,
-        windowWatchAffinity: 1.10
-    },
-    grovyle: {
-        displayName: "Grovyle",
-        biome: "Sunlit Meadow",
-        blurb: "Agile treetop scout that hops onto window titlebars to survey the screen.",
-        nocturnalAffinity: false,
-        socialStyle: "brawler",
-        standMode: "hold0", // Idle frame 1 is a battle crouch; Pose is a calm leaf-blade arm cross
-        idleSpeed: 0.52,
-        vocalState: "pose",
-        altVocalState: "hop",
-        calmGestures: ["nod", "pose"],
-        affectionGestures: ["nod", "pose"],
-        greetGestures: ["nod", "pose"],
-        settleGestures: ["nod"],
-        sparMoves: ["strike", "double", "leapForth", "swing", "twirl"],
-        showOffMoves: ["twirl", "pose", "leapForth"],
-        dodgeMoves: ["hop", "tumbleBack", "twirl"],
-        standoffMoves: ["pose", "charge"],
-        dismissMoves: ["pose", "rotate"],
-        signature: { state: "hop", minPlay: 0.40, label: "Springing lightly on its toes" },
-        loafAnim: "EventSleep",
-        sleepAnim: "Sleep",
-        wakeState: "wake",
-        pantState: "deepBreath",
-        northWatch: true,
-        gait: { amble: 0.58, trot: 1.12, scamper: 1.78 },
-        perchAffinity: 1.55,
-        windowWatchAffinity: 1.15
-    },
-    infernape: {
-        displayName: "Infernape",
-        biome: "Warm Hearth",
-        blurb: "Spirited martial acrobat with a softly flickering crown flame.",
-        nocturnalAffinity: false,
-        socialStyle: "brawler",
-        standMode: "prefix10", // Frames 0-9 flicker crown flame calmly; 10-14 leap cheering
-        idleSpeed: 0.62,
-        vocalState: "idleOnce",
-        altVocalState: "hop",
-        calmGestures: ["nod"],
-        affectionGestures: ["nod", "hop"],
-        greetGestures: ["nod", "hop"],
-        settleGestures: ["nod"],
-        sparMoves: ["multiStrike", "strike", "double", "swing", "charge"],
-        showOffMoves: ["multiStrike", "charge", "hop"],
-        dodgeMoves: ["hop", "rotate"],
-        standoffMoves: ["charge", "strike"],
-        dismissMoves: ["rotate", "nod"],
-        signature: { state: "strike", minPlay: 0.38, label: "Practicing martial footwork" },
-        loafAnim: "Sleep",
-        sleepAnim: "Sleep",
-        wakeState: "nod",
-        pantState: "deepBreath",
-        northWatch: false,
-        gait: { amble: 0.60, trot: 1.14, scamper: 1.82 },
-        perchAffinity: 1.25,
-        windowWatchAffinity: 1.00
-    },
-    litwick: {
-        displayName: "Litwick",
-        biome: "Shadow Hollow",
-        blurb: "Tiny desk-candle spirit that keeps warm company beside midnight terminals.",
-        nocturnalAffinity: true,
-        socialStyle: "parallel",
-        standMode: "loop",
-        idleSpeed: 0.50,
-        vocalState: "spAttack",
-        altVocalState: "pose",
-        calmGestures: ["nod", "pose"],
-        affectionGestures: ["rotate", "pose"],
-        greetGestures: ["nod"],
-        settleGestures: ["nod"],
-        sparMoves: ["spAttack", "shoot", "double"],
-        showOffMoves: ["spAttack", "pose", "rotate"],
-        dodgeMoves: ["sink", "tumbleBack", "hop"],
-        standoffMoves: ["spAttack", "cringe"],
-        dismissMoves: ["sink", "rotate"],
-        signature: { state: "spAttack", minPlay: 0.38, label: "Flaring a warm violet candle glow" },
-        loafAnim: "EventSleep",
-        sleepAnim: "Sleep",
-        wakeState: "wake",
-        pantState: "deepBreath",
-        northWatch: true,
-        gait: { amble: 0.40, trot: 0.78, scamper: 1.28 },
-        perchAffinity: 1.15,
-        windowWatchAffinity: 1.45
-    },
-    mew: {
-        displayName: "Mew",
-        biome: "Starlight Loft",
-        blurb: "Weightless psychic drifter that loves music, tosses, and multi-monitor flights.",
-        nocturnalAffinity: true,
-        socialStyle: "trickster",
-        standMode: "loop",
-        idleSpeed: 0.48,
-        vocalState: "pose",
-        altVocalState: "twirl",
-        calmGestures: ["nod", "twirl"],
-        affectionGestures: ["twirl", "rotate"],
-        greetGestures: ["twirl", "nod"],
-        settleGestures: ["rotate"],
-        sparMoves: ["twirl", "shoot", "leapForth", "double"],
-        showOffMoves: ["twirl", "pose", "hop", "float"],
-        dodgeMoves: ["twirl", "hop", "tumble"],
-        standoffMoves: ["pose", "twirl"],
-        dismissMoves: ["twirl", "rotate"],
-        signature: { state: "twirl", minPlay: 0.28, label: "Doing a weightless mid-air somersault" },
-        loafAnim: "EventSleep",
-        sleepAnim: "Sleep",
-        wakeState: "wake",
-        pantState: "deepBreath",
-        northWatch: true,
-        gait: { amble: 0.56, trot: 1.08, scamper: 1.76 },
-        perchAffinity: 1.48,
-        windowWatchAffinity: 1.15
-    },
-    mudkip: {
-        displayName: "Mudkip",
-        biome: "Tidepool Cove",
-        blurb: "Unhurried marsh buddy that paddles around and naps beside friends.",
-        nocturnalAffinity: false,
-        socialStyle: "parallel",
-        standMode: "hold0", // Frames 1-6 are a 5px splash hop
-        idleSpeed: 0.52,
-        vocalState: "idleOnce",
-        altVocalState: "hop",
-        calmGestures: ["nod", "pose"],
-        affectionGestures: ["twirl", "nod"],
-        greetGestures: ["nod", "pose"],
-        settleGestures: ["rotate", "nod"],
-        sparMoves: ["shoot", "leapForth", "strike", "double"],
-        showOffMoves: ["twirl", "pose", "hop"],
-        dodgeMoves: ["hop", "tumble", "rotate"],
-        standoffMoves: ["charge", "pose"],
-        dismissMoves: ["rotate", "nod"],
-        signature: { state: "twirl", minPlay: 0.34, label: "Twirling happily on muddy paws" },
-        loafAnim: "EventSleep",
-        sleepAnim: "Sleep",
-        wakeState: "wake",
-        pantState: "deepBreath",
-        northWatch: true,
-        gait: { amble: 0.46, trot: 0.90, scamper: 1.48 },
-        perchAffinity: 0.60,
-        windowWatchAffinity: 1.20
-    },
-    munchlax: {
-        displayName: "Munchlax",
-        biome: "Sunlit Meadow",
-        blurb: "Berry connoisseur and champion napper with an unhurried waddle.",
-        nocturnalAffinity: false,
-        socialStyle: "parallel",
-        standMode: "hold0",
-        idleSpeed: 0.48,
-        vocalState: "idleOnce",
-        altVocalState: "pose",
-        calmGestures: ["nod", "pose"],
-        affectionGestures: ["twirl", "nod"],
-        greetGestures: ["nod"],
-        settleGestures: ["nod"],
-        sparMoves: ["swing", "double", "strike"],
-        showOffMoves: ["twirl", "eat", "pose"],
-        dodgeMoves: ["tumble", "rotate"],
-        standoffMoves: ["charge", "pose"],
-        dismissMoves: ["eat", "rotate"],
-        signature: { state: "eat", minPlay: 0.32, label: "Rummaging its fur for a hidden snack" },
-        loafAnim: "EventSleep",
-        sleepAnim: "Sleep",
-        wakeState: "wake",
-        pantState: "deepBreath",
-        northWatch: true,
-        gait: { amble: 0.36, trot: 0.72, scamper: 1.24 },
-        perchAffinity: 0.25,
-        windowWatchAffinity: 1.05
-    },
-    phantump: {
-        displayName: "Phantump",
-        biome: "Moonlit Woods",
-        blurb: "Gentle forest-stump spirit that hovers quietly near quiet corners.",
-        nocturnalAffinity: true,
-        socialStyle: "parallel",
-        standMode: "loop",
-        idleSpeed: 0.52,
-        vocalState: "spAttack",
-        altVocalState: "rotate",
-        calmGestures: ["rotate"],
-        affectionGestures: ["rotate", "spAttack"],
-        greetGestures: ["rotate"],
-        settleGestures: ["rotate"],
-        sparMoves: ["spAttack", "shoot", "swing"],
-        showOffMoves: ["spAttack", "rotate", "hop"],
-        dodgeMoves: ["hop", "rotate"],
-        standoffMoves: ["spAttack", "charge"],
-        dismissMoves: ["rotate"],
-        signature: { state: "spAttack", minPlay: 0.34, label: "Glowing with forest-spirit light" },
-        loafAnim: "Sleep",
-        sleepAnim: "Sleep",
-        wakeState: "rotate",
-        pantState: "",
-        northWatch: false,
-        gait: { amble: 0.44, trot: 0.82, scamper: 1.34 },
-        perchAffinity: 0.95,
-        windowWatchAffinity: 1.15
-    },
-    pikachu: {
-        displayName: "Pikachu",
-        biome: "Sunlit Meadow",
-        blurb: "Lively electric partner that loves tag chases, music, and window ledges.",
-        nocturnalAffinity: false,
-        socialStyle: "sprinter",
-        standMode: "hold0", // Frames 1-5 leap upward cheering
-        idleSpeed: 0.56,
-        vocalState: "idleOnce",
-        altVocalState: "hop",
-        calmGestures: ["nod", "pose"],
-        affectionGestures: ["pose", "rotate"],
-        greetGestures: ["nod", "pose"],
-        settleGestures: ["rotate", "nod"],
-        sparMoves: ["quickStrike", "shock", "leapForth", "double"],
-        showOffMoves: ["shock", "pose", "hop", "leapForth"],
-        dodgeMoves: ["hop", "tumble", "rotate"],
-        standoffMoves: ["shock", "charge"],
-        dismissMoves: ["pose", "rotate"],
-        signature: { state: "shock", minPlay: 0.42, label: "Crackling tiny sparks across its cheeks" },
-        loafAnim: "EventSleep",
-        sleepAnim: "Sleep",
-        wakeState: "wake",
-        pantState: "deepBreath",
-        northWatch: true,
-        gait: { amble: 0.56, trot: 1.08, scamper: 1.80 },
-        perchAffinity: 1.30,
-        windowWatchAffinity: 1.20
-    },
-    riolu: {
-        displayName: "Riolu",
-        biome: "Starlight Loft",
-        blurb: "Attentive aura pup that shadows focused coding sessions and spars playfully.",
-        nocturnalAffinity: false,
-        socialStyle: "brawler",
-        standMode: "hold0",
-        idleSpeed: 0.55,
-        vocalState: "rearUp",
-        altVocalState: "idleOnce",
-        calmGestures: ["nod", "pose"],
-        affectionGestures: ["pose", "rearUp"],
-        greetGestures: ["nod", "pose"],
-        settleGestures: ["nod"],
-        sparMoves: ["quickStrike", "strike", "spAttack", "leapForth", "double"],
-        showOffMoves: ["rearUp", "quickStrike", "pose"],
-        dodgeMoves: ["hop", "tumbleBack", "rotate"],
-        standoffMoves: ["rearUp", "pose", "charge"],
-        dismissMoves: ["pose", "rotate"],
-        signature: { state: "quickStrike", minPlay: 0.38, label: "Practicing crisp aura footwork" },
-        loafAnim: "EventSleep",
-        sleepAnim: "Sleep",
-        wakeState: "wake",
-        pantState: "deepBreath",
-        northWatch: true,
-        gait: { amble: 0.58, trot: 1.10, scamper: 1.76 },
-        perchAffinity: 1.10,
-        windowWatchAffinity: 1.35
-    },
-    rowlet: {
-        displayName: "Rowlet",
-        biome: "Moonlit Woods",
-        blurb: "Round, sleepy owl that perches atop window frames and ruffles its feathers.",
-        nocturnalAffinity: true,
-        socialStyle: "parallel",
-        standMode: "hold0", // Frames 1-5 flutter-hop
-        idleSpeed: 0.50,
-        vocalState: "idleOnce",
-        altVocalState: "dance",
-        calmGestures: ["shake", "nod"],
-        affectionGestures: ["dance", "shake"],
-        greetGestures: ["nod", "shake"],
-        settleGestures: ["shake", "nod"],
-        sparMoves: ["shoot", "leapForth", "strike", "swing"],
-        showOffMoves: ["dance", "shake", "pose"],
-        dodgeMoves: ["hop", "tumbleBack", "shake"],
-        standoffMoves: ["shake", "charge"],
-        dismissMoves: ["shake", "rotate"],
-        signature: { state: "dance", minPlay: 0.32, label: "Bobbing in a sleepy owl dance" },
-        loafAnim: "EventSleep",
-        sleepAnim: "Sleep",
-        wakeState: "wake",
-        pantState: "deepBreath",
-        northWatch: true,
-        gait: { amble: 0.44, trot: 0.86, scamper: 1.44 },
-        perchAffinity: 1.70,
-        windowWatchAffinity: 1.25
-    },
-    shiftry: {
-        displayName: "Shiftry",
-        biome: "Moonlit Woods",
-        blurb: "Calm canopy guardian that fans gentle breezes and enjoys high ledges.",
-        nocturnalAffinity: false,
-        socialStyle: "guardian",
-        standMode: "hold0", // Full Idle waves leaf fans purposefully
-        idleSpeed: 0.55,
-        vocalState: "idleOnce",
-        altVocalState: "hop",
-        calmGestures: ["idleOnce", "rotate"],
-        affectionGestures: ["idleOnce", "rotate"],
-        greetGestures: ["idleOnce"],
-        settleGestures: ["rotate"],
-        sparMoves: ["quickStrike", "multiStrike", "swing", "shoot"],
-        showOffMoves: ["idleOnce", "quickStrike", "rotate"],
-        dodgeMoves: ["hop", "rotate"],
-        standoffMoves: ["idleOnce", "charge"],
-        dismissMoves: ["rotate", "idleOnce"],
-        signature: { state: "idleOnce", minPlay: 0.32, label: "Fanning a quiet breeze" },
-        loafAnim: "Sleep",
-        sleepAnim: "Sleep",
-        wakeState: "idleOnce",
-        pantState: "",
-        northWatch: false,
-        gait: { amble: 0.48, trot: 0.92, scamper: 1.50 },
-        perchAffinity: 1.20,
-        windowWatchAffinity: 1.05
-    },
-    sprigatito: {
-        displayName: "Sprigatito",
-        biome: "Sunlit Meadow",
-        blurb: "Curious desktop cat that perches on titlebars, chases cursors, and kneads paws.",
-        nocturnalAffinity: false,
-        socialStyle: "sprinter",
-        standMode: "hold0", // Frames 1-6 hop/meow
-        idleSpeed: 0.54,
-        vocalState: "idleOnce",
-        altVocalState: "appeal",
-        calmGestures: ["nod", "pose"],
-        affectionGestures: ["appeal", "rotate"],
-        greetGestures: ["appeal", "nod"],
-        settleGestures: ["rotate", "nod"],
-        sparMoves: ["leapForth", "strike", "swing", "double"],
-        showOffMoves: ["appeal", "pose", "hop"],
-        dodgeMoves: ["hop", "tumbleBack", "rotate"],
-        standoffMoves: ["pose", "charge"],
-        dismissMoves: ["pose", "rotate"],
-        signature: { state: "appeal", minPlay: 0.32, label: "Kneading paws and grooming its whiskers" },
-        loafAnim: "EventSleep",
-        sleepAnim: "Sleep",
-        wakeState: "wake",
-        pantState: "deepBreath",
-        northWatch: true,
-        gait: { amble: 0.54, trot: 1.04, scamper: 1.74 },
-        perchAffinity: 1.65,
-        windowWatchAffinity: 1.30
-    },
-    toxapex: {
-        displayName: "Toxapex",
-        biome: "Tidepool Cove",
-        blurb: "Unbothered reef hermit that bunkers inside its spiked shell dome.",
-        nocturnalAffinity: false,
-        socialStyle: "parallel",
-        standMode: "loop",
-        idleSpeed: 0.50,
-        vocalState: "hop",
-        altVocalState: "hide",
-        calmGestures: ["hide"],
-        affectionGestures: ["hide", "hop"],
-        greetGestures: ["hide"],
-        settleGestures: ["hide"],
-        sparMoves: ["shoot", "strike", "swing", "double"],
-        showOffMoves: ["hide", "hop", "rotate"],
-        dodgeMoves: ["hide", "rotate"],
-        standoffMoves: ["hide", "charge"],
-        dismissMoves: ["hide", "rotate"],
-        signature: { state: "hide", minPlay: 0.24, label: "Bunkering inside its spiked shell" },
-        loafAnim: "Withdraw",
-        sleepAnim: "Sleep",
-        wakeState: "hide",
-        pantState: "",
-        northWatch: false,
-        gait: { amble: 0.34, trot: 0.66, scamper: 1.10 },
-        perchAffinity: 0.30,
-        windowWatchAffinity: 0.90
-    },
-    umbreon: {
-        displayName: "Umbreon",
-        biome: "Moonlit Woods",
-        blurb: "Nocturnal moonlit companion whose rings glow softly during late-night watches.",
-        nocturnalAffinity: true,
-        socialStyle: "guardian",
-        standMode: "hold0", // Frames 1-13 rear up in a shiver/howl
-        idleSpeed: 0.50,
-        vocalState: "idleOnce",
-        altVocalState: "emit",
-        calmGestures: ["nod", "pose"],
-        affectionGestures: ["emit", "nod"],
-        greetGestures: ["nod", "emit"],
-        settleGestures: ["rotate", "nod"],
-        sparMoves: ["leapForth", "strike", "emit", "double"],
-        showOffMoves: ["emit", "pose", "rotate"],
-        dodgeMoves: ["hop", "hide", "tumbleBack"],
-        standoffMoves: ["emit", "pose", "charge"],
-        dismissMoves: ["pose", "rotate"],
-        signature: { state: "emit", minPlay: 0.36, label: "Pulsing its golden moonlight rings" },
-        loafAnim: "EventSleep",
-        sleepAnim: "Sleep",
-        wakeState: "wake",
-        pantState: "deepBreath",
-        northWatch: true,
-        gait: { amble: 0.50, trot: 0.96, scamper: 1.60 },
-        perchAffinity: 1.15,
-        windowWatchAffinity: 1.38
-    },
-    vulpix: {
-        displayName: "Vulpix",
-        biome: "Warm Hearth",
-        blurb: "Cozy six-tailed fox that curls up near active windows for warmth.",
-        nocturnalAffinity: false,
-        socialStyle: "trickster",
-        standMode: "hold0",
-        idleSpeed: 0.52,
-        vocalState: "idleOnce",
-        altVocalState: "rearUp",
-        calmGestures: ["nod", "pose"],
-        affectionGestures: ["appeal", "rotate"],
-        greetGestures: ["appeal", "nod"],
-        settleGestures: ["rotate", "nod"],
-        sparMoves: ["spAttack", "shoot", "leapForth", "double"],
-        showOffMoves: ["appeal", "rearUp", "spAttack", "pose"],
-        dodgeMoves: ["hop", "tumbleBack", "rotate"],
-        standoffMoves: ["rearUp", "pose", "charge"],
-        dismissMoves: ["pose", "rotate"],
-        signature: { state: "appeal", minPlay: 0.36, label: "Fluffing its six warm tails" },
-        loafAnim: "EventSleep",
-        sleepAnim: "Sleep",
-        wakeState: "wake",
-        pantState: "deepBreath",
-        northWatch: true,
-        gait: { amble: 0.50, trot: 0.98, scamper: 1.64 },
-        perchAffinity: 0.95,
-        windowWatchAffinity: 1.28
-    },
-    whimsicott: {
-        displayName: "Whimsicott",
-        biome: "Sunlit Meadow",
-        blurb: "Breezy cotton-puff sprite that rides window ledges and drifts in spins.",
-        nocturnalAffinity: false,
-        socialStyle: "sprinter",
-        standMode: "hold0", // Full Idle is a 7px cotton bounce reserved for intentional gestures
-        idleSpeed: 0.58,
-        vocalState: "idleOnce",
-        altVocalState: "hop",
-        calmGestures: ["idleOnce", "rotate"],
-        affectionGestures: ["idleOnce", "rotate"],
-        greetGestures: ["idleOnce", "hop"],
-        settleGestures: ["rotate"],
-        sparMoves: ["spAttack", "shoot", "double", "hop"],
-        showOffMoves: ["rotate", "idleOnce", "spAttack", "hop"],
-        dodgeMoves: ["hop", "rotate"],
-        standoffMoves: ["charge", "idleOnce"],
-        dismissMoves: ["rotate"],
-        signature: { state: "rotate", minPlay: 0.28, label: "Drifting in a dandelion spin" },
-        loafAnim: "Sleep",
-        sleepAnim: "Sleep",
-        wakeState: "idleOnce",
-        pantState: "",
-        northWatch: false,
-        gait: { amble: 0.50, trot: 0.94, scamper: 1.52 },
-        perchAffinity: 1.45,
-        windowWatchAffinity: 1.05
-    },
-    wooper: {
-        displayName: "Wooper",
-        biome: "Tidepool Cove",
-        blurb: "Pure unbothered joy that waddles around calmly with a permanent smile.",
-        nocturnalAffinity: false,
-        socialStyle: "parallel",
-        standMode: "loop",
-        idleSpeed: 0.46,
-        vocalState: "pose",
-        altVocalState: "hop",
-        calmGestures: ["nod", "pose"],
-        affectionGestures: ["twirl", "nod"],
-        greetGestures: ["nod", "twirl"],
-        settleGestures: ["nod"],
-        sparMoves: ["shoot", "double", "hop", "twirl"],
-        showOffMoves: ["twirl", "pose", "hop"],
-        dodgeMoves: ["twirl", "hop", "tumble"],
-        standoffMoves: ["pose", "nod"],
-        dismissMoves: ["twirl", "rotate"],
-        signature: { state: "twirl", minPlay: 0.30, label: "Spinning with an unbothered grin" },
-        loafAnim: "EventSleep",
-        sleepAnim: "Sleep",
-        wakeState: "wake",
-        pantState: "deepBreath",
-        northWatch: true,
-        gait: { amble: 0.40, trot: 0.78, scamper: 1.32 },
-        perchAffinity: 0.45,
-        windowWatchAffinity: 1.15
-    },
-    zorua: {
-        displayName: "Zorua",
-        biome: "Moonlit Woods",
-        blurb: "Playful illusionist fox that watches your code and pranks companions.",
-        nocturnalAffinity: true,
-        illusionCapable: true,
-        socialStyle: "trickster",
-        standMode: "hold0", // Idle frames 1-3 are a double bark; frame 0 stands silently
-        idleSpeed: 0.55,
-        vocalState: "idleOnce",
-        altVocalState: "pose", // Pose throws head up in a howl/yip
-        calmGestures: ["nod"],
-        affectionGestures: ["nod", "rotate"],
-        greetGestures: ["nod"],
-        settleGestures: ["rotate", "nod"],
-        sparMoves: ["leapForth", "spAttack", "strike", "double"],
-        showOffMoves: ["sink", "spAttack", "pose", "hop"],
-        dodgeMoves: ["sink", "hop", "tumbleBack"],
-        standoffMoves: ["pose", "charge"],
-        dismissMoves: ["sink", "rotate"],
-        signature: { state: "sink", minPlay: 0.42, label: "Melting into an illusion shadow" },
-        loafAnim: "EventSleep",
-        sleepAnim: "Sleep",
-        wakeState: "wake",
-        pantState: "deepBreath",
-        northWatch: true,
-        gait: { amble: 0.54, trot: 1.00, scamper: 1.68 },
-        perchAffinity: 0.70,
-        windowWatchAffinity: 1.30
-    }
-};
+.import "species/Biomes.js" as Biomes
+.import "species/Meadow.js" as Meadow
+.import "species/Woods.js" as Woods
+.import "species/Hearth.js" as Hearth
+.import "species/Hollow.js" as Hollow
+.import "species/Tidepool.js" as Tidepool
+.import "species/Loft.js" as Loft
+
+var BIOME_LIST = Biomes.BIOME_LIST;
+var BIOME_MAP = Biomes.BIOME_MAP;
+var KIN_GROUPS = Biomes.KIN_GROUPS;
 
 var DEFAULT_PROFILE = {
+    id: "companion",
     displayName: "Companion",
+    temperament: "emergent",
     biome: "Sunlit Meadow",
+    kinGroup: "",
+    abilities: [],
     blurb: "Quiet desktop companion.",
     nocturnalAffinity: false,
     illusionCapable: false,
     socialStyle: "parallel",
     standMode: "hold0",
     idleSpeed: 0.55,
+    clips: {
+        idle: { holdAtFrame: 0, speed: 0.55 },
+        perch: { holdAtFrame: 0, speed: 0.55 }
+    },
     vocalState: "nod",
     altVocalState: "hop",
     calmGestures: ["nod", "rotate"],
@@ -758,6 +49,122 @@ var DEFAULT_PROFILE = {
     windowWatchAffinity: 1.00
 };
 
+function _cloneClip(c) {
+    if (!c) return null;
+    var out = {};
+    var ks = Object.keys(c);
+    for (var i = 0; i < ks.length; i++) out[ks[i]] = c[ks[i]];
+    return out;
+}
+
+function _normalizeSpecies(id, raw, defaultBiome) {
+    var r = raw || {};
+    var rawClips = r.clips || {};
+    var clips = {};
+    var cKeys = Object.keys(rawClips);
+    for (var i = 0; i < cKeys.length; i++) {
+        clips[cKeys[i]] = _cloneClip(rawClips[cKeys[i]]);
+    }
+
+    if (!clips.idle) {
+        var idleClip = { speed: r.idleSpeed !== undefined ? r.idleSpeed : 0.55 };
+        if (r.standMode === "hold0") idleClip.holdAtFrame = 0;
+        else if (r.standMode === "prefix10") { idleClip.startFrame = 0; idleClip.endFrame = 9; }
+        clips.idle = idleClip;
+    } else if (clips.idle.speed === undefined) {
+        clips.idle.speed = r.idleSpeed !== undefined ? r.idleSpeed : 0.55;
+    }
+
+    if (!clips.perch) {
+        clips.perch = _cloneClip(clips.idle);
+    }
+    if (!clips.loaf && r.loafAnim) {
+        clips.loaf = { anim: r.loafAnim };
+    }
+    if (clips.loaf && !clips.sit) {
+        clips.sit = _cloneClip(clips.loaf);
+    }
+    if (!clips.deepsleep && r.sleepAnim && r.sleepAnim !== "Sleep") {
+        clips.deepsleep = { anim: r.sleepAnim };
+    }
+
+    var abilities = Array.isArray(r.abilities) ? r.abilities.slice() : [];
+    if (r.illusionCapable && abilities.indexOf("illusion") === -1) {
+        abilities.unshift("illusion");
+    }
+
+    var standMode = "loop";
+    if (clips.idle.holdAtFrame === 0) standMode = "hold0";
+    else if (clips.idle.endFrame !== undefined) standMode = "slice";
+
+    var gaitSrc = r.gait || DEFAULT_PROFILE.gait;
+    var sigSrc = r.signature || DEFAULT_PROFILE.signature;
+
+    return {
+        id: id,
+        displayName: r.displayName || (id.charAt(0).toUpperCase() + id.slice(1)),
+        temperament: r.temperament || "emergent",
+        biome: r.biome || defaultBiome || DEFAULT_PROFILE.biome,
+        kinGroup: r.kinGroup || "",
+        abilities: abilities,
+        blurb: r.blurb || DEFAULT_PROFILE.blurb,
+        nocturnalAffinity: !!r.nocturnalAffinity,
+        illusionCapable: abilities.indexOf("illusion") !== -1,
+        socialStyle: r.socialStyle || DEFAULT_PROFILE.socialStyle,
+        standMode: standMode,
+        idleSpeed: clips.idle.speed,
+        clips: clips,
+        vocalState: r.vocalState || DEFAULT_PROFILE.vocalState,
+        altVocalState: r.altVocalState !== undefined ? r.altVocalState : DEFAULT_PROFILE.altVocalState,
+        calmGestures: (r.calmGestures || DEFAULT_PROFILE.calmGestures).slice(),
+        affectionGestures: (r.affectionGestures || DEFAULT_PROFILE.affectionGestures).slice(),
+        greetGestures: (r.greetGestures || DEFAULT_PROFILE.greetGestures).slice(),
+        settleGestures: (r.settleGestures || DEFAULT_PROFILE.settleGestures).slice(),
+        sparMoves: (r.sparMoves || DEFAULT_PROFILE.sparMoves).slice(),
+        showOffMoves: (r.showOffMoves || DEFAULT_PROFILE.showOffMoves).slice(),
+        dodgeMoves: (r.dodgeMoves || DEFAULT_PROFILE.dodgeMoves).slice(),
+        standoffMoves: (r.standoffMoves || DEFAULT_PROFILE.standoffMoves).slice(),
+        dismissMoves: (r.dismissMoves || DEFAULT_PROFILE.dismissMoves).slice(),
+        signature: {
+            state: sigSrc.state || "rotate",
+            minPlay: sigSrc.minPlay !== undefined ? sigSrc.minPlay : 0.40,
+            label: sigSrc.label || "Stretching out"
+        },
+        loafAnim: (clips.loaf && clips.loaf.anim) || r.loafAnim || "EventSleep",
+        sleepAnim: (clips.deepsleep && clips.deepsleep.anim) || r.sleepAnim || "Sleep",
+        wakeState: r.wakeState !== undefined ? r.wakeState : DEFAULT_PROFILE.wakeState,
+        pantState: r.pantState !== undefined ? r.pantState : DEFAULT_PROFILE.pantState,
+        northWatch: r.northWatch !== undefined ? !!r.northWatch : false,
+        gait: {
+            amble: gaitSrc.amble !== undefined ? gaitSrc.amble : 0.50,
+            trot: gaitSrc.trot !== undefined ? gaitSrc.trot : 1.00,
+            scamper: gaitSrc.scamper !== undefined ? gaitSrc.scamper : 1.60
+        },
+        perchAffinity: r.perchAffinity !== undefined ? r.perchAffinity : 1.00,
+        windowWatchAffinity: r.windowWatchAffinity !== undefined ? r.windowWatchAffinity : 1.00
+    };
+}
+
+var _MODULES = [Meadow, Woods, Hearth, Hollow, Tidepool, Loft];
+var PROFILES = {};
+
+for (var m = 0; m < _MODULES.length; m++) {
+    var mod = _MODULES[m];
+    var map = mod.SPECIES || {};
+    var ids = Object.keys(map);
+    for (var s = 0; s < ids.length; s++) {
+        var spId = ids[s];
+        PROFILES[spId] = _normalizeSpecies(spId, map[spId], mod.BIOME);
+    }
+}
+
+var SPECIES_LIST = Object.keys(PROFILES).sort();
+var SPECIES_TEMPERAMENT = {};
+for (var ti = 0; ti < SPECIES_LIST.length; ti++) {
+    var spKey = SPECIES_LIST[ti];
+    SPECIES_TEMPERAMENT[spKey] = PROFILES[spKey].temperament;
+}
+
 function profileFor(species) {
     return (species && PROFILES[species]) ? PROFILES[species] : DEFAULT_PROFILE;
 }
@@ -778,6 +185,44 @@ function trueSpeciesOf(pet) {
 function socialStyleOf(petOrSpecies) {
     var sp = typeof petOrSpecies === "string" ? petOrSpecies : trueSpeciesOf(petOrSpecies);
     return profileFor(sp).socialStyle || "parallel";
+}
+
+function abilitiesOf(petOrSpecies) {
+    var sp = typeof petOrSpecies === "string" ? petOrSpecies : trueSpeciesOf(petOrSpecies);
+    return profileFor(sp).abilities.slice();
+}
+
+function hasAbility(petOrSpecies, abilityId) {
+    var sp = typeof petOrSpecies === "string" ? petOrSpecies : trueSpeciesOf(petOrSpecies);
+    return profileFor(sp).abilities.indexOf(abilityId) !== -1;
+}
+
+function kinChemistry(spA, spB) {
+    if (!spA || !spB) return { affinityDelta: 0, respectDelta: 0, sameKin: false };
+    var pA = profileFor(spA);
+    var pB = profileFor(spB);
+    var aff = 0, resp = 0, sameKin = false;
+    if (spA === spB) {
+        aff += 0.05;
+        resp += 0.03;
+        sameKin = true;
+    } else if (pA.kinGroup && pA.kinGroup === pB.kinGroup && KIN_GROUPS[pA.kinGroup]) {
+        var kg = KIN_GROUPS[pA.kinGroup];
+        aff += kg.affinityBonus;
+        resp += kg.respectBonus;
+        sameKin = true;
+    } else if (pA.biome && pA.biome === pB.biome) {
+        aff += 0.025;
+    }
+    if (pA.abilities.indexOf("soothing_ribbon") !== -1 || pB.abilities.indexOf("soothing_ribbon") !== -1) {
+        aff += 0.035;
+    }
+    return { affinityDelta: aff, respectDelta: resp, sameKin: sameKin };
+}
+
+function clipOverrideFor(species, state) {
+    var p = profileFor(species);
+    return (p.clips && p.clips[state]) ? p.clips[state] : null;
 }
 
 function standSpec(species) {
@@ -848,8 +293,11 @@ function wakeStateFor(pet) {
 
 function pantStateFor(pet) {
     var p = profileFor(speciesOf(pet));
+    if (!p.pantState) return "";
     var anims = pet && pet.sprite ? pet.sprite._animData : null;
-    if (p.pantState && (!anims || anims.DeepBreath)) return p.pantState;
+    var clip = p.clips ? p.clips[p.pantState] : null;
+    var needed = (clip && clip.anim) || (p.pantState === "deepBreath" ? "DeepBreath" : "");
+    if (!needed || !anims || anims[needed]) return p.pantState;
     return "";
 }
 

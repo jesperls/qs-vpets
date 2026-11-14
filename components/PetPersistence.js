@@ -1,5 +1,5 @@
-.import "ai/Personality.js" as Personality
-.import "ai/Memory.js" as Memory
+.import "behavior/Personality.js" as Personality
+.import "behavior/Memory.js" as Memory
 
 // Schema v3 persistence: saves complete developmental soul, memories, relationships, and global territory.
 

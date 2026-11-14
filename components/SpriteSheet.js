@@ -1,40 +1,7 @@
 .import "SpeciesProfile.js" as SpeciesProfile
 
-var SPECIES_LIST = [
-    "absol", "charizard", "cyndaquil", "eevee", "ferrothorn",
-    "gengar", "giratina", "grovyle", "infernape", "litwick",
-    "mew", "mudkip", "munchlax", "phantump", "pikachu",
-    "riolu", "rowlet", "shiftry", "sprigatito", "toxapex",
-    "umbreon", "vulpix", "whimsicott", "wooper", "zorua"
-];
-
-var SPECIES_TEMPERAMENT = {
-    absol: "shy",
-    charizard: "brave",
-    cyndaquil: "shy",
-    eevee: "curious",
-    ferrothorn: "grumpy",
-    gengar: "playful",
-    giratina: "nocturnal",
-    grovyle: "curious",
-    infernape: "energetic",
-    litwick: "nocturnal",
-    mew: "playful",
-    mudkip: "chill",
-    munchlax: "lazy",
-    phantump: "shy",
-    pikachu: "energetic",
-    riolu: "brave",
-    rowlet: "lazy",
-    shiftry: "chill",
-    sprigatito: "curious",
-    toxapex: "lazy",
-    umbreon: "nocturnal",
-    vulpix: "chill",
-    whimsicott: "playful",
-    wooper: "chill",
-    zorua: "playful"
-};
+var SPECIES_LIST = SpeciesProfile.SPECIES_LIST;
+var SPECIES_TEMPERAMENT = SpeciesProfile.SPECIES_TEMPERAMENT;
 
 var DEFAULT_STATE_MAP = {
     idle: "Idle",
@@ -71,6 +38,11 @@ var DEFAULT_STATE_MAP = {
     shock: "Shock",
     lick: "Lick",
     rearUp: "RearUp",
+    sing: "Sing",
+    multiScratch: "MultiScratch",
+    rumble: "Rumble",
+    hover: "Hover",
+    kick: "Kick",
     lookUp: "LookUp",
     nod: "Nod",
     pose: "Pose",
@@ -99,7 +71,7 @@ var FALLBACK_CHAINS = {
     idle: ["Idle", "Walk"],
     idleOnce: ["Idle", "Pose", "Walk"],
     perch: ["Idle", "Walk"],
-    loaf: ["EventSleep", "Withdraw", "Sleep", "Idle", "Walk"],
+    loaf: ["EventSleep", "Sleep", "Idle", "Walk"],
     sit: ["EventSleep", "Sleep", "Idle", "Walk"],
     sitNorth: ["Sit", "Idle", "Walk"],
     lookUpNorth: ["LookUp", "Nod", "Idle", "Walk"],
@@ -118,6 +90,11 @@ var FALLBACK_CHAINS = {
     shock: ["Shock", "Charge", "Pose", "Idle", "Walk"],
     lick: ["Lick", "Attack", "Pose", "Idle", "Walk"],
     rearUp: ["RearUp", "Pose", "Nod", "Idle", "Walk"],
+    sing: ["Sing", "Twirl", "Appeal", "Pose", "Idle", "Walk"],
+    multiScratch: ["MultiScratch", "MultiStrike", "QuickStrike", "Strike", "Attack", "Walk"],
+    rumble: ["Rumble", "RearUp", "Charge", "Pose", "Idle", "Walk"],
+    hover: ["Hover", "Float", "Twirl", "Pose", "Idle", "Walk"],
+    kick: ["Kick", "Strike", "Attack", "Walk"],
     wake: ["Wake", "Nod", "Idle", "Walk"],
     deepBreath: ["DeepBreath", "Idle", "Sleep", "Walk"],
     cringe: ["Cringe", "Hurt", "Idle", "Walk"],
@@ -142,22 +119,53 @@ var FALLBACK_CHAINS = {
     pull: ["Pull", "Charge", "Walk"]
 };
 
-var LOOPING_STATES = {
-    idle: true,
-    perch: true,
-    walk: true,
-    wander: true,
-    loaf: true,
-    sit: true,
-    sitNorth: true,
-    deepsleep: true,
-    zoomies: true,
-    drag: true,
-    airborne: true
+var STATE_CLIP_DEFAULTS = {
+    idle: { anim: "Idle", loop: true, speed: 0.55 },
+    perch: { anim: "Idle", loop: true, speed: 0.55 },
+    idleOnce: { anim: "Idle", loop: false, speed: 0.74, endHoldTicks: 10, trimLeadIdle: true },
+    walk: { anim: "Walk", loop: true, dynamicWalkSpeed: true },
+    wander: { anim: "Walk", loop: true, dynamicWalkSpeed: true },
+    zoomies: { anim: "Walk", loop: true, dynamicWalkSpeed: true },
+    loaf: { anim: "EventSleep", loop: true, speed: 0.58, lockDirection: true },
+    sit: { anim: "EventSleep", loop: true, speed: 0.58, lockDirection: true },
+    sitNorth: { anim: "Sit", loop: true, holdAtFrame: "last", speed: 0.65, fixedDirRow: 4, lockDirection: true }, // PMD Sit/LookUp face North (row 4)
+    lookUpNorth: { anim: "LookUp", loop: false, speed: 0.58, endHoldTicks: 34, fixedDirRow: 4, lockDirection: true },
+    deepsleep: { anim: "Sleep", loop: true, speed: 0.58, fixedDirRow: 0, lockDirection: true },
+    drag: { anim: "Float", loop: true, speed: 1.0 },
+    airborne: { anim: "Tumble", loop: true, speed: 1.0 },
+    sitDown: { anim: "Sit", loop: false, speed: 0.58, endHoldTicks: 45, fixedDirRow: 4 },
+    lookUp: { anim: "LookUp", loop: false, speed: 0.58, endHoldTicks: 34, fixedDirRow: 4 },
+    pose: { anim: "Pose", loop: false, speed: 0.58, endHoldTicks: 14 },
+    nod: { anim: "Nod", loop: false, speed: 0.58, endHoldTicks: 10 },
+    appeal: { anim: "Appeal", loop: false, speed: 0.58 },
+    tailWhip: { anim: "TailWhip", loop: false, speed: 0.58 },
+    shake: { anim: "Shake", loop: false, speed: 0.58 },
+    emit: { anim: "Emit", loop: false, speed: 0.58 },
+    rearUp: { anim: "RearUp", loop: false, speed: 0.58 },
+    rotate: { anim: "Rotate", loop: false, speed: 0.54 },
+    twirl: { anim: "Twirl", loop: false, speed: 0.54 },
+    dance: { anim: "Dance", loop: false, speed: 0.54 },
+    charge: { anim: "Charge", loop: false, speed: 0.62 },
+    hide: { anim: "Withdraw", loop: false, speed: 0.62 },
+    sink: { anim: "Sink", loop: false, speed: 0.62 },
+    special0: { anim: "Special0", loop: false, speed: 0.62 },
+    shock: { anim: "Shock", loop: false, speed: 0.62 },
+    lick: { anim: "Lick", loop: false, speed: 0.62 },
+    sing: { anim: "Sing", loop: false, speed: 0.56 },
+    multiScratch: { anim: "MultiScratch", loop: false, speed: 0.66 },
+    rumble: { anim: "Rumble", loop: false, speed: 0.60 },
+    hover: { anim: "Hover", loop: false, speed: 0.56 },
+    kick: { anim: "Kick", loop: false, speed: 0.66 },
+    deepBreath: { anim: "DeepBreath", loop: false, speed: 0.68 },
+    wake: { anim: "Wake", loop: false, speed: 0.68 },
+    eat: { anim: "Eat", loop: false, speed: 0.68, reps: 2 }
 };
 
+var _DEFAULT_ONESHOT = { loop: false, speed: 1.0, reps: 1, endHoldTicks: 0, fixedDirRow: -1, lockDirection: false };
+
 function isLoopingState(state) {
-    return !!LOOPING_STATES[state];
+    var d = STATE_CLIP_DEFAULTS[state];
+    return !!(d && d.loop);
 }
 
 function parseAnimData(xml) {
@@ -233,24 +241,98 @@ function parseAnimData(xml) {
     return { shadowSize: shadowSize, anims: anims };
 }
 
-function resolveAnimName(state, anims, actionMap, species) {
-    if ((state === "loaf" || state === "sit") && !(actionMap && actionMap[state]) && species && anims) {
-        return SpeciesProfile.loafAnimName(species, anims);
+function resolveClip(state, anims, actionMap, species) {
+    var st = state || "idle";
+    var stateDef = STATE_CLIP_DEFAULTS[st] || _DEFAULT_ONESHOT;
+    var spClip = species ? SpeciesProfile.clipOverrideFor(species, st) : null;
+    var userAnim = (actionMap && actionMap[st]) || "";
+    var desired = userAnim || (spClip && spClip.anim) || stateDef.anim || DEFAULT_STATE_MAP[st] || "Walk";
+
+    var animName = desired;
+    if (anims) {
+        if (!anims[desired]) {
+            var chain = FALLBACK_CHAINS[st] || [desired, "Idle", "Walk"];
+            animName = "";
+            for (var i = 0; i < chain.length; i++) {
+                if (anims[chain[i]]) { animName = chain[i]; break; }
+            }
+            if (!animName) {
+                var available = Object.keys(anims);
+                animName = available.indexOf("Walk") !== -1 ? "Walk" : (available[0] || "Walk");
+            }
+        }
     }
-    var desired = (actionMap && actionMap[state]) || DEFAULT_STATE_MAP[state] || "Walk";
-    if (!anims) return desired;
-    if (anims[desired]) return desired;
-    var chain = FALLBACK_CHAINS[state] || [desired, "Idle", "Walk"];
-    for (var i = 0; i < chain.length; i++) {
-        if (anims[chain[i]]) return chain[i];
+
+    var anim = (anims && anims[animName]) ? anims[animName] : null;
+    var fc = (anim && anim.frameCount > 0) ? anim.frameCount : 1;
+    var sliceTarget = (spClip && spClip.anim) || stateDef.anim || DEFAULT_STATE_MAP[st] || animName;
+    var sliceMatches = !userAnim && animName === sliceTarget;
+
+    var rawStart = sliceMatches
+        ? ((spClip && spClip.startFrame !== undefined) ? spClip.startFrame : stateDef.startFrame)
+        : 0;
+    var startFrame = rawStart !== undefined ? Math.max(0, Math.min(fc - 1, rawStart)) : 0;
+
+    var rawEnd = sliceMatches
+        ? ((spClip && spClip.endFrame !== undefined) ? spClip.endFrame : stateDef.endFrame)
+        : undefined;
+    var endFrame = (rawEnd !== undefined && rawEnd >= 0)
+        ? Math.max(startFrame, Math.min(fc - 1, rawEnd))
+        : (fc - 1);
+
+    var rawHold = sliceMatches
+        ? ((spClip && spClip.holdAtFrame !== undefined) ? spClip.holdAtFrame : stateDef.holdAtFrame)
+        : -1;
+    var holdAtFrame = -1;
+    if (rawHold === "last") {
+        holdAtFrame = endFrame;
+    } else if (typeof rawHold === "number" && rawHold >= 0) {
+        holdAtFrame = Math.max(startFrame, Math.min(endFrame, rawHold));
     }
-    var available = Object.keys(anims);
-    return available.indexOf("Walk") !== -1 ? "Walk" : (available[0] || "Walk");
+
+    var trimLead = sliceMatches && !!(spClip && spClip.trimLeadIdle !== undefined ? spClip.trimLeadIdle : stateDef.trimLeadIdle);
+    var leadSkipTicks = 0;
+    if (trimLead && anim && anim.durations && startFrame === 0 && endFrame > 0 && anim.durations[0] > 12) {
+        leadSkipTicks = anim.durations[0] - 8;
+    }
+
+    var loop = (spClip && spClip.loop !== undefined) ? !!spClip.loop : !!stateDef.loop;
+    var dynamicWalkSpeed = !!(spClip && spClip.dynamicWalkSpeed !== undefined ? spClip.dynamicWalkSpeed : stateDef.dynamicWalkSpeed);
+    var speed = (spClip && spClip.speed !== undefined)
+        ? spClip.speed
+        : (stateDef.speed !== undefined ? stateDef.speed : 1.0);
+    var reps = (spClip && spClip.reps !== undefined) ? spClip.reps : (stateDef.reps || 1);
+    var endHoldTicks = (spClip && spClip.endHoldTicks !== undefined) ? spClip.endHoldTicks : (stateDef.endHoldTicks || 0);
+    var fixedDirRow = (spClip && spClip.fixedDirRow !== undefined)
+        ? spClip.fixedDirRow
+        : (stateDef.fixedDirRow !== undefined ? stateDef.fixedDirRow : -1);
+    var lockDirection = (spClip && spClip.lockDirection !== undefined) ? !!spClip.lockDirection : !!stateDef.lockDirection;
+
+    return {
+        state: st,
+        animName: animName,
+        loop: loop,
+        startFrame: startFrame,
+        endFrame: endFrame,
+        holdAtFrame: holdAtFrame,
+        speed: speed,
+        dynamicWalkSpeed: dynamicWalkSpeed,
+        reps: Math.max(1, reps),
+        endHoldTicks: endHoldTicks,
+        leadSkipTicks: leadSkipTicks,
+        fixedDirRow: fixedDirRow,
+        lockDirection: lockDirection
+    };
 }
 
-function hasDirectAnim(state, anims, actionMap) {
+function resolveAnimName(state, anims, actionMap, species) {
+    return resolveClip(state, anims, actionMap, species).animName;
+}
+
+function hasDirectAnim(state, anims, actionMap, species) {
     if (!anims) return false;
-    var desired = (actionMap && actionMap[state]) || DEFAULT_STATE_MAP[state];
+    var spClip = species ? SpeciesProfile.clipOverrideFor(species, state) : null;
+    var desired = (actionMap && actionMap[state]) || (spClip && spClip.anim) || DEFAULT_STATE_MAP[state];
     return !!(desired && anims[desired]);
 }
 
@@ -270,4 +352,19 @@ function animDurationMs(anim, speedFactor) {
     if (!anim || !anim.totalTicks) return 750;
     var sf = speedFactor && speedFactor > 0 ? speedFactor : 1;
     return Math.round((anim.totalTicks * PMD_TICK_MS) / sf);
+}
+
+function clipDurationMs(clip, anim, speedFactor) {
+    if (!anim || !anim.durations || anim.durations.length === 0) return 750;
+    var c = clip || { startFrame: 0, endFrame: anim.frameCount - 1, reps: 1, leadSkipTicks: 0, endHoldTicks: 0, speed: 1 };
+    var sliceTicks = 0;
+    var lo = Math.max(0, c.startFrame || 0);
+    var hi = Math.min(anim.durations.length - 1, c.endFrame !== undefined ? c.endFrame : (anim.durations.length - 1));
+    for (var i = lo; i <= hi; i++) {
+        sliceTicks += anim.durations[i] || 4;
+    }
+    var reps = Math.max(1, c.reps || 1);
+    var total = Math.max(8, sliceTicks * reps - (c.leadSkipTicks || 0)) + (c.endHoldTicks || 0);
+    var sf = speedFactor && speedFactor > 0 ? speedFactor : (c.speed || 1);
+    return Math.round((total * PMD_TICK_MS) / sf);
 }

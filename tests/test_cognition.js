@@ -29,15 +29,16 @@ function loadQmlJs(relPath) {
 
 const SpeciesProfile = loadQmlJs("components/SpeciesProfile.js");
 const SpriteSheet = loadQmlJs("components/SpriteSheet.js");
-const Topology = loadQmlJs("components/ai/Topology.js");
-const Personality = loadQmlJs("components/ai/Personality.js");
-const Drives = loadQmlJs("components/ai/Drives.js");
-const Memory = loadQmlJs("components/ai/Memory.js");
-const Perception = loadQmlJs("components/ai/Perception.js");
-const Social = loadQmlJs("components/ai/Social.js");
-const Plans = loadQmlJs("components/ai/Plans.js");
-const Brain = loadQmlJs("components/ai/Brain.js");
-const Sanctuary = loadQmlJs("components/ai/Sanctuary.js");
+const Topology = loadQmlJs("components/behavior/Topology.js");
+const Personality = loadQmlJs("components/behavior/Personality.js");
+const Drives = loadQmlJs("components/behavior/Drives.js");
+const Memory = loadQmlJs("components/behavior/Memory.js");
+const Perception = loadQmlJs("components/behavior/Perception.js");
+const Social = loadQmlJs("components/behavior/Social.js");
+const Abilities = loadQmlJs("components/behavior/Abilities.js");
+const Plans = loadQmlJs("components/behavior/Plans.js");
+const Brain = loadQmlJs("components/behavior/Brain.js");
+const Sanctuary = loadQmlJs("components/behavior/Sanctuary.js");
 const Nav = loadQmlJs("components/PetNav.js");
 const Persist = loadQmlJs("components/PetPersistence.js");
 
@@ -1129,4 +1130,79 @@ function stepNavigationSim(world, pet, maxSeconds = 120) {
     }
 }
 
-console.log("All cognitive, developmental, social, Sanctuary rotation, physics, multi-monitor, species ethology, and persistence tests passed!");
+// 15. Test Modular Species Catalog, Pluggable Abilities, Kin Chemistry, & Sanctuary Synergies
+{
+    // 15a. Kin-group chemistry boosts initial affinity & shared-nap attraction across Eeveelutions
+    const kinEeveeFlareon = SpeciesProfile.kinChemistry("eevee", "flareon");
+    const kinStranger = SpeciesProfile.kinChemistry("jolteon", "ferrothorn");
+    assert.equal(kinEeveeFlareon.sameKin, true, "Eevee and Flareon share eeveelution kin group");
+    assert.ok(kinEeveeFlareon.affinityDelta >= 0.12, "Flareon soothing_ribbon + eeveelution kin yields strong warm chemistry");
+    assert.equal(kinStranger.sameKin, false);
+    assert.ok(Abilities.restWithBonus({ petData: { sprite: "leafeon" } }, "flareon") >= 0.30, "Kin + hearth_warmth + soothing_ribbon strongly encourages shared naps");
+
+    // 15b. Pluggable Illusion works for Latias (light-refraction disguise) without species hardcoding
+    const lWorld = createSimWorld();
+    const latias = createSimPet(lWorld, "Eon", "playful", 0, "latias");
+    const spheal = createSimPet(lWorld, "Pebble", "playful", 0, "spheal");
+    latias.worldX = 400; latias.worldY = 480;
+    spheal.worldX = 500; spheal.worldY = 480;
+    latias.playDrive = 0.85;
+    latias.alertness = 0.80;
+    const lPerc = Perception.perceive(latias);
+    const lCands = Abilities.evaluateCandidates(latias, lPerc, Nav, Brain._pick, { moodMult: 1, active: 1 });
+    const lPrank = lCands.find(c => c.name === "illusion_prank");
+    assert.ok(lPrank, "Latias evaluates illusion_prank via pluggable illusion ability");
+    Plans.startPlan(latias, lPrank.plan, Nav, Brain._pick);
+    assert.equal(latias.illusionSpecies, "spheal", "Latias refracts into Spheal form during prank");
+    Plans.clearPlan(latias);
+    assert.equal(latias.illusionSpecies, "", "Clearing Latias plan cleanly restores true form");
+
+    // 15c. Hearth Ember aura warms nearby companions, Psychic Blink teleports to fresh spot, Shell Bunker composes startle
+    const hWorld = createSimWorld();
+    const flareon = createSimPet(hWorld, "Ember", "chill", 0, "flareon");
+    const squirtle = createSimPet(hWorld, "Shell", "playful", 0, "squirtle");
+    const espurr = createSimPet(hWorld, "Mewp", "curious", 0, "espurr");
+    flareon.worldX = 500; flareon.worldY = 500; flareon.restDrive = 0.55; flareon.alertness = 0.50;
+    squirtle.worldX = 620; squirtle.worldY = 510; squirtle.mood = 0.45; squirtle.comfortDrive = 0.40;
+    espurr.worldX = 300; espurr.worldY = 350; espurr.exploreDrive = 0.80; espurr.playDrive = 0.65;
+
+    const fCands = Abilities.evaluateCandidates(flareon, Perception.perceive(flareon), Nav, Brain._pick, { moodMult: 1, active: 1 });
+    const bask = fCands.find(c => c.name === "hearth_bask");
+    assert.ok(bask, "Flareon generates hearth_bask ability plan");
+    Plans.startPlan(flareon, bask.plan, Nav, Brain._pick);
+    Brain.onActionFinished(flareon, Nav); // executes warmth_aura -> loaf_watch
+    assert.ok(squirtle.mood > 0.45 && squirtle.comfortDrive < 0.40, "Nearby Squirtle receives cozy warmth_aura boost from Flareon");
+    Brain.onPlanBeat(flareon, Nav);
+    assert.ok(flareon.episodes.some(e => e.type === "hearth_bask"), "Records hearth_bask episode on completion");
+
+    const eCands = Abilities.evaluateCandidates(espurr, Perception.perceive(espurr), Nav, Brain._pick, { moodMult: 1, active: 1 });
+    const blink = eCands.find(c => c.name === "phase_jaunt");
+    assert.ok(blink, "Espurr generates phase_jaunt ability plan");
+    const oldX = espurr.worldX, oldY = espurr.worldY;
+    Plans.startPlan(espurr, blink.plan, Nav, Brain._pick);
+    Brain.onActionFinished(espurr, Nav); // executes phase_hop -> arrival gesture
+    assert.ok(espurr.worldX !== oldX || espurr.worldY !== oldY, "Psychic Blink relocates Espurr instantaneously");
+
+    squirtle.trust = 0.15;
+    squirtle.basePersonality.boldness = 0.15;
+    hWorld.inputTracker.cursorSpeed = 1500;
+    Brain.onEvent(squirtle, "cursor_near", null, Nav);
+    assert.ok(["hide", "cringe"].includes(squirtle.state_), `Shell Bunker Squirtle tucks into shell (${squirtle.state_}) when startled`);
+
+    // 15d. Sanctuary readiness & pasture activities reflect species abilities
+    const meloRec = Sanctuary.createDefaultResident({ id: "aria", name: "Aria", sprite: "meloetta", personality: "playful" }, hWorld.now);
+    const cressRec = Sanctuary.createDefaultResident({ id: "crescent", name: "Crescent", sprite: "cresselia", personality: "nocturnal" }, hWorld.now);
+    const restedNow = hWorld.now + 20 * 60000;
+    assert.ok(
+        Sanctuary.readinessScore(meloRec, [], { isNight: false, mediaPlaying: true }, restedNow) >
+        Sanctuary.readinessScore(meloRec, [], { isNight: false, mediaPlaying: false }, restedNow) + 0.12,
+        "Chorus Lead Meloetta surges in readiness when music starts playing"
+    );
+    assert.ok(
+        Sanctuary.readinessScore(cressRec, [], { isNight: true, mediaPlaying: false }, restedNow) >
+        Sanctuary.readinessScore(cressRec, [], { isNight: false, mediaPlaying: false }, restedNow) + 0.30,
+        "Lunar Pulse Cresselia prefers night rotation"
+    );
+}
+
+console.log("All cognitive, developmental, social, Sanctuary rotation, physics, multi-monitor, species ethology, modular ability, and persistence tests passed!");

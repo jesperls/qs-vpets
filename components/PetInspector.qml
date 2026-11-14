@@ -5,7 +5,7 @@ import QtQuick.Layouts
 import "../config"
 import "../services"
 import "SpeciesProfile.js" as SpeciesProfile
-import "ai/Personality.js" as Personality
+import "behavior/Personality.js" as Personality
 
 Rectangle {
     id: root

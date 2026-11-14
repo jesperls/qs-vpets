@@ -6,7 +6,7 @@ import Quickshell.Wayland
 import "../config"
 import "../services"
 import "PetNav.js" as Nav
-import "ai/Topology.js" as Topology
+import "behavior/Topology.js" as Topology
 
 PanelWindow {
     id: root

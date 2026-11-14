@@ -9,7 +9,8 @@ import "../config"
 import "../services"
 import "SpeciesProfile.js" as SpeciesProfile
 import "SpriteSheet.js" as SpriteSheet
-import "ai/Personality.js" as Personality
+import "behavior/Personality.js" as Personality
+import "behavior/Abilities.js" as Abilities
 
 FloatingWindow {
     id: root
@@ -26,6 +27,7 @@ FloatingWindow {
     property string rosterSearch: ""
     property string rosterFilter: "all"
     property string catalogSearch: ""
+    property string catalogBiome: ""
     property string adoptName: ""
     property string adoptNature: "emergent"
     property string adoptRoamMode: "auto"
@@ -78,13 +80,17 @@ FloatingWindow {
 
     readonly property var filteredCatalog: {
         const q = root.catalogSearch.trim().toLowerCase();
+        const biomeFilter = root.catalogBiome;
         return SpriteSheet.SPECIES_LIST.filter(sp => {
-            if (!q) return true;
             const prof = SpeciesProfile.profileFor(sp);
+            if (biomeFilter && prof.biome !== biomeFilter) return false;
+            if (!q) return true;
+            const abText = Abilities.abilitiesFor(sp).map(a => a.label.toLowerCase() + " " + a.summary.toLowerCase()).join(" ");
             return sp.toLowerCase().indexOf(q) !== -1
                 || prof.displayName.toLowerCase().indexOf(q) !== -1
                 || prof.biome.toLowerCase().indexOf(q) !== -1
-                || prof.blurb.toLowerCase().indexOf(q) !== -1;
+                || prof.blurb.toLowerCase().indexOf(q) !== -1
+                || abText.indexOf(q) !== -1;
         });
     }
 
@@ -1487,7 +1493,9 @@ FloatingWindow {
                                                     text: {
                                                         if (!root.selectedConfig) return "";
                                                         const prof = SpeciesProfile.profileFor(root.selectedConfig.sprite);
-                                                        return prof.displayName + "  ·  " + prof.biome;
+                                                        const abs = Abilities.abilitiesFor(root.selectedConfig.sprite);
+                                                        const abLabel = abs.length > 0 ? ("  ·  " + abs[0].label) : "";
+                                                        return prof.displayName + "  ·  " + prof.biome + abLabel;
                                                     }
                                                     color: Theme.accent
                                                     font.family: Theme.uiFont
@@ -2569,7 +2577,7 @@ FloatingWindow {
                                     font.weight: Font.Bold
                                 }
                                 Text {
-                                    text: "25 species with distinct gaits, sleep postures, and social dynamics — hover a card to preview"
+                                    text: SpeciesProfile.SPECIES_LIST.length + " species with distinct gaits, abilities, and social dynamics — hover a card to preview"
                                     color: Theme.subtext
                                     font.family: Theme.uiFont
                                     font.pixelSize: 11
@@ -2820,6 +2828,74 @@ FloatingWindow {
                             }
                         }
 
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 5
+
+                            Text {
+                                text: "Habitat"
+                                color: Theme.subtext
+                                font.family: Theme.uiFont
+                                font.pixelSize: 11
+                            }
+
+                            Repeater {
+                                model: [{ id: "", shortLabel: "All", icon: "" }].concat(SpeciesProfile.BIOME_LIST)
+
+                                Rectangle {
+                                    id: biomeChip
+                                    required property var modelData
+                                    readonly property bool cur: root.catalogBiome === biomeChip.modelData.id
+                                    implicitHeight: 24
+                                    radius: Theme.radius(-8)
+                                    implicitWidth: biomeChipRow.implicitWidth + 12
+                                    color: cur
+                                        ? Theme.accentSoft
+                                        : (biomeMouse.containsMouse ? Theme.surfaceAlt : Theme.bg)
+                                    border.width: 1
+                                    border.color: cur ? Theme.accent : Theme.borderSubtle
+
+                                    RowLayout {
+                                        id: biomeChipRow
+                                        anchors.centerIn: parent
+                                        spacing: 4
+
+                                        UiIcon {
+                                            visible: biomeChip.modelData.icon !== ""
+                                            name: biomeChip.modelData.icon
+                                            size: 10
+                                            color: biomeChip.cur ? Theme.accent : Theme.subtext
+                                        }
+
+                                        Text {
+                                            text: biomeChip.modelData.shortLabel
+                                            color: biomeChip.cur ? Theme.accent : Theme.text
+                                            font.family: Theme.uiFont
+                                            font.pixelSize: 10
+                                            font.weight: biomeChip.cur ? Font.DemiBold : Font.Normal
+                                        }
+                                    }
+
+                                    MouseArea {
+                                        id: biomeMouse
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: root.catalogBiome = biomeChip.modelData.id
+                                    }
+                                }
+                            }
+
+                            Item { Layout.fillWidth: true }
+
+                            Text {
+                                text: root.filteredCatalog.length + " species"
+                                color: Theme.muted
+                                font.family: Theme.monoFont
+                                font.pixelSize: 10
+                            }
+                        }
+
                         Flickable {
                             id: catalogFlick
                             Layout.fillWidth: true
@@ -2900,7 +2976,14 @@ FloatingWindow {
                                                     }
 
                                                     Text {
-                                                        text: catCard.prof.biome
+                                                        Layout.fillWidth: true
+                                                        elide: Text.ElideRight
+                                                        text: {
+                                                            const abs = Abilities.abilitiesFor(catCard.modelData);
+                                                            return abs.length > 0
+                                                                ? (catCard.prof.biome + "  ·  " + abs[0].label)
+                                                                : catCard.prof.biome;
+                                                        }
                                                         color: Theme.accent
                                                         font.family: Theme.uiFont
                                                         font.pixelSize: 10

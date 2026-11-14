@@ -10,6 +10,10 @@ let
   configDir = "${config.xdg.configHome}/qs-vpets";
   stateDir = "${config.xdg.stateHome}/qs-vpets";
 
+  speciesList = lib.attrNames (
+    lib.filterAttrs (_: kind: kind == "directory") (builtins.readDir ../assets/sprites)
+  );
+
   petSubmodule = lib.types.submodule {
     options = {
       name = lib.mkOption {
@@ -17,33 +21,7 @@ let
         description = "Unique display name and memory key for this pet.";
       };
       sprite = lib.mkOption {
-        type = lib.types.enum [
-          "absol"
-          "charizard"
-          "cyndaquil"
-          "eevee"
-          "ferrothorn"
-          "gengar"
-          "giratina"
-          "grovyle"
-          "infernape"
-          "litwick"
-          "mew"
-          "mudkip"
-          "munchlax"
-          "phantump"
-          "pikachu"
-          "riolu"
-          "rowlet"
-          "shiftry"
-          "sprigatito"
-          "toxapex"
-          "umbreon"
-          "vulpix"
-          "whimsicott"
-          "wooper"
-          "zorua"
-        ];
+        type = lib.types.enum speciesList;
         default = "zorua";
         description = "Bundled PMD Collab species sprite sheet.";
       };

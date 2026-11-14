@@ -1,6 +1,5 @@
 import QtQuick
 import Quickshell.Io
-import "SpeciesProfile.js" as SpeciesProfile
 import "SpriteSheet.js" as SpriteSheet
 
 Item {
@@ -19,6 +18,7 @@ Item {
 
     readonly property var defaultMap: SpriteSheet.DEFAULT_STATE_MAP
     property var _animData: null
+    property var _clip: null
     property string _animName: "Idle"
     property int _frame: 0
     property int _dirRow: 0
@@ -49,56 +49,34 @@ Item {
         NumberAnimation { target: root; property: "squashY"; to: 1.0; duration: 240; easing.type: Easing.OutBack }
     }
 
-    function _stateSpeedMult(s: string): real {
-        if (s === "walk" || s === "wander" || s === "zoomies") {
+    function _effectiveSpeedMult(clip: var): real {
+        if (!clip) return 1.0;
+        if (clip.dynamicWalkSpeed) {
             const spd = root.moveSpeed > 0 ? root.moveSpeed : 68;
             return Math.max(0.38, Math.min(1.85, spd / 82));
         }
-        if (s === "idle" || s === "perch") {
-            return SpeciesProfile.standSpec(root.speciesName).speed;
-        }
-        if (s === "idleOnce") return 0.74;
-        if (s === "loaf" || s === "sit" || s === "deepsleep") return 0.58;
-        if (s === "sitNorth") return 0.65;
-        if (s === "rotate" || s === "twirl" || s === "dance") return 0.54;
-        if (s === "lookUpNorth" || s === "lookUp" || s === "nod" || s === "pose" || s === "sitDown"
-                || s === "appeal" || s === "tailWhip" || s === "shake" || s === "emit" || s === "rearUp") return 0.58;
-        if (s === "charge" || s === "hide" || s === "sink" || s === "special0" || s === "shock" || s === "lick") return 0.62;
-        if (s === "deepBreath" || s === "wake" || s === "eat") return 0.68;
-        return 1.0;
-    }
-
-    function _endHoldTicks(s: string): int {
-        if (s === "sitDown") return 45;
-        if (s === "lookUpNorth" || s === "lookUp") return 34;
-        if (s === "pose") return 14;
-        if (s === "nod" || s === "idleOnce") return 10;
-        return 0;
-    }
-
-    function _leadSkipTicks(s: string, anim: var): int {
-        if (s === "idleOnce" && anim && anim.durations && anim.durations.length > 1 && anim.durations[0] > 12) {
-            return anim.durations[0] - 8;
-        }
-        return 0;
+        return clip.speed > 0 ? clip.speed : 1.0;
     }
 
     function _applyState(name: string): void {
-        const nextAnim = SpriteSheet.resolveAnimName(name, _animData, actionMap, root.speciesName);
-        if (nextAnim !== _animName || !SpriteSheet.isLoopingState(name)) {
-            _animName = nextAnim;
-            _frame = 0;
+        const nextClip = SpriteSheet.resolveClip(name, _animData, actionMap, root.speciesName);
+        const prev = _clip;
+        const resetPlayback = !prev
+            || nextClip.animName !== _animName
+            || !nextClip.loop
+            || nextClip.startFrame !== prev.startFrame
+            || nextClip.endFrame !== prev.endFrame
+            || nextClip.holdAtFrame !== prev.holdAtFrame;
+
+        _clip = nextClip;
+        _animName = nextClip.animName;
+        if (resetPlayback) {
+            _frame = nextClip.startFrame;
             _repCount = 0;
-            _tickAccum = 0;
+            _tickAccum = nextClip.leadSkipTicks;
         }
-        const anim = _animData ? (_animData[_animName] || null) : null;
-        if (name === "idleOnce") {
-            _tickAccum = _leadSkipTicks(name, anim);
-        }
-        if (name === "deepsleep") {
-            _dirRow = 0;
-        } else if (name === "sitNorth" || name === "lookUpNorth" || name === "sitDown" || name === "lookUp") {
-            _dirRow = 4; // PMD Sit and LookUp sheets are drawn facing North (row 4)
+        if (nextClip.fixedDirRow >= 0) {
+            _dirRow = nextClip.fixedDirRow;
         }
     }
 
@@ -115,19 +93,15 @@ Item {
 
     function setDirection(angle: real): void {
         if (!useSpriteSheet) return;
-        if (currentState === "deepsleep" || currentState === "loaf" || currentState === "sit"
-                || currentState === "sitNorth" || currentState === "lookUpNorth") {
-            return;
-        }
+        if (_clip && _clip.lockDirection) return;
         _dirRow = SpriteSheet.angleToDirectionRow(angle);
     }
 
     function currentAnimDurationMs(): int {
         const anim = _currentAnim;
         if (!anim || !anim.totalTicks) return 750;
-        const mult = _stateSpeedMult(currentState);
-        const total = Math.max(8, anim.totalTicks - _leadSkipTicks(currentState, anim)) + _endHoldTicks(currentState);
-        return Math.round((total * SpriteSheet.PMD_TICK_MS) / mult);
+        const clip = _clip || SpriteSheet.resolveClip(currentState, _animData, actionMap, root.speciesName);
+        return SpriteSheet.clipDurationMs(clip, anim, _effectiveSpeedMult(clip));
     }
 
     onSpeciesNameChanged: {
@@ -136,6 +110,7 @@ Item {
 
     onSpriteDirChanged: {
         _animData = null;
+        _clip = null;
         _frame = 0;
         _tickAccum = 0;
     }
@@ -163,47 +138,33 @@ Item {
 
             const anim = root._currentAnim;
             if (!anim || !anim.durations || anim.durations.length === 0) return;
-            if (root._frame >= anim.frameCount) {
-                root._frame = 0;
+            const clip = root._clip || SpriteSheet.resolveClip(root.currentState, root._animData, root.actionMap, root.speciesName);
+            const startF = Math.max(0, Math.min(anim.frameCount - 1, clip.startFrame));
+            const endF = Math.max(startF, Math.min(anim.frameCount - 1, clip.endFrame));
+
+            if (root._frame < startF || root._frame > endF) {
+                root._frame = startF;
                 root._tickAccum = 0;
             }
 
-            const s = root.currentState;
-            const stand = SpeciesProfile.standSpec(root.speciesName);
-            if ((s === "idle" || s === "perch") && root._animName === "Idle" && stand.mode === "hold0") {
-                root._frame = 0;
+            if (clip.loop && clip.holdAtFrame >= 0 && root._frame >= clip.holdAtFrame) {
+                root._frame = clip.holdAtFrame;
                 root._tickAccum = 0;
                 return;
             }
-            if ((s === "sitNorth" || s === "sit" || s === "loaf") && root._animName === "Sit" && root._frame >= anim.frameCount - 1) {
-                return; // Hold seated frame instead of looping stand->sit
-            }
-            if ((s === "loaf" || s === "sit") && root._animName === "Withdraw" && root._frame >= Math.min(5, anim.frameCount - 1)) {
-                return; // Hold closed Toxapex shell dome at frame 5; frames 6..13 pop back out
-            }
 
-            const speedMult = root._stateSpeedMult(s);
-            const isLastFrame = root._frame + 1 >= anim.frameCount;
-            const needed = (anim.durations[root._frame] || 4) + (isLastFrame ? root._endHoldTicks(s) : 0);
+            const speedMult = root._effectiveSpeedMult(clip);
+            const isLastFrame = root._frame >= endF;
+            const needed = (anim.durations[root._frame] || 4) + (isLastFrame ? clip.endHoldTicks : 0);
 
             root._tickAccum += (dtMs / SpriteSheet.PMD_TICK_MS) * speedMult;
             if (root._tickAccum >= needed) {
                 root._tickAccum = Math.min(root._tickAccum - needed, needed);
-                if ((s === "idle" || s === "perch") && root._animName === "Idle"
-                        && stand.mode === "prefix10" && root._frame >= Math.min(9, anim.frameCount - 1)) {
-                    root._frame = 0;
-                    return;
-                }
                 if (isLastFrame) {
-                    if (SpriteSheet.isLoopingState(s)) {
-                        root._frame = 0;
-                    } else {
-                        const targetReps = s === "eat" ? 2 : 1;
-                        root._frame = 0;
-                        if (++root._repCount >= targetReps) {
-                            root._repCount = 0;
-                            root.oneShotFinished(s);
-                        }
+                    root._frame = startF;
+                    if (!clip.loop && ++root._repCount >= clip.reps) {
+                        root._repCount = 0;
+                        root.oneShotFinished(root.currentState);
                     }
                 } else {
                     root._frame += 1;

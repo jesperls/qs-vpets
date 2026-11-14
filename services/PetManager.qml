@@ -5,8 +5,8 @@ import Quickshell
 import Quickshell.Io
 import "../config"
 import "../components/PetPersistence.js" as Persist
-import "../components/ai/Memory.js" as Memory
-import "../components/ai/Sanctuary.js" as Sanctuary
+import "../components/behavior/Memory.js" as Memory
+import "../components/behavior/Sanctuary.js" as Sanctuary
 
 Singleton {
     id: root

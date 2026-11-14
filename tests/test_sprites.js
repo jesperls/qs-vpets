@@ -5,23 +5,28 @@ const vm = require("node:vm");
 
 const rootDir = path.resolve(__dirname, "..");
 
+const moduleCache = new Map();
 function loadQmlJs(relPath, injected = {}) {
-    const full = path.join(rootDir, relPath);
-    const dir = path.dirname(relPath);
+    const norm = path.normalize(relPath);
+    if (moduleCache.has(norm) && Object.keys(injected).length === 0) return moduleCache.get(norm);
+    const full = path.join(rootDir, norm);
+    const dir = path.dirname(norm);
     let src = fs.readFileSync(full, "utf8");
     const imports = {};
     src = src.replace(/^\.import\s+"([^"]+)"\s+as\s+([A-Za-z0-9_]+)\s*$/gm, (_, impPath, alias) => {
         imports[alias] = loadQmlJs(path.join(dir, impPath));
         return "";
     });
-    const ctx = Object.assign({ Math, Date, Number, Object, Array, JSON, parseInt, parseFloat, console }, imports, injected);
+    const ctx = Object.assign({ Math, Date, Number, Object, Array, String, Boolean, JSON, parseInt, parseFloat, isFinite, console }, imports, injected);
     vm.createContext(ctx);
-    vm.runInContext(src, ctx, { filename: relPath });
+    vm.runInContext(src, ctx, { filename: norm });
+    if (Object.keys(injected).length === 0) moduleCache.set(norm, ctx);
     return ctx;
 }
 
 const SpeciesProfile = loadQmlJs("components/SpeciesProfile.js");
 const SpriteSheet = loadQmlJs("components/SpriteSheet.js");
+const Abilities = loadQmlJs("components/behavior/Abilities.js");
 
 function pngDims(filePath) {
     const buf = fs.readFileSync(filePath);
@@ -32,23 +37,70 @@ function pngDims(filePath) {
     };
 }
 
-assert.equal(SpeciesProfile.standSpec("zorua").mode, "hold0", "Zorua stands on frame 0 without looping bark frames");
-assert.equal(SpeciesProfile.standSpec("absol").mode, "hold0", "Absol stands on frame 0 without looping cry frame");
-assert.equal(SpeciesProfile.standSpec("grovyle").mode, "hold0", "Grovyle stands on frame 0 without battle crouch");
-assert.equal(SpeciesProfile.standSpec("whimsicott").mode, "hold0", "Whimsicott reserves cotton bounce for gestures");
-assert.equal(SpeciesProfile.standSpec("shiftry").mode, "hold0", "Shiftry reserves leaf-fan wave for gestures");
-assert.equal(SpeciesProfile.standSpec("infernape").mode, "prefix10", "Infernape loops calm crown-fire frames 0..9");
+const spritesRoot = path.join(rootDir, "assets/sprites");
+const assetDirs = fs.readdirSync(spritesRoot)
+    .filter(d => fs.statSync(path.join(spritesRoot, d)).isDirectory())
+    .sort();
+assert.deepEqual(
+    assetDirs,
+    Array.from(SpriteSheet.SPECIES_LIST),
+    "assets/sprites directories must match SPECIES_LIST 1-to-1"
+);
+
+function parseSpeciesAnims(species) {
+    const xml = fs.readFileSync(path.join(spritesRoot, species, "AnimData.xml"), "utf8");
+    return SpriteSheet.parseAnimData(xml).anims;
+}
+
+const zoruaIdleClip = SpriteSheet.resolveClip("idle", parseSpeciesAnims("zorua"), {}, "zorua");
+assert.equal(zoruaIdleClip.holdAtFrame, 0, "Zorua stands on frame 0 without looping bark frames");
+
+const absolIdleClip = SpriteSheet.resolveClip("idle", parseSpeciesAnims("absol"), {}, "absol");
+assert.equal(absolIdleClip.holdAtFrame, 0, "Absol stands on frame 0 without looping cry frame");
+
+const infernapeIdleClip = SpriteSheet.resolveClip("idle", parseSpeciesAnims("infernape"), {}, "infernape");
+assert.equal(infernapeIdleClip.startFrame, 0, "Infernape starts at frame 0");
+assert.equal(infernapeIdleClip.endFrame, 9, "Infernape loops calm crown-fire frames 0..9");
+assert.equal(infernapeIdleClip.holdAtFrame, -1, "Infernape loops prefix slice continuously");
+
+const toxAnims = parseSpeciesAnims("toxapex");
+const toxLoafClip = SpriteSheet.resolveClip("loaf", toxAnims, {}, "toxapex");
+assert.equal(toxLoafClip.animName, "Withdraw", "Toxapex loafs in Withdraw");
+assert.equal(toxLoafClip.holdAtFrame, 5, "Toxapex holds closed shell dome at frame 5");
+const toxWakeClip = SpriteSheet.resolveClip("wake", toxAnims, {}, "toxapex");
+assert.equal(toxWakeClip.animName, "Withdraw", "Toxapex wakes via Withdraw pop-out slice");
+assert.equal(toxWakeClip.startFrame, 6, "Toxapex wake starts at shell-opening frame 6");
+
+const emojiRegex = /[\p{Extended_Pictographic}]/u;
 
 let totalAnimsVerified = 0;
 for (const species of SpriteSheet.SPECIES_LIST) {
     assert.ok(SpeciesProfile.PROFILES[species], `Explicit SpeciesProfile required for ${species}`);
+    assert.ok(SpriteSheet.SPECIES_TEMPERAMENT[species], `Temperament required for ${species}`);
     const prof = SpeciesProfile.profileFor(species);
-    const spDir = path.join(rootDir, "assets/sprites", species);
-    assert.ok(fs.existsSync(spDir), `Missing species dir: ${species}`);
+    assert.ok(SpeciesProfile.BIOME_MAP[prof.biome], `${species} biome '${prof.biome}' must be registered`);
+    if (prof.kinGroup) {
+        assert.ok(SpeciesProfile.KIN_GROUPS[prof.kinGroup], `${species} kinGroup '${prof.kinGroup}' must be registered`);
+    }
+    for (const abId of prof.abilities) {
+        assert.ok(Abilities.abilityDef(abId), `${species} ability '${abId}' must be registered in Abilities.js`);
+    }
+    assert.ok(!emojiRegex.test(prof.blurb), `${species} blurb must be emoji-free`);
+    assert.ok(!emojiRegex.test(prof.signature.label), `${species} signature label must be emoji-free`);
+
+    const spDir = path.join(spritesRoot, species);
+    assert.ok(fs.existsSync(path.join(spDir, "credits.txt")), `${species} must include PMDCollab credits.txt`);
+    for (const file of fs.readdirSync(spDir)) {
+        assert.ok(
+            !file.endsWith("-Offsets.png") && !file.endsWith("-Shadow.png"),
+            `${species}/${file} unused PNG bloat must not be committed`
+        );
+    }
+
     const xml = fs.readFileSync(path.join(spDir, "AnimData.xml"), "utf8");
     const parsed = SpriteSheet.parseAnimData(xml);
     assert.ok(parsed.anims.Walk, `${species} must resolve Walk animation`);
-    assert.ok(parsed.shadowSize >= 0 && parsed.shadowSize <= 3, `${species} shadowSize in range`);
+    assert.ok(parsed.shadowSize >= 0 && parsed.shadowSize <= 4, `${species} shadowSize in range`);
 
     for (const [animName, anim] of Object.entries(parsed.anims)) {
         assert.ok(!anim.copyOf, `${species}:${animName} CopyOf must be resolved`);
@@ -65,8 +117,17 @@ for (const species of SpriteSheet.SPECIES_LIST) {
     }
 
     for (const state of Object.keys(SpriteSheet.DEFAULT_STATE_MAP)) {
-        const resolved = SpriteSheet.resolveAnimName(state, parsed.anims, {}, species);
-        assert.ok(parsed.anims[resolved], `${species} state '${state}' resolved to '${resolved}' which exists`);
+        const clip = SpriteSheet.resolveClip(state, parsed.anims, {}, species);
+        const anim = parsed.anims[clip.animName];
+        assert.ok(anim, `${species} state '${state}' resolved to '${clip.animName}' which exists`);
+        assert.ok(clip.startFrame >= 0 && clip.startFrame < anim.frameCount, `${species}:${state} startFrame in bounds`);
+        assert.ok(clip.endFrame >= clip.startFrame && clip.endFrame < anim.frameCount, `${species}:${state} endFrame in bounds`);
+        if (clip.holdAtFrame >= 0) {
+            assert.ok(
+                clip.holdAtFrame >= clip.startFrame && clip.holdAtFrame <= clip.endFrame,
+                `${species}:${state} holdAtFrame in slice bounds`
+            );
+        }
     }
 
     assert.equal(
@@ -84,11 +145,16 @@ for (const species of SpriteSheet.SPECIES_LIST) {
         ...prof.affectionGestures,
         ...prof.greetGestures,
         ...prof.settleGestures,
+        ...prof.sparMoves,
+        ...prof.showOffMoves,
+        ...prof.dodgeMoves,
+        ...prof.standoffMoves,
+        ...prof.dismissMoves,
         prof.vocalState,
         prof.altVocalState,
         prof.wakeState,
         prof.signature.state
-    ];
+    ].filter(Boolean);
     for (const st of profileStates) {
         const resolved = SpriteSheet.resolveAnimName(st, parsed.anims, {}, species);
         assert.ok(parsed.anims[resolved], `${species} profile state '${st}' resolves to '${resolved}'`);

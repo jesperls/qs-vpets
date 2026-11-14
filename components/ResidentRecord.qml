@@ -5,9 +5,9 @@ import Quickshell.Io
 import "../config"
 import "../services"
 import "PetPersistence.js" as Persist
-import "ai/Personality.js" as Personality
-import "ai/Memory.js" as Memory
-import "ai/Sanctuary.js" as Sanctuary
+import "behavior/Personality.js" as Personality
+import "behavior/Memory.js" as Memory
+import "behavior/Sanctuary.js" as Sanctuary
 
 Item {
     id: root

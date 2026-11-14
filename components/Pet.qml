@@ -5,12 +5,12 @@ import "../config"
 import "../services"
 import "SpeciesProfile.js" as SpeciesProfile
 import "SpriteSheet.js" as SpriteSheet
-import "ai/Personality.js" as Personality
-import "ai/Brain.js" as Brain
-import "ai/Perception.js" as Perception
-import "ai/Drives.js" as Drives
-import "ai/Memory.js" as Memory
-import "ai/Plans.js" as Plans
+import "behavior/Personality.js" as Personality
+import "behavior/Brain.js" as Brain
+import "behavior/Perception.js" as Perception
+import "behavior/Drives.js" as Drives
+import "behavior/Memory.js" as Memory
+import "behavior/Plans.js" as Plans
 import "PetNav.js" as Nav
 import "PetPersistence.js" as Persist
 

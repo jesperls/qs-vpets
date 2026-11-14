@@ -1,6 +1,6 @@
-.import "ai/Topology.js" as Topology
-.import "ai/Memory.js" as Memory
-.import "ai/Brain.js" as Brain
+.import "behavior/Topology.js" as Topology
+.import "behavior/Memory.js" as Memory
+.import "behavior/Brain.js" as Brain
 
 var ARRIVAL_TOLERANCE = 44;
 var MAX_BLOCKS = 2;
