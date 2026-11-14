@@ -94,6 +94,9 @@ in
         ];
       }
       ''
+        # Keep qs-vpets in sandbox inputs so AppArmor-restricted CI builders (Ubuntu 24.04)
+        # do not attempt nested uid_map writes inside Nix's own build sandbox.
+        test -x "${lib.getExe qs-vpets}"
         file "${portable.nsExec}/bin/vpets-ns-exec" | grep -F "statically linked"
         (cd "${portable}" && sha256sum -c "${portable.archiveBase}.tar.zst.sha256")
 

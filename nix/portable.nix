@@ -45,7 +45,8 @@ let
         const char *target_exe = argv[2];
 
         /* Fast path when /nix/store path is already mounted (NixOS or nested call). */
-        if (access(target_exe, X_OK) == 0) {
+        const char *force_ns = getenv("QS_VPETS_FORCE_NAMESPACE");
+        if ((!force_ns || strcmp(force_ns, "1") != 0) && access(target_exe, X_OK) == 0) {
             argv[2] = (char *)target_exe;
             execv(target_exe, &argv[2]);
             perror("vpets-ns-exec: execv");
@@ -96,6 +97,9 @@ let
         char map_buf[64];
         snprintf(map_buf, sizeof(map_buf), "%u %u 1\n", (unsigned)uid, (unsigned)uid);
         if (write_file("/proc/self/uid_map", map_buf) != 0) {
+            if (errno == EPERM || errno == EACCES || errno == EINVAL) {
+                return 77;
+            }
             perror("vpets-ns-exec: uid_map");
             return 1;
         }
@@ -103,11 +107,17 @@ let
         (void)write_file("/proc/self/setgroups", "deny\n");
         snprintf(map_buf, sizeof(map_buf), "%u %u 1\n", (unsigned)gid, (unsigned)gid);
         if (write_file("/proc/self/gid_map", map_buf) != 0) {
+            if (errno == EPERM || errno == EACCES || errno == EINVAL) {
+                return 77;
+            }
             perror("vpets-ns-exec: gid_map");
             return 1;
         }
 
         if (mount("tmpfs", ns_root, "tmpfs", 0, "mode=0755") != 0) {
+            if (errno == EPERM || errno == EACCES) {
+                return 77;
+            }
             perror("vpets-ns-exec: mount tmpfs");
             return 1;
         }
@@ -258,7 +268,7 @@ pkgs.runCommand archiveBase
       export QSG_RHI_BACKEND=software
     fi
 
-    if [ -x "$targetExe" ]; then
+    if [ "''${QS_VPETS_FORCE_NAMESPACE:-0}" != "1" ] && [ -x "$targetExe" ]; then
       exec "$targetExe" "$@"
     fi
 

@@ -6,9 +6,17 @@ on:
     tags: ["v*"]
   pull_request:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Optional tag name to publish as a GitHub Release (e.g. v0.3.0)"
+        required: false
+        type: string
 
 permissions:
   contents: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
   check-and-bundle:
@@ -30,21 +38,31 @@ jobs:
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@main
 
-      - name: Magic Nix Cache
-        uses: DeterminateSystems/magic-nix-cache-action@main
-
       - name: Formatting check
         run: nix fmt -- --ci
 
       - name: Flake check (unit tests, qmllint, HM module, portable bundle)
         run: nix flake check -L
 
-      - name: Stage portable release archive
+      - name: Stage & smoke-test portable release archive
         run: |
           nix build -L --out-link result-portable ".#packages.${{ matrix.arch }}.portable"
           mkdir -p dist
           cp -L result-portable/qs-vpets-portable-${{ matrix.arch }}.tar.zst* dist/
           ls -lh dist/
+
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends bubblewrap zstd
+          tmp_test=$(mktemp -d)
+          mkdir -p "$tmp_test/home"
+          tar -I zstd -xf "dist/qs-vpets-portable-${{ matrix.arch }}.tar.zst" -C "$tmp_test"
+          env -u XDG_DATA_HOME -u XDG_CONFIG_HOME -u XDG_STATE_HOME HOME="$tmp_test/home" \
+            "$tmp_test/qs-vpets-portable-${{ matrix.arch }}/install" --no-autostart
+          env -u XDG_DATA_HOME -u XDG_CONFIG_HOME -u XDG_STATE_HOME HOME="$tmp_test/home" \
+            QS_VPETS_FORCE_NAMESPACE=1 "$tmp_test/home/.local/bin/qs-vpets" --version
+          env -u XDG_DATA_HOME -u XDG_CONFIG_HOME -u XDG_STATE_HOME HOME="$tmp_test/home" \
+            "$tmp_test/home/.local/opt/qs-vpets/uninstall"
+          rm -rf "$tmp_test"
 
       - name: Upload portable artifact
         uses: actions/upload-artifact@v4
@@ -56,7 +74,7 @@ jobs:
   publish-release:
     name: Publish GitHub Release
     needs: check-and-bundle
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
     runs-on: ubuntu-24.04
     steps:
       - name: Download portable artifacts
@@ -68,6 +86,7 @@ jobs:
       - name: Publish Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ inputs.release_tag || github.ref_name }}
           generate_release_notes: true
           files: |
             release-assets/qs-vpets-portable-*.tar.zst
