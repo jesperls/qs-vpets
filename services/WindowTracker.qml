@@ -3,11 +3,15 @@ pragma Singleton
 import QtQuick
 import Quickshell
 import Quickshell.Hyprland
+import Quickshell.Wayland
 
 Singleton {
     id: root
 
     readonly property bool hasHyprland: (Quickshell.env("HYPRLAND_INSTANCE_SIGNATURE") || "").length > 0
+    readonly property var _trackedWaylandActive: root.hasHyprland ? null : ToplevelManager.activeToplevel
+    property var _knownWaylandToplevels: []
+    property bool _waylandBooted: false
 
     property var activeWindowPos: null
     property string activeWindowClass: ""
@@ -114,9 +118,76 @@ Singleton {
         root.windowCount = focusedWsCount;
     }
 
+    function _rebuildWayland(): void {
+        if (root.hasHyprland) return;
+        const list = ToplevelManager.toplevels ? ToplevelManager.toplevels.values : [];
+        const prev = root._knownWaylandToplevels || [];
+        const nextKnown = [];
+        const wins = [];
+        let openCount = 0;
+
+        for (let i = 0; i < list.length; i++) {
+            const tl = list[i];
+            if (!tl) continue;
+            nextKnown.push(tl);
+            if (root._waylandBooted && prev.indexOf(tl) === -1) {
+                root.windowOpened(String(tl.appId ?? ""), String(tl.title ?? ""));
+            }
+            if (!tl.minimized) openCount++;
+            if (tl.fullscreen && !tl.minimized) {
+                const tlScreens = (tl.screens && tl.screens.length > 0) ? tl.screens : Quickshell.screens;
+                for (let s = 0; s < tlScreens.length; s++) {
+                    const scr = tlScreens[s];
+                    if (!scr || scr.width <= 0 || scr.height <= 0) continue;
+                    wins.push({
+                        address: "",
+                        cls: String(tl.appId ?? ""),
+                        title: String(tl.title ?? ""),
+                        x: Number(scr.x ?? 0),
+                        y: Number(scr.y ?? 0),
+                        w: Number(scr.width ?? 0),
+                        h: Number(scr.height ?? 0),
+                        focused: tl === ToplevelManager.activeToplevel || !!tl.activated,
+                        fullscreen: true,
+                        trueFullscreen: true
+                    });
+                }
+            }
+        }
+
+        root._knownWaylandToplevels = nextKnown;
+        root._waylandBooted = true;
+
+        let activeTl = ToplevelManager.activeToplevel;
+        if (!activeTl) {
+            for (let i = 0; i < list.length; i++) {
+                if (list[i] && list[i].activated) {
+                    activeTl = list[i];
+                    break;
+                }
+            }
+        }
+
+        root.visibleWindows = wins;
+        root.activeWindowPos = null;
+        root.activeWindowClass = activeTl ? String(activeTl.appId ?? "") : "";
+        root.activeWindowTitle = activeTl ? String(activeTl.title ?? "") : "";
+        root.isFullscreen = !!(activeTl && activeTl.fullscreen && !activeTl.minimized);
+        root.windowCount = openCount;
+    }
+
     function _scheduleRefresh(): void {
-        if (!root.hasHyprland) return;
+        if (!root.hasHyprland) {
+            waylandSnapshotTimer.restart();
+            return;
+        }
         if (!refreshTimer.running) refreshTimer.start();
+    }
+
+    Timer {
+        id: waylandSnapshotTimer
+        interval: 45
+        onTriggered: root._rebuildWayland()
     }
 
     Timer {
@@ -178,6 +249,31 @@ Singleton {
     Connections {
         target: root.hasHyprland ? Hyprland.monitors : null
         function onValuesChanged(): void { root._scheduleRefresh(); }
+    }
+
+    Connections {
+        target: !root.hasHyprland ? ToplevelManager : null
+        function onActiveToplevelChanged(): void {
+            const tl = ToplevelManager.activeToplevel;
+            if (tl) {
+                root.windowFocused(String(tl.appId ?? ""), String(tl.title ?? ""));
+                root._focusChanges++;
+            }
+            root._scheduleRefresh();
+        }
+    }
+
+    Connections {
+        target: !root.hasHyprland ? ToplevelManager.toplevels : null
+        function onValuesChanged(): void { root._scheduleRefresh(); }
+    }
+
+    Connections {
+        target: root._trackedWaylandActive
+        function onFullscreenChanged(): void { root._scheduleRefresh(); }
+        function onMinimizedChanged(): void { root._scheduleRefresh(); }
+        function onTitleChanged(): void { root._scheduleRefresh(); }
+        function onAppIdChanged(): void { root._scheduleRefresh(); }
     }
 
     Timer {

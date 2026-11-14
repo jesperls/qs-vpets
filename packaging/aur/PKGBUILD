@@ -1,0 +1,55 @@
+# Maintainer: Jesper <https://github.com/jesperls>
+pkgname=qs-vpets-git
+pkgver=0.2.0.r0.g0000000
+pkgrel=1
+pkgdesc="Interactive pixel-art Pokémon companions for Wayland desktops via Quickshell"
+arch=('x86_64' 'aarch64')
+url="https://github.com/jesperls/qs-vpets"
+license=('MIT')
+depends=(
+  'bash'
+  'procps-ng'
+  'qt6-declarative'
+  'qt6-imageformats'
+  'qt6-svg'
+  'quickshell'
+)
+makedepends=(
+  'git'
+  'nodejs'
+)
+provides=('qs-vpets')
+conflicts=('qs-vpets')
+source=("git+${url}.git")
+sha256sums=('SKIP')
+
+pkgver() {
+  cd "${srcdir}/qs-vpets"
+  printf "0.2.0.r%s.g%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short=7 HEAD)"
+}
+
+check() {
+  cd "${srcdir}/qs-vpets"
+  node tests/test_sprites.js
+  node tests/test_cognition.js
+  bash -n scripts/qs-vpets.sh
+}
+
+package() {
+  cd "${srcdir}/qs-vpets"
+
+  install -Dm0755 scripts/qs-vpets.sh "${pkgdir}/usr/bin/qs-vpets"
+
+  install -dm0755 "${pkgdir}/usr/share/qs-vpets"
+  cp -a shell.qml config services components assets "${pkgdir}/usr/share/qs-vpets/"
+
+  install -Dm0644 packaging/desktop/qs-vpets.desktop \
+    "${pkgdir}/usr/share/applications/qs-vpets.desktop"
+  install -Dm0644 packaging/desktop/qs-vpets.svg \
+    "${pkgdir}/usr/share/icons/hicolor/scalable/apps/qs-vpets.svg"
+  install -Dm0644 packaging/desktop/io.github.jesperls.qs_vpets.metainfo.xml \
+    "${pkgdir}/usr/share/metainfo/io.github.jesperls.qs_vpets.metainfo.xml"
+
+  sed 's|@BINDIR@|/usr/bin|g' packaging/systemd/qs-vpets.service.in \
+    | install -Dm0644 /dev/stdin "${pkgdir}/usr/lib/systemd/user/qs-vpets.service"
+}

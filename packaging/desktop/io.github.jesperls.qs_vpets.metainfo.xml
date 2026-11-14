@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.jesperls.qs_vpets</id>
+  <name>Pokémon Sanctuary</name>
+  <summary>Interactive pixel-art Pokémon companions for Wayland desktops</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <launchable type="desktop-id">qs-vpets.desktop</launchable>
+  <url type="homepage">https://github.com/jesperls/qs-vpets</url>
+  <url type="bugtracker">https://github.com/jesperls/qs-vpets/issues</url>
+  <developer id="io.github.jesperls">
+    <name>Jesper</name>
+  </developer>
+  <description>
+    <p>
+      qs-vpets brings autonomous pixel-art Pokémon companions onto any Wayland desktop supporting wlr-layer-shell (including KDE Plasma Wayland / SteamOS Desktop Mode, Hyprland, Sway, Niri, Cosmic, River, Wayfire, and Labwc).
+    </p>
+    <p>
+      Companions develop distinct personalities, memories, and inter-Pokémon social bonds over days of use, while rotating emergently between your desktop and the floating Pokémon Sanctuary pasture window.
+    </p>
+  </description>
+  <categories>
+    <category>Game</category>
+    <category>Amusement</category>
+    <category>Utility</category>
+  </categories>
+  <recommends>
+    <display_length compare="ge">768</display_length>
+  </recommends>
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+    <control>touch</control>
+  </supports>
+  <content_rating type="oars-1.1"/>
+</component>

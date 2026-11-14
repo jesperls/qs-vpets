@@ -38,6 +38,14 @@
         in
         rec {
           qs-vpets = packageFor pkgs;
+          portable = import ./nix/portable.nix {
+            inherit
+              lib
+              pkgs
+              qs-vpets
+              version
+              ;
+          };
           default = qs-vpets;
         }
       );
@@ -49,7 +57,7 @@
         import ./nix/checks.nix {
           inherit lib self home-manager;
           pkgs = pkgsFor system;
-          qs-vpets = self.packages.${system}.qs-vpets;
+          inherit (self.packages.${system}) qs-vpets portable;
         }
       );
 

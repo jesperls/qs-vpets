@@ -1,0 +1,26 @@
+[Desktop Entry]
+Version=1.5
+Type=Application
+Name=Pokémon Sanctuary
+GenericName=Desktop Virtual Pets
+Comment=Interactive pixel-art Pokémon companions for Wayland desktops
+Exec=qs-vpets open
+TryExec=qs-vpets
+Icon=qs-vpets
+Terminal=false
+Categories=Game;Amusement;Utility;
+Keywords=pokemon;pets;vpets;sanctuary;companion;wayland;desktop;
+StartupNotify=false
+Actions=TogglePets;EnableAutostart;StopPets;
+
+[Desktop Action TogglePets]
+Name=Hide / Show Desktop Pets
+Exec=qs-vpets toggle
+
+[Desktop Action EnableAutostart]
+Name=Start Automatically on Login
+Exec=qs-vpets autostart enable
+
+[Desktop Action StopPets]
+Name=Stop Desktop Pets
+Exec=qs-vpets stop

@@ -4,6 +4,7 @@ import QtQuick
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Hyprland
+import Quickshell.Wayland
 import "../config"
 import "../services"
 import "SpeciesProfile.js" as SpeciesProfile
@@ -32,6 +33,7 @@ FloatingWindow {
     property bool confirmRelease: false
     property string stageOverrideState: ""
     property var _preMapAddresses: ({})
+    property var _preMapToplevels: []
 
     readonly property var naturesList: [
         "emergent", "playful", "curious", "chill", "lazy",
@@ -221,7 +223,17 @@ FloatingWindow {
     }
 
     function _prepareHyprlandPlacement(): void {
-        if (!WindowTracker.hasHyprland) return;
+        if (!WindowTracker.hasHyprland) {
+            const list = ToplevelManager.toplevels ? ToplevelManager.toplevels.values : [];
+            root._preMapToplevels = list.slice();
+            const activeTl = ToplevelManager.activeToplevel;
+            if (activeTl && activeTl.screens && activeTl.screens.length > 0) {
+                root.screen = activeTl.screens[0];
+            }
+            placementTimer.attempts = 0;
+            placementTimer.restart();
+            return;
+        }
         const existing = {};
         for (const tl of Hyprland.toplevels.values) {
             const addr = String(tl.lastIpcObject?.address ?? tl.address ?? "");
@@ -243,7 +255,17 @@ FloatingWindow {
     }
 
     function _placeOnFocusedWorkspace(): bool {
-        if (!WindowTracker.hasHyprland) return true;
+        if (!WindowTracker.hasHyprland) {
+            const list = ToplevelManager.toplevels ? ToplevelManager.toplevels.values : [];
+            for (const tl of list) {
+                if (!tl || root._preMapToplevels.indexOf(tl) !== -1) continue;
+                if (String(tl.title ?? "") === root.title) {
+                    tl.activate();
+                    return true;
+                }
+            }
+            return false;
+        }
         Hyprland.refreshToplevels();
         const monRaw = Hyprland.focusedMonitor?.lastIpcObject;
         const specialName = monRaw?.specialWorkspace?.name ?? "";

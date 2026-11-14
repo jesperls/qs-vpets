@@ -4,6 +4,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import Quickshell.Hyprland
+import Quickshell.Wayland
 import "../config"
 
 Singleton {
@@ -101,6 +102,25 @@ Singleton {
         onTriggered: if (!cursorProc.running) cursorProc.running = true
     }
 
+    IdleMonitor {
+        id: waylandIdle
+        enabled: true
+        respectInhibitors: true
+        timeout: Math.max(30, Config.idleTimeout)
+        onIsIdleChanged: {
+            if (isIdle) {
+                idleTimer.stop();
+                if (root._active) {
+                    root._active = false;
+                    root.cursorSpeed = 0;
+                    root.idleBegan();
+                }
+            } else {
+                root.registerMouseMove();
+            }
+        }
+    }
+
     Timer {
         id: idleTimer
         interval: Math.max(30, Config.idleTimeout) * 1000
@@ -129,5 +149,11 @@ Singleton {
                 root.registerMouseMove();
             }
         }
+    }
+
+    Connections {
+        target: !root.hasHyprland ? WindowTracker : null
+        function onWindowFocused(windowClass: string, title: string): void { root.registerMouseMove(); }
+        function onWindowOpened(windowClass: string, title: string): void { root.registerMouseMove(); }
     }
 }

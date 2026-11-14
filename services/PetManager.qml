@@ -4,6 +4,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import "../config"
+import "../components/PetPersistence.js" as Persist
 import "../components/ai/Memory.js" as Memory
 import "../components/ai/Sanctuary.js" as Sanctuary
 
@@ -19,6 +20,8 @@ Singleton {
 
     property bool penVisible: false
     property string penSelectedPetId: ""
+    readonly property bool _openOnStart: Quickshell.env("QS_VPETS_OPEN_ON_START") === "1"
+    property bool _didOpenOnStart: false
 
     property double lastAmbientEmoteMs: 0
     property double lastSocialBoutMs: 0
@@ -135,6 +138,26 @@ Singleton {
             Date.now()
         );
         _lastRotationMs = Date.now();
+        if (root._openOnStart && !root._didOpenOnStart) {
+            root._didOpenOnStart = true;
+            Qt.callLater(() => root.openPen());
+        }
+    }
+
+    function flushAll(): void {
+        for (let i = 0; i < root.pets.length; i++) {
+            const lp = root.pets[i];
+            if (!lp || !lp._stateReady || !lp.petData) continue;
+            const rec = root.residentFor(lp.petData.id);
+            if (rec) rec.syncFromPet(lp, true);
+            else Persist.save(lp);
+        }
+        const rKeys = Object.keys(root.residentsById);
+        for (let i = 0; i < rKeys.length; i++) {
+            const rec = root.residentsById[rKeys[i]];
+            if (rec) rec.saveIfDirty();
+        }
+        Config.flush();
     }
 
     function isRoaming(id: string): bool {
@@ -545,9 +568,20 @@ Singleton {
             }, null, 2);
         }
 
+        function open(): string {
+            root.hidden = false;
+            root.openPen();
+            return "opened";
+        }
+
         function pen(): string {
             root.togglePen();
             return root.penVisible ? "opened" : "closed";
+        }
+
+        function flush(): string {
+            root.flushAll();
+            return "flushed";
         }
 
         function toggle(): string {

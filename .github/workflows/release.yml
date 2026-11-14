@@ -1,0 +1,74 @@
+name: CI & Portable Release
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  check-and-bundle:
+    name: Check & Build Portable (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64-linux
+            runner: ubuntu-24.04
+          - arch: aarch64-linux
+            runner: ubuntu-24.04-arm
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@main
+
+      - name: Magic Nix Cache
+        uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - name: Formatting check
+        run: nix fmt -- --ci
+
+      - name: Flake check (unit tests, qmllint, HM module, portable bundle)
+        run: nix flake check -L
+
+      - name: Stage portable release archive
+        run: |
+          nix build -L --out-link result-portable ".#packages.${{ matrix.arch }}.portable"
+          mkdir -p dist
+          cp -L result-portable/qs-vpets-portable-${{ matrix.arch }}.tar.zst* dist/
+          ls -lh dist/
+
+      - name: Upload portable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: portable-${{ matrix.arch }}
+          path: dist/qs-vpets-portable-${{ matrix.arch }}.tar.zst*
+          if-no-files-found: error
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: check-and-bundle
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download portable artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Publish Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            release-assets/qs-vpets-portable-*.tar.zst
+            release-assets/qs-vpets-portable-*.tar.zst.sha256

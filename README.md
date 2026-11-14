@@ -1,28 +1,114 @@
-# qs-vpets
+# qs-vpets — Pokémon Sanctuary for Wayland
 
-Interactive pixel-art desktop companions for Hyprland/Wayland built on [Quickshell](https://quickshell.outfoxxed.me/), featuring multi-timescale cognition, sleep memory consolidation, an emergent Sanctuary rotation & GUI Pen, and 25 pixel-verified [PMD Collab](https://sprites.pmdcollab.org/#/) species.
+Interactive pixel-art Pokémon companions for **any `wlr-layer-shell` Wayland desktop** — built on [Quickshell](https://quickshell.outfoxxed.me/) with multi-timescale cognition, sleep memory consolidation, inter-Pokémon social dynamics, a full **Pokémon Sanctuary** desktop app & launcher, and 25 pixel-verified [PMD Collab](https://sprites.pmdcollab.org/#/) species.
+
+---
 
 ## Highlights
 
-- **Sanctuary Pen GUI & Emergent Leave/Return Rotation (`qs-vpets pen`)**:
-  - Adopt 10–25+ companions without screen clutter: set `maxActiveRoaming` (default `3`) and per-pet roaming policy (`Auto Rotate`, `Always Out`, or `Stay in Pen`).
-  - Companions in the Sanctuary consume zero Wayland windows while resting, eating snacks, consolidating dreams, and building friendships with pen-mates.
-  - Roaming companions emergently pad off the edge of the screen into the Sanctuary when sleepy, while rested/nocturnal/music-loving companions stroll back onto the screen to take their turn.
-  - Full floating **Pokémon Sanctuary** window (`qs-vpets pen`) with live animated pasture strip, inline companion renaming (preserving memories & friendships), full stats/traits/quirks/milestones, direct care actions, and a searchable 25-species adoption catalog.
-- **25 Pixel-Verified PMDCollab Species & Authentic Ethology**:
-  - Every species has bespoke standing, loafing, vocal, gait, biome, and signature behavior profiles (`EventSleep` 8-direction belly loafing, Zorua shadow *Illusion* pranks, Umbreon moonlight ring pulses, Rowlet head-tilts, Litwick candle glow, Munchlax snack naps, Mew playful floats, Toxapex shell-bunkering, and silent frame-0 standing on vocal sheets so pets never bark or cheer in loops).
-- **Direct Desktop Interactivity**:
-  - **Stroke / Hover Petting, Cursor Wiggle Play, & Carry/Toss Physics**: Brush the cursor across a pet for headpats, wiggle the cursor nearby to bait playful pounces, or carry pets across monitors.
-  - **Window Watching, Ledge Perching, Urgent Window Alerts & MPRIS Music**: Pets sit North below active code windows to watch upward, hop onto window titlebars, perk up at urgent window alerts, and sway together to music.
-  - **Live Pangu Theme & Palette Sync**: Automatically adopts `~/.cache/pangu/colors.json` and `~/.config/pangu/config/theme.json` (fonts, corner radii, specular rims, and OLED/Material tokens) when running alongside Pangu.
+- **Full Desktop Application & Launcher (`Pokémon Sanctuary`)**:
+  - Ships with a standard desktop launcher (`qs-vpets.desktop`), vector icon, AppStream metadata, and login autostart (`qs-vpets autostart enable`).
+  - Launching **Pokémon Sanctuary** from your app menu (`qs-vpets open`) automatically starts the background overlay if needed and opens the Sanctuary GUI.
+- **Sanctuary Pasture & Emergent Rotation (`qs-vpets pen`)**:
+  - Adopt 10–25+ companions without cluttering your screen: set `maxActiveRoaming` (default `3`) and per-pet roaming policy (`Auto Rotate`, `Always Out`, or `Stay in Pen`).
+  - Off-screen companions rest in the Sanctuary with zero Wayland window overhead while eating snacks, consolidating dreams, and forming friendships.
+  - Roaming companions emergently pad off the screen edge into the Sanctuary when sleepy, while rested, nocturnal, or music-loving companions stroll out to take their turn.
+- **25 Pixel-Verified PMDCollab Species & Deep Inter-Pokémon Dynamics**:
+  - Bespoke standing, loafing, gait, biome, and signature behavior profiles (`EventSleep` 8-direction loafing, Zorua *Illusion* pranks, Umbreon moonlight ring pulses, Rowlet head-tilts, Litwick candle glow, Munchlax snack naps, Mew playful floats, Toxapex shell-bunkering).
+  - Spontaneous proximity-gated social interactions: tag/chase games, play-sparring, side-by-side loafing, synchronized music dancing, playful ambushes, rivalries, unrequited play bids, and multi-pet group huddles.
+- **Works Across Wayland Desktops**:
+  - Runs on **KDE Plasma Wayland (including SteamOS Desktop Mode)**, **Hyprland**, **Sway**, **Niri**, **COSMIC**, **River**, **Wayfire**, **Labwc**, and **MangoWC**.
+  - Uses `Quickshell.Wayland` (`wlr-layer-shell`, `ToplevelManager`, `IdleMonitor`) for fullscreen game awareness, active-app perception, window focus activation, and compositor idle tracking — with enhanced Hyprland IPC window-ledge perching when running under Hyprland.
 
-## Bundled Species (25)
+---
 
-`absol`, `charizard`, `cyndaquil`, `eevee`, `ferrothorn`, `gengar`, `giratina`, `grovyle`, `infernape`, `litwick`, `mew`, `mudkip`, `munchlax`, `phantump`, `pikachu`, `riolu`, `rowlet`, `shiftry`, `sprigatito`, `toxapex`, `umbreon`, `vulpix`, `whimsicott`, `wooper`, `zorua`.
+## Installation
 
-Sprite sheets and animations courtesy of the [PMD Sprite Repository (SpriteCollab)](https://sprites.pmdcollab.org/#/) community artists; per-species artist attributions are included in `assets/sprites/<species>/credits.txt`.
+### Quick Install (Any Wayland Linux / SteamOS)
 
-## Install (Nix / Home Manager)
+Installs into `~/.local/` (`~/.local/bin/qs-vpets` + **Pokémon Sanctuary** app launcher + login autostart). Automatically selects the zero-root portable bundle on **SteamOS / Bazzite / Atomic** distros, or native Quickshell mode when available:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/jesperls/qs-vpets/main/install.sh | bash
+```
+
+Launch from your application menu (**Pokémon Sanctuary**) or run:
+
+```sh
+~/.local/bin/qs-vpets open
+```
+
+Uninstall cleanly at any time (preserving companion memories in `~/.local/state/qs-vpets`):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/jesperls/qs-vpets/main/install.sh | bash -s -- --uninstall
+```
+
+---
+
+### SteamOS / Steam Deck (Desktop Mode)
+
+SteamOS Desktop Mode runs **KDE Plasma Wayland**, which supports `qs-vpets` out of the box without disabling `steamos-readonly` or using `sudo`:
+
+1. Switch your Steam Deck to **Desktop Mode**.
+2. Open **Konsole** and run:
+   ```sh
+   curl -fsSL https://raw.githubusercontent.com/jesperls/qs-vpets/main/install.sh | bash -s -- --portable
+   ```
+3. Open the Application Launcher and click **Pokémon Sanctuary** (under *Games* / *Utilities*).
+
+> **Note:** Gaming Mode uses `gamescope` (a single-game micro-compositor without desktop layer-shell overlays), so companions automatically live in **Desktop Mode** and stay completely out of Gaming Mode's way.
+
+---
+
+### Arch Linux / CachyOS / EndeavourOS
+
+`quickshell` is in the official Arch `[extra]` repository. Build and install cleanly as a native pacman package via `makepkg`:
+
+```sh
+git clone https://github.com/jesperls/qs-vpets.git
+cd qs-vpets/packaging/aur
+makepkg -si
+qs-vpets autostart enable
+qs-vpets open
+```
+
+---
+
+### Fedora & Ubuntu
+
+Using the native installer (enables the community Quickshell COPR on Fedora or PPA on Ubuntu, then installs `qs-vpets` into `~/.local/`):
+
+```sh
+git clone https://github.com/jesperls/qs-vpets.git
+cd qs-vpets
+./install.sh --native
+```
+
+Or use `./install.sh --portable` to run completely in `~/.local/opt/qs-vpets` without adding system repositories.
+
+---
+
+### Portable Tarball (Manual Download / Offline Install)
+
+Download `qs-vpets-portable-x86_64-linux.tar.zst` (or `aarch64-linux`) from [GitHub Releases](https://github.com/jesperls/qs-vpets/releases):
+
+```sh
+tar -I zstd -xf qs-vpets-portable-x86_64-linux.tar.zst
+cd qs-vpets-portable-x86_64-linux
+./install
+```
+
+You can also build the portable bundle yourself from any machine with Nix installed:
+
+```sh
+nix build github:jesperls/qs-vpets#portable
+ls -lh result/
+```
+
+---
+
+### NixOS & Home Manager
 
 ```nix
 # flake.nix
@@ -38,7 +124,7 @@ inputs.qs-vpets = {
 
   programs.qs-vpets = {
     enable = true;
-    systemd.target = "hyprland-session.target";
+    systemd.target = "graphical-session.target"; # or "hyprland-session.target"
     behavior = {
       maxActiveRoaming = 3;
       showEmotes = true;
@@ -49,17 +135,44 @@ inputs.qs-vpets = {
 }
 ```
 
-Leave `programs.qs-vpets.pets = null` (the default) to adopt, rename, and manage your roster interactively through `qs-vpets pen` (`~/.config/qs-vpets/config.json`). Memories, friendships, and personality growth persist in `~/.local/state/qs-vpets/`.
+Leave `programs.qs-vpets.pets = null` (the default) to adopt, rename, and manage your roster interactively through **Pokémon Sanctuary** (`~/.config/qs-vpets/config.json`). Memories, friendships, and personality growth persist in `~/.local/state/qs-vpets/`.
 
-## CLI & IPC Control
+---
+
+## Wayland Compositor Compatibility
+
+| Desktop / Compositor | Overlay & Input | Fullscreen & Active App | Idle Detection | Window Ledge Perching |
+| :--- | :---: | :---: | :---: | :---: |
+| **Hyprland** | Yes | Yes | Yes | Yes (Hyprland IPC) |
+| **KDE Plasma Wayland / SteamOS** | Yes | Yes | Yes | Graceful ground roam |
+| **Sway / Scroll** | Yes | Yes | Yes | Graceful ground roam |
+| **Niri** | Yes | Yes | Yes | Graceful ground roam |
+| **COSMIC / River / Wayfire / Labwc** | Yes | Yes | Yes | Graceful ground roam |
+| **GNOME Wayland (Mutter)** | No (`wlr-layer-shell` unsupported by Mutter) | — | — | — |
+| **X11 Sessions** | No (Wayland required) | — | — | — |
+
+---
+
+## Bundled Species (25)
+
+`absol`, `charizard`, `cyndaquil`, `eevee`, `ferrothorn`, `gengar`, `giratina`, `grovyle`, `infernape`, `litwick`, `mew`, `mudkip`, `munchlax`, `phantump`, `pikachu`, `riolu`, `rowlet`, `shiftry`, `sprigatito`, `toxapex`, `umbreon`, `vulpix`, `whimsicott`, `wooper`, `zorua`.
+
+Sprite sheets and animations courtesy of the [PMD Sprite Repository (SpriteCollab)](https://sprites.pmdcollab.org/#/) community artists; per-species artist attributions are included in `assets/sprites/<species>/credits.txt`.
+
+---
+
+## CLI & Keybind Control
 
 ```sh
-qs-vpets                        # Start overlay
-qs-vpets pen                    # Toggle the floating Pokémon Sanctuary / Pet Pen GUI
+qs-vpets open                   # Start overlay (if needed) and open Pokémon Sanctuary
+qs-vpets pen                    # Toggle the floating Pokémon Sanctuary GUI (ideal for keybinds)
+qs-vpets start                  # Start background overlay if not already running
+qs-vpets stop                   # Save companion memories and stop overlay
+qs-vpets autostart enable       # Start automatically on Wayland login (systemd / XDG autostart)
 qs-vpets status                 # Live JSON dump of roaming & Sanctuary companions
 qs-vpets roam <name> <mode>     # Set mode: auto | always | penned | out | in
 qs-vpets rename <old> <new>     # Rename a companion (preserves memories & friendships)
-qs-vpets inspect [name]         # Toggle right-click inspector card (or open Pen)
+qs-vpets inspect [name]         # Toggle right-click inspector card (or open Sanctuary)
 qs-vpets pet [name]             # Stroke/pat a companion
 qs-vpets feed [name]            # Give a berry snack
 qs-vpets play [name]            # Trigger a playful bout
@@ -67,6 +180,8 @@ qs-vpets summon [name]          # Call a companion to cursor (or out from Sanctu
 qs-vpets spawn <species> [name] # Adopt a new companion into your Sanctuary
 qs-vpets toggle                 # Hide/show all desktop pets
 ```
+
+---
 
 ## Verification
 

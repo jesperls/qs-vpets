@@ -4,6 +4,7 @@
   self,
   home-manager,
   qs-vpets,
+  portable,
 }:
 let
   home =
@@ -56,9 +57,25 @@ in
   package = qs-vpets;
 
   cli = pkgs.runCommand "qs-vpets-cli-check" { } ''
+    export HOME="$TMPDIR/home"
+    mkdir -p "$HOME"
+
+    test -f "${qs-vpets}/share/applications/qs-vpets.desktop"
+    test -f "${qs-vpets}/share/icons/hicolor/scalable/apps/qs-vpets.svg"
+    test -f "${qs-vpets}/share/metainfo/io.github.jesperls.qs_vpets.metainfo.xml"
+    test -f "${qs-vpets}/lib/systemd/user/qs-vpets.service"
+    grep -F "Name=Pokémon Sanctuary" "${qs-vpets}/share/applications/qs-vpets.desktop"
+
     ${lib.getExe qs-vpets} --version | grep -F "qs-vpets"
+    ${lib.getExe qs-vpets} --help | grep -F "open | app"
     ${lib.getExe qs-vpets} --help | grep -F "spawn <species>"
     ${lib.getExe qs-vpets} --help | grep -F "pen | sanctuary"
+    ${lib.getExe qs-vpets} autostart enable | grep -F "autostart enabled"
+    test -f "$HOME/.config/autostart/qs-vpets-autostart.desktop"
+    ${lib.getExe qs-vpets} autostart status | grep -F "enabled"
+    ${lib.getExe qs-vpets} autostart disable | grep -F "autostart disabled"
+    test ! -e "$HOME/.config/autostart/qs-vpets-autostart.desktop"
+
     if ${lib.getExe qs-vpets} dev /missing-vpets-dir >dev.log 2>&1; then
       echo "dev accepted missing checkout" >&2
       exit 1
@@ -66,6 +83,36 @@ in
     grep -F "run from a qs-vpets checkout" dev.log
     touch "$out"
   '';
+
+  portable-bundle =
+    pkgs.runCommand "qs-vpets-portable-check"
+      {
+        nativeBuildInputs = [
+          pkgs.gnutar
+          pkgs.zstd
+          pkgs.file
+        ];
+      }
+      ''
+        file "${portable.nsExec}/bin/vpets-ns-exec" | grep -F "statically linked"
+        (cd "${portable}" && sha256sum -c "${portable.archiveBase}.tar.zst.sha256")
+
+        mkdir -p "$TMPDIR/unpack" "$TMPDIR/home"
+        export HOME="$TMPDIR/home"
+        tar -I zstd -xf "${portable}/${portable.archiveBase}.tar.zst" -C "$TMPDIR/unpack"
+
+        "$TMPDIR/unpack/${portable.archiveBase}/install" --autostart
+        test -x "$HOME/.local/bin/qs-vpets"
+        test -f "$HOME/.local/share/applications/qs-vpets.desktop"
+        test -f "$HOME/.local/share/icons/hicolor/scalable/apps/qs-vpets.svg"
+        test -f "$HOME/.config/autostart/qs-vpets-autostart.desktop"
+        "$HOME/.local/bin/qs-vpets" --version | grep -F "qs-vpets"
+
+        "$HOME/.local/opt/qs-vpets/uninstall"
+        test ! -e "$HOME/.local/bin/qs-vpets"
+        test ! -d "$HOME/.local/opt/qs-vpets"
+        touch "$out"
+      '';
 
   home-manager =
     assert valid plain && valid custom && valid disabled && valid manual;

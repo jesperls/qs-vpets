@@ -124,6 +124,18 @@ Singleton {
         saveTimer.restart();
     }
 
+    function flush(): void {
+        if (!saveTimer.running && root._pendingJson === root._lastSavedJson && root._lastSavedJson.length > 0) {
+            return;
+        }
+        saveTimer.stop();
+        root._pendingJson = root._serialize();
+        root._lastSavedJson = root._pendingJson;
+        if (root._dirsCreated) {
+            configFile.setText(root._pendingJson);
+        }
+    }
+
     function load(): void {
         const raw = configFile.text();
         if (!raw || !raw.trim() || raw === root._lastSavedJson) return;
