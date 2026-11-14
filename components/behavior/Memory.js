@@ -227,10 +227,31 @@ function consolidateSleep(pet) {
         case "played_with":
         case "chase_bout":
         case "sync_danced":
+        case "sneak_boop":
             signals.playfulness += 0.005;
             signals.sociability += 0.007;
             signals.energy += 0.003;
             bumpQuirk("pack_spark", 0.030 + pet.personality.playfulness * 0.050);
+            break;
+        case "hearth_bask":
+            signals.composure += 0.006;
+            signals.patience += 0.005;
+            bumpQuirk("cozy_hermit", 0.045);
+            break;
+        case "lunar_vigil":
+            signals.composure += 0.006;
+            signals.sleepiness -= 0.006;
+            bumpQuirk("night_watch", 0.095);
+            break;
+        case "sunlit_bask":
+            signals.patience += 0.006;
+            signals.composure += 0.005;
+            bumpQuirk("daydreamer", 0.045);
+            break;
+        case "aura_kata":
+            signals.boldness += 0.006;
+            signals.composure += 0.006;
+            bumpQuirk("terminal_supervisor", 0.05);
             break;
         case "sparred":
             signals.boldness += 0.007;

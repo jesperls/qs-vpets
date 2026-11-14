@@ -11,6 +11,7 @@ import "SpeciesProfile.js" as SpeciesProfile
 import "SpriteSheet.js" as SpriteSheet
 import "behavior/Personality.js" as Personality
 import "behavior/Abilities.js" as Abilities
+import "behavior/Evolution.js" as Evolution
 
 FloatingWindow {
     id: root
@@ -62,6 +63,18 @@ FloatingWindow {
         return root.selectedPetId ? PetManager.residentFor(root.selectedPetId) : null;
     }
     readonly property bool selectedIsRoaming: root.selectedPetId ? PetManager.isRoaming(root.selectedPetId) : false
+
+    readonly property var selectedEvolution: {
+        const _rev = PetManager.residentRevision;
+        const _liveBond = root.selectedLivePet ? root.selectedLivePet.bond : 0;
+        const _liveMat = root.selectedLivePet ? root.selectedLivePet.maturity : 0;
+        void _rev; void _liveBond; void _liveMat;
+        const src = root.selectedLivePet
+            ? root.selectedLivePet
+            : (root.selectedResident ? root.selectedResident.stateObj : null);
+        const sp = root.selectedConfig ? root.selectedConfig.sprite : "";
+        return Evolution.evaluate(src, sp);
+    }
 
     readonly property var filteredRoster: {
         const q = root.rosterSearch.trim().toLowerCase();
@@ -2410,6 +2423,115 @@ FloatingWindow {
                                                     color: Theme.muted
                                                     font.family: Theme.monoFont
                                                     font.pixelSize: 9
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            Rectangle {
+                                visible: root.selectedEvolution && root.selectedEvolution.ready
+                                Layout.fillWidth: true
+                                implicitHeight: evoCol.implicitHeight + 22
+                                radius: Theme.radius(-5)
+                                color: Theme.alpha(Theme.accent, 0.08)
+                                border.width: 1
+                                border.color: Theme.alpha(Theme.accent, 0.34)
+
+                                ColumnLayout {
+                                    id: evoCol
+                                    anchors {
+                                        left: parent.left
+                                        right: parent.right
+                                        top: parent.top
+                                        margins: 11
+                                    }
+                                    spacing: 7
+
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 6
+
+                                        UiIcon {
+                                            name: "spark"
+                                            size: 13
+                                            color: Theme.accent
+                                        }
+
+                                        Text {
+                                            text: "Evolution Ready"
+                                            color: Theme.text
+                                            font.family: Theme.uiFont
+                                            font.pixelSize: 11
+                                            font.weight: Font.DemiBold
+                                        }
+                                    }
+
+                                    Text {
+                                        visible: !!(root.selectedEvolution && root.selectedEvolution.nextHint)
+                                        Layout.fillWidth: true
+                                        wrapMode: Text.WordWrap
+                                        text: root.selectedEvolution ? (root.selectedEvolution.nextHint || "") : ""
+                                        color: Theme.subtext
+                                        font.family: Theme.uiFont
+                                        font.pixelSize: 10
+                                    }
+
+                                    Flow {
+                                        Layout.fillWidth: true
+                                        spacing: 6
+
+                                        Repeater {
+                                            model: root.selectedEvolution ? (root.selectedEvolution.options || []) : []
+
+                                            delegate: Rectangle {
+                                                id: evoChoicePill
+                                                required property var modelData
+                                                implicitHeight: 26
+                                                implicitWidth: evoChoiceRow.implicitWidth + 18
+                                                radius: Theme.radius(-7)
+                                                color: evoChoiceMouse.containsMouse
+                                                    ? Theme.alpha(Theme.accent, 0.28)
+                                                    : Theme.alpha(Theme.accent, 0.16)
+                                                border.width: 1
+                                                border.color: Theme.alpha(Theme.accent, 0.45)
+
+                                                RowLayout {
+                                                    id: evoChoiceRow
+                                                    anchors.centerIn: parent
+                                                    spacing: 5
+
+                                                    UiIcon {
+                                                        name: "spark"
+                                                        size: 11
+                                                        color: Theme.accent
+                                                    }
+
+                                                    Text {
+                                                        text: "Evolve into " + (evoChoicePill.modelData.displayName || evoChoicePill.modelData.species || "")
+                                                        color: Theme.text
+                                                        font.family: Theme.uiFont
+                                                        font.pixelSize: 10
+                                                        font.weight: Font.Medium
+                                                    }
+                                                }
+
+                                                MouseArea {
+                                                    id: evoChoiceMouse
+                                                    anchors.fill: parent
+                                                    hoverEnabled: true
+                                                    cursorShape: Qt.PointingHandCursor
+                                                    onClicked: {
+                                                        if (!root.selectedConfig) return;
+                                                        const targetSp = evoChoicePill.modelData.species || "";
+                                                        if (PetManager.evolveCompanion(root.selectedConfig.id, targetSp)) {
+                                                            root.stageOverrideState = "emit";
+                                                            stageSprite.triggerSquash(1.18, 0.84);
+                                                            stageBubble.showEmote("heart");
+                                                            stageOverrideTimer.restart();
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }

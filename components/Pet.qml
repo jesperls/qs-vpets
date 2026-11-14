@@ -11,6 +11,8 @@ import "behavior/Perception.js" as Perception
 import "behavior/Drives.js" as Drives
 import "behavior/Memory.js" as Memory
 import "behavior/Plans.js" as Plans
+import "behavior/Abilities.js" as Abilities
+import "behavior/Social.js" as Social
 import "PetNav.js" as Nav
 import "PetPersistence.js" as Persist
 
@@ -46,6 +48,15 @@ Item {
     property real vz: 0
     property real _tossPeakSpeed: 0
     property int _bounceCount: 0
+    property var _jumpLanding: null
+    property string _perchTrackedAddr: ""
+    property real _perchRelX: 0.5
+    property real _perchPrevWinX: 0
+    property real _perchPrevWinY: 0
+    property bool _perchRiding: false
+    property real _perchSteadyTime: 0
+    property string _yawnWarmPeerName: ""
+    property bool _wakeWarmGreet: false
 
     property real ageSeconds: 0
     property real maturity: 0
@@ -192,6 +203,8 @@ Item {
             Plans.clearPlan(root);
         } else if (s !== "perch") {
             perchedWindowAddr = "";
+            _perchTrackedAddr = "";
+            _perchRiding = false;
         }
         state_ = s;
         if (s === "walk" || s === "wander" || s === "zoomies") {
@@ -238,12 +251,19 @@ Item {
                 sitTimer.interval = 65000 + Math.random() * 85000;
                 sitTimer.restart();
             }
+            if (s === "loaf" && !_retiringToPen && restDrive > 0.34) {
+                Social.broadcastYawn(root);
+            }
             break;
         case "zoomies":
             wanderDirTimer.interval = 1100;
             wanderDirTimer.restart();
             zoomiesTimer.interval = 3800 + Math.random() * 4400;
             zoomiesTimer.restart();
+            if (!Personality.hasQuirk(root, "sky_acrobat") && !Abilities.enjoysAcrobaticToss(root) && Math.random() < 0.09) {
+                zoomieStumbleTimer.interval = 1200 + Math.random() * 1400;
+                zoomieStumbleTimer.restart();
+            }
             break;
         case "drag":
         case "airborne":
@@ -286,12 +306,62 @@ Item {
         sitTimer.stop();
         actionFallbackTimer.stop();
         zoomiesTimer.stop();
+        zoomieStumbleTimer.stop();
         fidgetRevert.stop();
+    }
+
+    function scheduleStaggeredWake(delayMs: int, warmGreet: bool): void {
+        _wakeWarmGreet = !!warmGreet;
+        wakeDelayTimer.interval = Math.max(250, delayMs);
+        wakeDelayTimer.restart();
+    }
+
+    function scheduleContagiousYawn(delayMs: int, warmPeerName: string): void {
+        if (yawnCatchTimer.running) return;
+        _yawnWarmPeerName = warmPeerName || "";
+        yawnCatchTimer.interval = Math.max(1500, delayMs);
+        yawnCatchTimer.restart();
     }
 
     Timer { id: idleTimer; onTriggered: Brain.think(root, Nav) }
     Timer { id: planBeatTimer; onTriggered: Brain.onPlanBeat(root, Nav) }
     Timer { id: walkTimer; onTriggered: Nav.walkArrived(root) }
+    Timer {
+        id: zoomieStumbleTimer
+        onTriggered: {
+            if (root.state_ === "zoomies") {
+                Brain.onEvent(root, "zoomie_stumble", null, Nav);
+            }
+        }
+    }
+    Timer {
+        id: wakeDelayTimer
+        onTriggered: {
+            if (root.state_ === "loaf" || root.state_ === "sit" || root.state_ === "deepsleep") {
+                Plans.clearPlan(root);
+                Memory.thinkAloud(root, "staggered_wake", "Stretched awake as the desktop came back to life", { minGapMs: 60000 });
+                if (root._wakeWarmGreet) root.emitEmote("heart");
+                root.enterState(SpeciesProfile.wakeStateFor(root));
+            }
+        }
+    }
+    Timer {
+        id: yawnCatchTimer
+        onTriggered: {
+            Brain.onEvent(root, "caught_yawn", { warmPeerName: root._yawnWarmPeerName }, Nav);
+            root._yawnWarmPeerName = "";
+        }
+    }
+    Timer {
+        id: dreamTwitchTimer
+        interval: 22000 + Math.random() * 16000
+        repeat: true
+        running: root.state_ === "deepsleep"
+        onTriggered: {
+            interval = 22000 + Math.random() * 16000;
+            if (Math.random() < 0.14) sprite.triggerSquash(1.05, 0.96);
+        }
+    }
     Timer {
         id: wanderEndTimer
         onTriggered: {
@@ -447,7 +517,7 @@ Item {
             return;
         }
         if (state_ === "perch") {
-            Nav.updatePerch(root);
+            Nav.updatePerch(root, dt);
             return;
         }
         if (targetSpeed <= 0) {
@@ -491,11 +561,16 @@ Item {
     }
     function onWindowEvent(cls: string): void { Brain.onEvent(root, "window_focused", { windowClass: cls }, Nav); }
     function onWindowOpened(cls: string): void { Brain.onEvent(root, "window_opened", { windowClass: cls }, Nav); }
+    function onWindowClosed(cls: string, gx: real, gy: real, w: real, h: real, addr: string): void {
+        Brain.onEvent(root, "window_closed", { windowClass: cls, gx: gx, gy: gy, w: w, h: h, address: addr }, Nav);
+    }
     function onWindowUrgent(cls: string, gx: real, gy: real): void { Brain.onEvent(root, "window_urgent", { windowClass: cls, gx: gx, gy: gy }, Nav); }
     function onWorkspaceChanged(): void { Brain.onEvent(root, "workspace_changed", null, Nav); }
     function onIdleBegan(): void { Brain.onEvent(root, "user_idle", null, Nav); }
-    function onIdleEnded(): void { Brain.onEvent(root, "user_active", null, Nav); }
+    function onIdleEnded(idleDurationSec = 0): void { Brain.onEvent(root, "user_active", { idleDurationSec: idleDurationSec }, Nav); }
     function onMusicStarted(): void { Brain.onEvent(root, "music_started", null, Nav); }
+    function onMicStateChanged(active: bool): void { Brain.onEvent(root, "mic_changed", { active: active }, Nav); }
+    function onBuildCompleted(durationSec: real): void { Brain.onEvent(root, "build_completed", { durationSec: durationSec }, Nav); }
 
     function toggleRest(): void {
         if (state_ === "loaf" || state_ === "sit" || state_ === "deepsleep") {
@@ -538,6 +613,37 @@ Item {
         retireSafetyTimer.restart();
         const perc = Perception.perceive(root);
         Plans.startPlan(root, Plans.buildRetirePlan(root, perc), Nav, Brain._pick);
+    }
+
+    function beginJointRetireWith(partner: var, isFollower: bool): void {
+        if (_retiringToPen || state_ === "drag" || !partner) return;
+        _retiringToPen = true;
+        retireSafetyTimer.restart();
+        const perc = Perception.perceive(root);
+        Plans.startPlan(root, Plans.buildJointRetirePlan(root, partner, perc, isFollower), Nav, Brain._pick);
+    }
+
+    function greetSanctuaryArrival(arrivingPet: var): void {
+        if (!arrivingPet || _retiringToPen || state_ === "drag" || state_ === "airborne") return;
+        Plans.startPlan(root, Plans.buildWelcomeFriendPlan(root, arrivingPet), Nav, Brain._pick);
+    }
+
+    function playEvolutionCeremony(): void {
+        if (state_ === "drag" || _retiringToPen) return;
+        sprite.triggerSquash(0.86, 1.18);
+        emitEmote("heart", true);
+        Plans.startPlan(root, {
+            name: "evolved_ceremony",
+            label: "Evolved!",
+            reason: "Celebrating evolution into " + SpeciesProfile.profileFor(petData.sprite).displayName,
+            urgency: 0.92,
+            durationMs: 24000,
+            steps: [
+                { kind: "act", label: "Radiant spin", states: ["twirl", "rotate"] },
+                { kind: "act", label: "Evolution flourish", states: ["emit", "pose", "hop"] },
+                { kind: "act", label: "Joyful hop", states: ["hop", "nod"] }
+            ]
+        }, Nav, Brain._pick);
     }
 
     Timer {
@@ -679,6 +785,7 @@ Item {
                 }
                 const perc = Perception.perceive(root);
                 Plans.startPlan(root, Plans.buildArrivePlan(root, perc, fromLeft), Nav, Brain._pick);
+                PetManager.notifySanctuaryArrival(root);
             });
         }
     }

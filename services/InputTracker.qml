@@ -13,10 +13,11 @@ Singleton {
     readonly property bool hasHyprland: (Quickshell.env("HYPRLAND_INSTANCE_SIGNATURE") || "").length > 0
 
     signal idleBegan
-    signal idleEnded
+    signal idleEnded(idleDurationSec: real)
     signal cursorWiggled(gx: real, gy: real)
 
     property bool _active: true
+    property double _idleBeganMs: 0
     readonly property bool userActive: _active
     property bool cursorKnown: hasHyprland
     property real cursorX: 0
@@ -112,6 +113,7 @@ Singleton {
                 idleTimer.stop();
                 if (root._active) {
                     root._active = false;
+                    root._idleBeganMs = Date.now();
                     root.cursorSpeed = 0;
                     root.idleBegan();
                 }
@@ -126,16 +128,21 @@ Singleton {
         interval: Math.max(30, Config.idleTimeout) * 1000
         running: true
         onTriggered: {
-            root._active = false;
-            root.cursorSpeed = 0;
-            root.idleBegan();
+            if (root._active) {
+                root._active = false;
+                root._idleBeganMs = Date.now();
+                root.cursorSpeed = 0;
+                root.idleBegan();
+            }
         }
     }
 
     function registerMouseMove(): void {
         if (!root._active) {
+            const awaySec = root._idleBeganMs > 0 ? Math.max(0, (Date.now() - root._idleBeganMs) / 1000) : 0;
             root._active = true;
-            root.idleEnded();
+            root._idleBeganMs = 0;
+            root.idleEnded(awaySec);
         }
         idleTimer.restart();
     }

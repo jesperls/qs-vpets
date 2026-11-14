@@ -13,7 +13,9 @@ function _navHandle() {
         wanderStart: wanderStart,
         fleeFrom: fleeFrom,
         randomDir: randomDir,
-        walkArrived: walkArrived
+        walkArrived: walkArrived,
+        launchJumpTo: launchJumpTo,
+        launchSoftDrop: launchSoftDrop
     };
 }
 
@@ -91,8 +93,49 @@ function randomDir(pet) {
     _setAngle(pet, Math.random() * 2 * Math.PI);
 }
 
+// Parabolic ledge-to-ledge jump landing cleanly at (targetGX, targetGY).
+function launchJumpTo(pet, targetGX, targetGY, arcBoost) {
+    var curGX = globalX(pet), curGY = globalY(pet);
+    var dx = targetGX - curGX, dy = targetGY - curGY;
+    var dist = Math.hypot(dx, dy);
+    var flightT = Math.max(0.32, Math.min(0.72, dist / 285));
+    var z0 = 6;
+    pet.vx = dx / flightT;
+    pet.vy = dy / flightT;
+    pet.altitude = z0;
+    pet.vz = 0.5 * GRAVITY * flightT - (z0 / flightT) + (arcBoost || 0);
+    pet._tossPeakSpeed = 0;
+    pet._bounceCount = 2;
+    pet._jumpLanding = { gx: targetGX, gy: targetGY, softDrop: false, landAddr: "" };
+    pet.onJourney = false;
+    if (Math.abs(dx) > 4) pet.facingRight = dx >= 0;
+    if (pet.sprite && pet.sprite.triggerSquash) pet.sprite.triggerSquash(0.86, 1.16);
+    pet.enterState("airborne");
+}
+
+// Soft gravity drop when a perched window closes or shifts out from underneath.
+function launchSoftDrop(pet, landGX, landGY, lowerPerchAddr) {
+    var curGY = globalY(pet);
+    var petH = pet.height || 64;
+    var petW = pet.width || 64;
+    var clampedLY = Math.max(pet.screenY(), Math.min(pet.screenY() + pet.screenH() - petH, landGY));
+    var drop = Math.max(18, Math.min(260, clampedLY - curGY));
+    pet.worldX = Math.max(0, Math.min(pet.screenW() - petW, landGX - pet.screenX()));
+    pet.worldY = Math.max(0, Math.min(pet.screenH() - petH, clampedLY - pet.screenY()));
+    pet.vx = 0;
+    pet.vy = 0;
+    pet.altitude = drop;
+    pet.vz = 35;
+    pet._tossPeakSpeed = 0;
+    pet._bounceCount = 2;
+    pet._jumpLanding = { gx: landGX, gy: clampedLY, softDrop: true, landAddr: lowerPerchAddr || "" };
+    pet.onJourney = false;
+    pet.enterState("airborne");
+}
+
 // Launch pet after drag-release; gentle drops settle immediately, throws enter ballistic flight.
 function launchFromRelease(pet, vx, vy, initialAltitude) {
+    pet._jumpLanding = null;
     var speed = Math.hypot(vx, vy);
     if (speed < 150 && (initialAltitude || 0) < 10) {
         pet.altitude = 0;
@@ -117,17 +160,20 @@ function launchFromRelease(pet, vx, vy, initialAltitude) {
 }
 
 function updateAirborne(pet, dt) {
+    var targeted = !!pet._jumpLanding;
     pet.worldX += pet.vx * dt;
     pet.worldY += pet.vy * dt;
-    pet.vx *= Math.pow(0.88, dt * 4);
-    pet.vy *= Math.pow(0.88, dt * 4);
+    if (!targeted) {
+        pet.vx *= Math.pow(0.88, dt * 4);
+        pet.vy *= Math.pow(0.88, dt * 4);
+    }
 
     pet.altitude += pet.vz * dt;
     pet.vz -= GRAVITY * dt;
 
     if (pet.altitude <= 0) {
         pet.altitude = 0;
-        if (Math.abs(pet.vz) > 210 && (pet._bounceCount || 0) < 2) {
+        if (!targeted && Math.abs(pet.vz) > 210 && (pet._bounceCount || 0) < 2) {
             pet.vz = -pet.vz * 0.42;
             pet.vx *= 0.65;
             pet.vy *= 0.65;
@@ -140,6 +186,22 @@ function updateAirborne(pet, dt) {
         pet.vx = 0;
         pet.vy = 0;
         pet._tossPeakSpeed = 0;
+
+        if (targeted) {
+            var land = pet._jumpLanding;
+            pet._jumpLanding = null;
+            var pw = pet.width || 64, ph = pet.height || 64;
+            pet.worldX = Math.max(0, Math.min(pet.screenW() - pw, land.gx - pet.screenX()));
+            pet.worldY = Math.max(0, Math.min(pet.screenH() - ph, land.gy - pet.screenY()));
+            if (pet.sprite && pet.sprite.triggerSquash) pet.sprite.triggerSquash(1.18, 0.84);
+            if (land.softDrop) {
+                Brain.onEvent(pet, "perch_soft_landed", { landAddr: land.landAddr }, _navHandle());
+            } else {
+                Brain.onArrived(pet, _navHandle());
+            }
+            return true;
+        }
+
         if (pet.sprite && pet.sprite.triggerSquash) pet.sprite.triggerSquash(1.26, 0.74);
         Brain.onEvent(pet, "dropped", { speed: impactSpeed }, _navHandle());
         return true;
@@ -147,8 +209,37 @@ function updateAirborne(pet, dt) {
     return false;
 }
 
-// Keep a perched pet anchored to its window's top edge, or hop down if the window disappears/jumps.
-function updatePerch(pet) {
+function _dropFromLostPerch(pet, wins) {
+    pet._perchTrackedAddr = "";
+    pet._perchRiding = false;
+    var petW = pet.width || 64, petH = pet.height || 64;
+    var curGX = globalX(pet), curGY = globalY(pet);
+    var sx = pet.screenX(), sy = pet.screenY();
+    var sw = pet.screenW(), sh = pet.screenH();
+    var bestLedgeGY = Infinity;
+    var bestAddr = "";
+
+    for (var i = 0; i < wins.length; i++) {
+        var w = wins[i];
+        if (!w || w.fullscreen || w.w < 200 || w.h < 120) continue;
+        if (curGX + petW * 0.5 < w.x + 12 || curGX + petW * 0.5 > w.x + w.w - 12) continue;
+        var ledgeGY = Math.max(sy, w.y - petH * 0.85);
+        if (ledgeGY > curGY + 24 && ledgeGY - curGY < 380 && ledgeGY < bestLedgeGY) {
+            bestLedgeGY = ledgeGY;
+            bestAddr = w.address || "";
+        }
+    }
+
+    var floorGY = Math.max(sy + 24, sy + sh - petH - 28);
+    var landGY = bestAddr
+        ? bestLedgeGY
+        : Math.min(floorGY, curGY + Math.max(48, Math.min(210, floorGY - curGY)));
+    Brain.onEvent(pet, "perch_dropping", { landAddr: bestAddr }, _navHandle());
+    launchSoftDrop(pet, curGX, landGY, bestAddr);
+}
+
+// Ride moving/resizing windows smoothly and drop softly with gravity if a window vanishes.
+function updatePerch(pet, dt) {
     if (pet.state_ !== "perch" || !pet.perchedWindowAddr) return;
     var wins = (pet.windowTracker && pet.windowTracker.visibleWindows) || [];
     var match = null;
@@ -159,17 +250,55 @@ function updatePerch(pet) {
         }
     }
     if (!match) {
-        Brain.onEvent(pet, "perch_lost", null, _navHandle());
+        _dropFromLostPerch(pet, wins);
         return;
     }
-    var petH = pet.height || 64;
-    var wantGY = Math.max(pet.screenY(), match.y - petH * 0.85);
+
+    var petW = pet.width || 64, petH = pet.height || 64;
     var curGX = globalX(pet), curGY = globalY(pet);
-    if (Math.abs(curGY - wantGY) > 180 || curGX < match.x - 40 || curGX > match.x + match.w + 40) {
-        Brain.onEvent(pet, "perch_lost", null, _navHandle());
+    var span = Math.max(1, match.w - petW);
+
+    if (pet._perchTrackedAddr !== pet.perchedWindowAddr) {
+        pet._perchTrackedAddr = pet.perchedWindowAddr;
+        pet._perchRelX = Math.max(0.06, Math.min(0.94, (curGX - match.x) / span));
+        pet._perchPrevWinX = match.x;
+        pet._perchPrevWinY = match.y;
+        pet._perchRiding = false;
+        pet._perchSteadyTime = 0;
+    }
+
+    var stepDt = (dt && dt > 0) ? dt : 0.09;
+    var winDX = match.x - (pet._perchPrevWinX !== undefined ? pet._perchPrevWinX : match.x);
+    var winDY = match.y - (pet._perchPrevWinY !== undefined ? pet._perchPrevWinY : match.y);
+    pet._perchPrevWinX = match.x;
+    pet._perchPrevWinY = match.y;
+    var winSpeed = Math.hypot(winDX, winDY) / stepDt;
+
+    var wantGX = match.x + Math.max(8, Math.min(Math.max(8, span - 8), span * pet._perchRelX));
+    var wantGY = Math.max(pet.screenY(), match.y - petH * 0.85);
+
+    if (Math.hypot(wantGX - curGX, wantGY - curGY) > 640) {
+        _dropFromLostPerch(pet, wins);
         return;
     }
+
+    pet.worldX = Math.max(0, Math.min(pet.screenW() - petW, wantGX - pet.screenX()));
     pet.worldY = Math.max(0, Math.min(pet.screenH() - petH, wantGY - pet.screenY()));
+
+    if (winSpeed > 220) {
+        pet._perchRiding = true;
+        pet._perchSteadyTime = 0;
+        if (pet.sprite && pet.sprite.currentState !== "lostBalance") {
+            pet.sprite.setState("lostBalance");
+        }
+    } else if (pet._perchRiding) {
+        pet._perchSteadyTime = (pet._perchSteadyTime || 0) + stepDt;
+        if (pet._perchSteadyTime >= 0.22) {
+            pet._perchRiding = false;
+            pet._perchSteadyTime = 0;
+            if (pet.sprite) pet.sprite.setState("shake");
+        }
+    }
 }
 
 function trySnapArrive(pet, step) {
@@ -185,6 +314,7 @@ function trySnapArrive(pet, step) {
 
 function updateSteering(pet, dt) {
     if (!pet.onJourney) return;
+    if (Brain.checkStalkGlance && Brain.checkStalkGlance(pet, _navHandle())) return;
     var wp = Topology.routeWaypoint(pet, pet.targetGX, pet.targetGY);
     if (!wp.reachable) {
         pet.onJourney = false;

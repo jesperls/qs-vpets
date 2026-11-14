@@ -271,6 +271,88 @@ function rebuff(pet, other) {
     other.socialEvent("rebuff", pet);
 }
 
+var _SECTOR_TO_ROW = [2, 1, 0, 7, 6, 5, 4, 3];
+
+function _angleToRow(angle) {
+    var a = ((angle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+    return _SECTOR_TO_ROW[Math.round(a / (Math.PI / 4)) % 8];
+}
+
+function isPeerLookingAt(observer, target) {
+    if (!observer || !target) return false;
+    var ox = observer.screenX() + observer.worldX;
+    var oy = observer.screenY() + observer.worldY;
+    var tx = target.screenX() + target.worldX;
+    var ty = target.screenY() + target.worldY;
+    var towardRow = _angleToRow(Math.atan2(ty - oy, tx - ox));
+    var curRow = (observer.sprite && observer.sprite._dirRow !== undefined)
+        ? observer.sprite._dirRow
+        : (observer.facingRight ? 2 : 6);
+    var diff = Math.abs(towardRow - curRow);
+    diff = Math.min(diff, 8 - diff);
+    return diff <= 1;
+}
+
+function sneakBoop(pet, other) {
+    var oName = other.petData.name;
+    markPeerBout(pet, "play");
+    Memory.adjustRelation(pet, oName, 0.015, 0.06, "play", { outcome: "tag" });
+    Memory.recordEpisode(pet, "sneak_boop", { valence: 0.46, salience: 0.62, withPet: oName });
+    Memory.thinkAloud(pet, "sneak_boop", "Snuck up behind " + oName + " for a playful boop");
+    pet.playDrive = Math.max(0, pet.playDrive - 0.22);
+    pet.socialDrive = Math.max(0, pet.socialDrive - 0.14);
+    pet.mood = Drives.clamp01(pet.mood + 0.06);
+    Drives.happier(pet, 0.03);
+    other.socialEvent("sneak_boop", pet);
+}
+
+function inviteCopycat(leader, follower) {
+    if (!leader || !follower) return;
+    markPeerBout(leader, "greet");
+    Memory.adjustRelation(leader, follower.petData.name, 0.012, 0.05, null, { respectDelta: 0.02, outcome: "greet" });
+    follower.socialEvent("mentor_patrol", leader);
+}
+
+function broadcastYawn(pet) {
+    if (!pet || !pet.petManager || !pet.petManager.pets) return;
+    var now = _now(pet);
+    if (now - (pet._lastYawnBroadcastMs || 0) < 240000) return;
+    pet._lastYawnBroadcastMs = now;
+
+    var all = pet.petManager.pets;
+    var sx = pet.screenX(), sy = pet.screenY();
+    var myGX = sx + pet.worldX, myGY = sy + pet.worldY;
+    var warmPeerName = SpeciesProfile.hasAbility(pet, "hearth_warmth") ? pet.petData.name : "";
+
+    if (!warmPeerName) {
+        for (var w = 0; w < all.length; w++) {
+            var wp = all[w];
+            if (!wp || wp.screenX() !== sx || wp.screenY() !== sy) continue;
+            if ((wp.state_ === "loaf" || wp.state_ === "deepsleep") && SpeciesProfile.hasAbility(wp, "hearth_warmth")) {
+                warmPeerName = wp.petData.name;
+                break;
+            }
+        }
+    }
+
+    for (var i = 0; i < all.length; i++) {
+        var o = all[i];
+        if (!o || o === pet || o._retiringToPen) continue;
+        if (o.screenX() !== sx || o.screenY() !== sy) continue;
+        if (o.state_ !== "idle" || o.activePlan) continue;
+        var d = Math.hypot((o.screenX() + o.worldX) - myGX, (o.screenY() + o.worldY) - myGY);
+        if (d > 280) continue;
+        var op = o.personality;
+        if (o.restDrive < 0.22 && op.sleepiness < 0.45) continue;
+        if (Math.random() < 0.28 + op.sleepiness * 0.24) {
+            if (typeof o.scheduleContagiousYawn === "function") {
+                o.scheduleContagiousYawn(Math.round(5000 + Math.random() * 4800), warmPeerName);
+            }
+            break;
+        }
+    }
+}
+
 function illusionSurprise(pet, other) {
     var oName = other.petData.name;
     markPeerBout(pet, "show_off");

@@ -257,6 +257,7 @@ usage() {
 		  summon [name]              Call a companion to cursor (or out from Sanctuary)
 		  roam <name> <mode>         Set roam mode: auto | always | penned | out | in
 		  rename <old> <new>         Rename a companion while preserving memories & bonds
+		  evolve <name> [species]    Opt-in evolution when lifestyle milestones are met
 		  inspect [name]             Toggle the interactive inspector card
 		  spawn <species> [name]     Adopt a new companion into the Sanctuary
 		  version                    Print version
@@ -365,6 +366,10 @@ roam)
 rename)
 	[ $# -ge 2 ] || die "usage: qs-vpets rename <old-name> <new-name>"
 	ipc rename "$1" "$2"
+	;;
+evolve)
+	[ $# -ge 1 ] || die "usage: qs-vpets evolve <name> [species]"
+	ipc evolve "$1" "${2:-}"
 	;;
 inspect)
 	ipc inspect "${1:-}"

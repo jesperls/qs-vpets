@@ -108,6 +108,8 @@ function perceive(pet) {
         if (rw.y < wScreen.y + Math.max((wScreen.topInset || 0) + 4, petH * 0.4)) continue;
         var px = rw.x + rw.w * 0.5;
         var py = Math.max(wScreen.y, rw.y - petH * 0.85);
+        var leftGX = Math.max(wScreen.x + 8, rw.x + 12);
+        var rightGX = Math.max(leftGX, Math.min(wScreen.x + wScreen.width - petW - 8, rw.x + rw.w - petW - 12));
         perches.push({
             address: rw.address || "",
             cls: rw.cls || "",
@@ -118,9 +120,38 @@ function perceive(pet) {
             h: rw.h,
             gx: px,
             gy: py,
+            leftGX: leftGX,
+            rightGX: rightGX,
+            spanW: Math.max(0, rightGX - leftGX),
+            sameScreen: wScreen.x === sx && wScreen.y === sy,
             focused: !!rw.focused,
-            dist: Math.hypot(px - petGX, py - petGY)
+            dist: Math.hypot(px - petGX, py - petGY),
+            adjacentLedges: []
         });
+    }
+    for (var pa = 0; pa < perches.length; pa++) {
+        var pA = perches[pa];
+        if (!pA.sameScreen) continue;
+        for (var pb = 0; pb < perches.length; pb++) {
+            if (pa === pb) continue;
+            var pB = perches[pb];
+            if (!pB.sameScreen) continue;
+            if (pA.address && pA.address === pB.address) continue;
+            if (Math.abs(pB.gy - pA.gy) > 220) continue;
+            var fromGX = pB.gx >= pA.gx ? pA.rightGX : pA.leftGX;
+            var toGX = pB.gx >= pA.gx ? pB.leftGX : pB.rightGX;
+            var jDist = Math.hypot(toGX - fromGX, pB.gy - pA.gy);
+            if (jDist >= 56 && jDist <= 320) {
+                pA.adjacentLedges.push({
+                    perch: pB,
+                    fromGX: fromGX,
+                    toGX: toGX,
+                    toGY: pB.gy,
+                    dist: jDist
+                });
+            }
+        }
+        pA.adjacentLedges.sort(function(a, b) { return a.dist - b.dist; });
     }
     if (!myScreenFullscreen && wt.isFullscreen && (!win || win.onMyScreen)) {
         myScreenFullscreen = true;
@@ -141,7 +172,8 @@ function perceive(pet) {
         active: !!it.userActive
     };
 
-    var mt = pet.mediaTracker || { isPlaying: false, trackTitle: "", trackArtist: "" };
+    var mt = pet.mediaTracker || { isPlaying: false, micActive: false, trackTitle: "", trackArtist: "" };
+    var sm = pet.systemMonitor || {};
 
     var others = [];
     var allPets = (pet.petManager && pet.petManager.pets) ? pet.petManager.pets : [];
@@ -161,7 +193,11 @@ function perceive(pet) {
                       || oPlan === "play_tag" || oPlan === "flee_tag" || oPlan === "reverse_tag"
                       || oPlan === "squabble" || oPlan === "squabble_reply"
                       || oPlan === "invite_play" || oPlan === "sync_dance"
-                      || oPlan === "peacekeeper" || oPlan === "retire_to_pen";
+                      || oPlan === "peacekeeper" || oPlan === "retire_to_pen"
+                      || oPlan === "joint_retire" || oPlan === "welcome_friend"
+                      || oPlan === "sneak_boop" || oPlan === "mentor_patrol"
+                      || oPlan === "copycat_trail" || oPlan === "guardian_check"
+                      || oPlan === "timid_hide";
         others.push({
             pet: o,
             name: o.petData.name,
@@ -194,20 +230,90 @@ function perceive(pet) {
     }
     others.sort(function(a, b) { return a.dist - b.dist; });
 
+    var seamPeeks = [];
+    if (reachable.length > 1) {
+        for (var si = 0; si < reachable.length; si++) {
+            var oScr = reachable[si];
+            if (Topology.sameScreen(curScr, oScr)) continue;
+            var seam = Topology.seamBetween(curScr, oScr, petW, petH);
+            if (!seam) continue;
+            var standGX = petGX, standGY = petGY, lookGX = petGX, lookGY = petGY, crossGX = petGX, crossGY = petGY;
+            var midSpan = (seam.lo + seam.hi) * 0.5;
+            if (seam.dir === "right") {
+                standGX = Math.max(sx + 8, sx + sw - petW - 10);
+                standGY = Topology.clamp(petGY, seam.lo + 16, Math.max(seam.lo + 16, seam.hi - petH - 16));
+                lookGX = oScr.x + Math.min(240, oScr.width * 0.35);
+                lookGY = standGY;
+                crossGX = oScr.x + Math.min(160, Math.max(36, oScr.width - petW - 36));
+                crossGY = Topology.clamp(standGY, oScr.y + 28, Math.max(oScr.y + 28, oScr.y + oScr.height - petH - 28));
+            } else if (seam.dir === "left") {
+                standGX = sx + 10;
+                standGY = Topology.clamp(petGY, seam.lo + 16, Math.max(seam.lo + 16, seam.hi - petH - 16));
+                lookGX = oScr.x + oScr.width - Math.min(240, oScr.width * 0.35);
+                lookGY = standGY;
+                crossGX = Math.max(oScr.x + 24, oScr.x + oScr.width - petW - 160);
+                crossGY = Topology.clamp(standGY, oScr.y + 28, Math.max(oScr.y + 28, oScr.y + oScr.height - petH - 28));
+            } else if (seam.dir === "down") {
+                standGX = Topology.clamp(midSpan - petW * 0.5, seam.lo + 16, Math.max(seam.lo + 16, seam.hi - petW - 16));
+                standGY = Math.max(sy + 8, sy + sh - petH - 10);
+                lookGX = standGX;
+                lookGY = oScr.y + Math.min(200, oScr.height * 0.35);
+                crossGX = Topology.clamp(standGX, oScr.x + 28, Math.max(oScr.x + 28, oScr.x + oScr.width - petW - 28));
+                crossGY = oScr.y + Math.min(140, Math.max(32, oScr.height - petH - 32));
+            } else if (seam.dir === "up") {
+                standGX = Topology.clamp(midSpan - petW * 0.5, seam.lo + 16, Math.max(seam.lo + 16, seam.hi - petW - 16));
+                standGY = sy + (curScr.topInset || 0) + 10;
+                lookGX = standGX;
+                lookGY = oScr.y + oScr.height - Math.min(200, oScr.height * 0.35);
+                crossGX = Topology.clamp(standGX, oScr.x + 28, Math.max(oScr.x + 28, oScr.x + oScr.width - petW - 28));
+                crossGY = Math.max(oScr.y + 28, oScr.y + oScr.height - petH - 140);
+            }
+            var hasPeerAcross = false;
+            for (var oi = 0; oi < others.length; oi++) {
+                if (Topology.pointOnScreen(oScr, others[oi].gx, others[oi].gy)) { hasPeerAcross = true; break; }
+            }
+            var hasWinAcross = !!(win && !win.onMyScreen && Topology.pointOnScreen(oScr, win.gx, win.gy));
+            seamPeeks.push({
+                dir: seam.dir,
+                screenName: oScr.name || "adjacent display",
+                standGX: standGX,
+                standGY: standGY,
+                lookGX: lookGX,
+                lookGY: lookGY,
+                crossGX: crossGX,
+                crossGY: crossGY,
+                hasPeer: hasPeerAcross,
+                hasWindow: hasWinAcross,
+                dist: Math.hypot(standGX - petGX, standGY - petGY)
+            });
+        }
+        seamPeeks.sort(function(a, b) { return a.dist - b.dist; });
+    }
+
     var dHome = Math.hypot(petGX - pet.homeGX, petGY - pet.homeGY);
     var homeReachable = reachable.length === 0 || Topology.screenAt(reachable, pet.homeGX, pet.homeGY) !== null;
+    var solarPhase = sm.solarPhase || (pet.isNighttime ? "night" : "day");
 
     return {
         now: now,
         hour: pet._hour !== undefined ? pet._hour : new Date(now).getHours(),
         isNight: !!pet.isNighttime,
-        systemBusy: !!(pet.systemMonitor && pet.systemMonitor.isUnderLoad),
+        solarPhase: solarPhase,
+        isDawn: solarPhase === "dawn",
+        isDusk: solarPhase === "dusk",
+        weatherKind: sm.weatherKind || "clear",
+        isRaining: !!sm.isRaining,
+        isSnowing: !!sm.isSnowing,
+        thermalWarmth: sm.thermalWarmth !== undefined ? sm.thermalWarmth : 0,
+        micActive: !!mt.micActive,
+        systemBusy: !!sm.isUnderLoad,
         userBusy: !!wt.isUserBusy,
         userIdle: !it.userActive,
         windowCount: wt.windowCount || 0,
         fullscreen: myScreenFullscreen,
         win: win,
         perches: perches,
+        seamPeeks: seamPeeks,
         cursor: cursor,
         mediaPlaying: !!mt.isPlaying,
         mediaTitle: mt.trackTitle || "",

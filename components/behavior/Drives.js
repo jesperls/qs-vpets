@@ -1,3 +1,4 @@
+.import "../SpeciesProfile.js" as SpeciesProfile
 .import "Personality.js" as Personality
 
 function clamp01(v) {
@@ -88,6 +89,8 @@ function integrate(pet, perc, dt) {
         var pr = (0.000065 + p.playfulness * 0.00030) * (0.2 + pet.alertness * 0.8);
         if (pet.happiness > 0.6) pr *= 1.35;
         if (perc.mediaPlaying) pr *= hasMelomaniac ? 1.65 : 1.2;
+        if (perc.isRaining && SpeciesProfile.hasAbility(pet, "tide_splash")) pr *= 1.35;
+        if (perc.micActive) pr *= 0.35;
         pet.playDrive = clamp01(pet.playDrive + pr * dt);
     }
 
@@ -96,7 +99,8 @@ function integrate(pet, perc, dt) {
     } else if (watching && !perc.userIdle) {
         pet.boredom = clamp01(pet.boredom - 0.00018 * dt);
     } else {
-        pet.boredom = clamp01(pet.boredom + 0.00026 * (0.45 + p.energy * 0.8) * dt);
+        var br = 0.00026 * (0.45 + p.energy * 0.8) * (perc.micActive ? 0.45 : 1.0);
+        pet.boredom = clamp01(pet.boredom + br * dt);
     }
 
     var homeNeed = clamp01((perc.distFromHome - 280) / 650) * (1 - p.boldness * 0.62);

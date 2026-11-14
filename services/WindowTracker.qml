@@ -23,9 +23,13 @@ Singleton {
 
     property int _focusChanges: 0
     readonly property bool isUserBusy: _focusChanges > 4
+    property var _prevWindowMap: ({})
+    property bool _hasWindowBaseline: false
+    property double _lastWorkspaceChangeMs: 0
 
     signal windowOpened(windowClass: string, title: string)
     signal windowFocused(windowClass: string, title: string)
+    signal windowClosed(windowClass: string, gx: real, gy: real, w: real, h: real, address: string)
     signal windowUrgent(windowClass: string, gx: real, gy: real)
     signal workspaceChanged
 
@@ -67,6 +71,8 @@ Singleton {
         if (Hyprland.focusedWorkspace) activeWsIds[Hyprland.focusedWorkspace.id] = true;
 
         const wins = [];
+        const allMappedAddrs = {};
+        const nextMap = {};
         let activePos = null;
         let activeCls = "";
         let activeTitle = "";
@@ -77,6 +83,8 @@ Singleton {
         for (const tl of Hyprland.toplevels.values) {
             const raw = tl.lastIpcObject;
             if (!raw || raw.hidden || raw.mapped === false) continue;
+            const addr = String(raw.address ?? tl.address ?? "");
+            if (addr.length > 0) allMappedAddrs[addr] = true;
             const wsId = raw.workspace ? raw.workspace.id : -999;
             if (wsId === focusedWsId) focusedWsCount++;
             if (!activeWsIds[wsId]) continue;
@@ -88,7 +96,7 @@ Singleton {
             const winMaximizedOrFs = fsMode !== 0;
             const winTrueFs = fsMode >= 2;
             const entry = {
-                address: String(raw.address ?? tl.address ?? ""),
+                address: addr,
                 cls: String(raw.class ?? ""),
                 title: String(raw.title ?? tl.title ?? ""),
                 x: Number(at[0] ?? 0),
@@ -100,6 +108,7 @@ Singleton {
                 trueFullscreen: winTrueFs
             };
             wins.push(entry);
+            if (addr.length > 0) nextMap[addr] = entry;
 
             if (isFocused) {
                 activePos = { address: entry.address, x: entry.x, y: entry.y, w: entry.w, h: entry.h };
@@ -108,6 +117,19 @@ Singleton {
                 fs = winTrueFs;
             }
         }
+
+        if (root._hasWindowBaseline && (Date.now() - root._lastWorkspaceChangeMs) > 700) {
+            const prevKeys = Object.keys(root._prevWindowMap);
+            for (let i = 0; i < prevKeys.length; i++) {
+                const k = prevKeys[i];
+                if (!allMappedAddrs[k]) {
+                    const prev = root._prevWindowMap[k];
+                    root.windowClosed(prev.cls, prev.x + prev.w * 0.5, prev.y + prev.h * 0.5, prev.w, prev.h, k);
+                }
+            }
+        }
+        root._prevWindowMap = nextMap;
+        root._hasWindowBaseline = true;
 
         root.monitorInsets = insets;
         root.visibleWindows = wins;
@@ -220,6 +242,7 @@ Singleton {
                 if (p.length >= 2) root.windowFocused(p[0], p.slice(1).join(","));
                 root._focusChanges++;
             } else if (name === "workspace" || name === "workspacev2") {
+                root._lastWorkspaceChangeMs = Date.now();
                 root.workspaceChanged();
             } else if (name === "urgent") {
                 const needle = data.trim().replace(/^0x/i, "").toLowerCase();

@@ -53,6 +53,8 @@ function startPlan(pet, plan, nav, pickFn) {
         bidPlayMode: "",
         sparAccepted: undefined,
         chaseRejected: false,
+        stalkFreezes: 0,
+        trailLegsDone: 0,
         started: now,
         until: now + (plan.durationMs || 150000),
         stepIndex: -1,
@@ -147,6 +149,71 @@ function advanceStep(pet, nav, pickFn) {
             }
         }
         nav.journeyToGlobal(pet, gx, gy);
+        return;
+    }
+
+    case "jump_to": {
+        if (!nav || !nav.launchJumpTo) {
+            advanceStep(pet, nav, pickFn);
+            return;
+        }
+        pet.perchedWindowAddr = "";
+        nav.launchJumpTo(pet, step.gx, step.gy, step.arcBoost || 0);
+        return;
+    }
+
+    case "stalk_step": {
+        var stalkTarget = _findPet(pet, plan.otherName);
+        if (!stalkTarget || stalkTarget.state_ === "deepsleep" || stalkTarget.state_ === "zoomies" || !nav) {
+            finishPlan(pet, pickFn);
+            return;
+        }
+        var sDist = _distBetween(pet, stalkTarget);
+        if (sDist <= (step.boopRadius || 68)) {
+            advanceStep(pet, nav, pickFn);
+            return;
+        }
+        if (Social.isPeerLookingAt(stalkTarget, pet)) {
+            plan.stalkFreezes = (plan.stalkFreezes || 0) + 1;
+            if (plan.stalkFreezes > 3) {
+                Memory.thinkAloud(pet, "sneak_spotted", "Froze and played innocent when " + plan.otherName + " glanced over");
+                plan.steps = plan.steps.slice(0, plan.stepIndex + 1).concat([
+                    { kind: "act", label: "Playing innocent", states: ["nod", "rotate"] },
+                    { kind: "wander_apart", dist: 140, gait: "amble", label: "Sauntering off casually" }
+                ]);
+                advanceStep(pet, nav, pickFn);
+                return;
+            }
+            plan.stepIndex--;
+            pet.onJourney = false;
+            pet.enterState("idle");
+            pet.schedulePlanBeat(1350);
+            return;
+        }
+        var stMyGX = pet.screenX() + pet.worldX, stMyGY = pet.screenY() + pet.worldY;
+        var stOGX = stalkTarget.screenX() + stalkTarget.worldX, stOGY = stalkTarget.screenY() + stalkTarget.worldY;
+        var toTarget = Math.atan2(stOGY - stMyGY, stOGX - stMyGX);
+        var creepDist = Math.min(92, Math.max(28, sDist - 54));
+        var creepPt = _clampedScreenPoint(pet, stMyGX + Math.cos(toTarget) * creepDist, stMyGY + Math.sin(toTarget) * creepDist);
+        if (sDist - creepDist > 66) plan.stepIndex--;
+        pet.gait = "amble";
+        nav.journeyToGlobal(pet, creepPt.gx, creepPt.gy);
+        return;
+    }
+
+    case "trail_leader": {
+        var leader = _findPet(pet, plan.otherName);
+        if (!leader || !nav || (plan.trailLegsDone || 0) >= (step.maxLegs || 2)) {
+            advanceStep(pet, nav, pickFn);
+            return;
+        }
+        plan.trailLegsDone = (plan.trailLegsDone || 0) + 1;
+        var lGX = leader.screenX() + leader.worldX, lGY = leader.screenY() + leader.worldY;
+        var lAng = leader.moveAngle || 0;
+        var trailPt = _clampedScreenPoint(pet, lGX - Math.cos(lAng) * 68, lGY - Math.sin(lAng) * 52);
+        if (plan.trailLegsDone < (step.maxLegs || 2)) plan.stepIndex--;
+        pet.gait = "amble";
+        nav.journeyToGlobal(pet, trailPt.gx, trailPt.gy);
         return;
     }
 
@@ -256,6 +323,12 @@ function advanceStep(pet, nav, pickFn) {
     case "observe": {
         if (step.emote && pet.emitEmote) pet.emitEmote(step.emote, !!step.directEmote);
         _setStepAttention(pet, plan, step);
+        if (step.facePoint) {
+            pet.attentionGX = step.facePoint.gx;
+            pet.attentionGY = step.facePoint.gy;
+            pet.attentionUntil = _now(pet) + (step.durationMs || 6000);
+            _faceGlobal(pet, step.facePoint.gx, step.facePoint.gy);
+        }
         pet.enterState("idle");
         pet.schedulePlanBeat(step.durationMs || 6000);
         return;
@@ -282,9 +355,14 @@ function advanceStep(pet, nav, pickFn) {
     }
 
     case "perch": {
-        pet.perchedWindowAddr = plan.windowAddr || "";
+        pet.perchedWindowAddr = step.windowAddr || plan.windowAddr || "";
+        plan.windowAddr = pet.perchedWindowAddr;
         if (step.emote && pet.emitEmote) pet.emitEmote(step.emote);
         pet.enterState("perch");
+        if (step.dirRow !== undefined && pet.sprite) {
+            pet.sprite._dirRow = step.dirRow;
+            pet.facingRight = step.dirRow >= 1 && step.dirRow <= 3;
+        }
         pet.schedulePlanBeat(step.durationMs || 22000);
         return;
     }
@@ -337,6 +415,8 @@ function advanceStep(pet, nav, pickFn) {
             else if (step.interaction === "rest") Social.restBeside(pet, friend);
             else if (step.interaction === "pounce") Social.pounce(pet, friend);
             else if (step.interaction === "illusion") Social.illusionSurprise(pet, friend);
+            else if (step.interaction === "sneak_boop") Social.sneakBoop(pet, friend);
+            else if (step.interaction === "mentor_invite") Social.inviteCopycat(pet, friend);
         }
         advanceStep(pet, nav, pickFn);
         return;
@@ -556,13 +636,45 @@ function finishPlan(pet, pickFn) {
         break;
 
     case "window_perch":
+    case "ledge_stroll":
+    case "ledge_parkour":
         pet.exploreDrive = Math.max(0, pet.exploreDrive - 0.25);
-        Drives.happier(pet, 0.02);
+        Drives.happier(pet, 0.025);
         if (plan.windowClass) Memory.recordWindowPref(pet, plan.windowClass, 0.03);
         Memory.recordEpisode(pet, "perched_window", {
-            valence: 0.3,
+            valence: plan.name === "ledge_parkour" ? 0.40 : 0.32,
             windowClass: plan.windowClass
         });
+        break;
+
+    case "seam_peek":
+        pet.exploreDrive = Math.max(0, pet.exploreDrive - (plan.otherScreen ? 0.30 : 0.16));
+        Memory.recordEpisode(pet, "seam_peeked", { valence: 0.26, otherScreen: plan.otherScreen });
+        if (plan.otherScreen) {
+            Drives.happier(pet, 0.02);
+            Memory.recordEpisode(pet, "scout_complete", { valence: 0.34, novelty: 0.45, otherScreen: true });
+        }
+        break;
+
+    case "mentor_patrol":
+        pet.exploreDrive = Math.max(0, pet.exploreDrive - 0.22);
+        Drives.happier(pet, 0.02);
+        Memory.recordEpisode(pet, "mentor_patrol", { valence: 0.32, withPet: plan.otherName });
+        break;
+
+    case "copycat_trail":
+        pet.exploreDrive = Math.max(0, pet.exploreDrive - 0.20);
+        pet.socialDrive = Math.max(0, pet.socialDrive - 0.16);
+        Drives.happier(pet, 0.03);
+        if (plan.otherName) {
+            Memory.adjustRelation(pet, plan.otherName, 0.014, 0.05, "play", { respectDelta: 0.03, outcome: "greet" });
+        }
+        Memory.recordEpisode(pet, "played_with", { valence: 0.38, withPet: plan.otherName, note: "copycat_trail" });
+        break;
+
+    case "guardian_check":
+        pet.recentDrift = Personality.shiftRecent(pet.recentDrift, "boldness", 0.005);
+        Memory.recordEpisode(pet, "mediated", { valence: 0.34, note: "guardian_check" });
         break;
 
     case "chase_cursor":
@@ -1348,6 +1460,260 @@ function buildArrivePlan(pet, perc, fromLeft) {
         urgency: 0.65,
         durationMs: 24000,
         thought: "Strolled back onto the desktop refreshed",
+        steps: steps
+    };
+}
+
+function buildSneakBoopPlan(pet, other) {
+    return {
+        name: "sneak_boop",
+        label: "Sneaking Up on " + other.name,
+        reason: "Creeping up behind " + other.name + " while unobserved",
+        otherName: other.name,
+        urgency: 0.66,
+        durationMs: 52000,
+        thought: "Creeping quietly toward " + other.name + " whenever they look away",
+        steps: [
+            { kind: "stalk_step", boopRadius: 68, label: "Creeping softly" },
+            { kind: "act", label: "Quick boop!", states: ["hop", "lick", "nod"], faceOther: true },
+            { kind: "social", interaction: "sneak_boop", label: "Surprising " + other.name },
+            { kind: "wander_apart", dist: 195, gait: "scamper", label: "Scampering away!" }
+        ]
+    };
+}
+
+function buildMentorPatrolPlan(pet, perc, followerName) {
+    var pw = perc.petW || 64, ph = perc.petH || 64;
+    var minX = perc.screen.x + 36, maxX = Math.max(minX, perc.screen.x + perc.screen.w - pw - 36);
+    var minY = perc.screen.y + (perc.screen.topInset || 0) + 36;
+    var maxY = Math.max(minY, perc.screen.y + perc.screen.h - (perc.screen.bottomInset || 0) - ph - 36);
+    var goRight = perc.petGX < (minX + maxX) * 0.5;
+    var leg1X = Topology.clamp(perc.petGX + (goRight ? 220 : -220), minX, maxX);
+    var leg1Y = Topology.clamp(perc.petGY + (Math.random() - 0.5) * 120, minY, maxY);
+    var leg2X = Topology.clamp(leg1X + (goRight ? 160 : -160), minX, maxX);
+    var leg2Y = Topology.clamp(leg1Y + (Math.random() - 0.5) * 110, minY, maxY);
+    var steps = [];
+    if (followerName) {
+        steps.push({ kind: "social", interaction: "mentor_invite", label: "Leading quiet patrol" });
+    }
+    steps.push({ kind: "travel", gait: "amble", label: "Strolling calm patrol", gx: leg1X, gy: leg1Y });
+    steps.push({ kind: "act", label: "Surveying desktop", states: ["pose", "nod"] });
+    steps.push({ kind: "travel", gait: "amble", label: "Continuing patrol", gx: leg2X, gy: leg2Y });
+    steps.push({ kind: "act", label: "Unhurried stretch", states: [SpeciesProfile.wakeStateFor(pet), "nod"] });
+    return {
+        name: "mentor_patrol",
+        label: "Quiet Patrol",
+        reason: followerName ? ("Calm patrol with " + followerName + " trailing along") : "Unhurried perimeter stroll",
+        otherName: followerName || "",
+        urgency: 0.52,
+        durationMs: 75000,
+        thought: followerName ? ("Taking an unhurried patrol while " + followerName + " tags along") : "Taking a calm patrol across the workspace",
+        steps: steps
+    };
+}
+
+function buildCopycatTrailPlan(pet, leader) {
+    var lName = leader.petData.name;
+    return {
+        name: "copycat_trail",
+        label: "Trailing " + lName,
+        reason: "Following along behind " + lName + " and copying moves",
+        otherName: lName,
+        urgency: 0.64,
+        durationMs: 75000,
+        thought: "Padding along behind " + lName + " and copying their stance",
+        steps: [
+            { kind: "trail_leader", maxLegs: 2, label: "Padding behind " + lName },
+            { kind: "observe", durationMs: 1600, attend: "other", label: "Watching " + lName },
+            { kind: "act", label: "Copying stretch", states: [SpeciesProfile.wakeStateFor(pet), "nod"], faceOther: true }
+        ]
+    };
+}
+
+function buildWelcomeFriendPlan(pet, arrivingPet) {
+    var aName = arrivingPet.petData.name;
+    var aGX = arrivingPet.screenX() + arrivingPet.worldX;
+    var aGY = arrivingPet.screenY() + arrivingPet.worldY;
+    var myGX = pet.screenX() + pet.worldX;
+    var myGY = pet.screenY() + pet.worldY;
+    var meetPt = _clampedScreenPoint(pet, myGX + (aGX - myGX) * 0.58, myGY + (aGY - myGY) * 0.58);
+    return {
+        name: "welcome_friend",
+        label: "Welcoming " + aName,
+        reason: "Trotting over to greet " + aName + " returning from the Sanctuary",
+        otherName: aName,
+        urgency: 0.66,
+        durationMs: 42000,
+        thought: "Perked up to welcome " + aName + " back onto the desktop",
+        steps: [
+            { kind: "travel", gait: "trot", label: "Trotting to greet " + aName, gx: meetPt.gx, gy: meetPt.gy },
+            { kind: "social", interaction: "greet", label: "Welcoming " + aName },
+            { kind: "act", label: "Warm greeting", states: SpeciesProfile.greetGesturesFor(pet).concat(["hop"]), faceOther: true },
+            { kind: "wander_apart", dist: 120, gait: "amble", label: "Walking inward together" }
+        ]
+    };
+}
+
+function buildJointRetirePlan(pet, partner, perc, isFollower) {
+    var pw = perc.petW || 64;
+    var pName = partner && partner.petData ? partner.petData.name : "";
+    var nearLeft = (perc.petGX - perc.screen.x) < perc.screen.w * 0.5;
+    if (isFollower && partner) {
+        nearLeft = ((partner.screenX() + partner.worldX) - perc.screen.x) < perc.screen.w * 0.5;
+    }
+    var edgeX = nearLeft ? (perc.screen.x + 8) : Math.max(perc.screen.x + 8, perc.screen.x + perc.screen.w - pw - 8);
+    var baseY = partner && isFollower ? (partner.screenY() + partner.worldY + 38) : perc.petGY;
+    var edgeY = Topology.clamp(baseY, perc.screen.y + (perc.screen.topInset || 0) + 24,
+                               Math.max(perc.screen.y + 24, perc.screen.y + perc.screen.h - (perc.screen.bottomInset || 0) - 80));
+    return {
+        name: "joint_retire",
+        label: pName ? ("Heading to Sanctuary with " + pName) : "Heading Off to Rest",
+        reason: pName ? ("Strolling side-by-side into the Sanctuary with " + pName) : "Padding off-screen to rest",
+        otherName: pName,
+        urgency: 0.84,
+        durationMs: 55000,
+        thought: pName ? ("Walking back to the Sanctuary side-by-side with " + pName) : "Padding off-screen to rest",
+        steps: [
+            { kind: "travel", gait: "amble", label: "Walking side-by-side to Sanctuary", gx: edgeX, gy: edgeY },
+            { kind: "act", label: "Sleepy nod", states: SpeciesProfile.settleGesturesFor(pet), faceOther: !!pName },
+            { kind: "retire_finish", label: "Entered Sanctuary" }
+        ]
+    };
+}
+
+function buildGuardianCheckPlan(pet, gx, gy, sourceLabel) {
+    var myGX = pet.screenX() + pet.worldX, myGY = pet.screenY() + pet.worldY;
+    var toEvt = Math.atan2(gy - myGY, gx - myGX);
+    var stepDist = Math.min(105, Math.max(42, Math.hypot(gx - myGX, gy - myGY) * 0.45));
+    var checkPt = _clampedScreenPoint(pet, myGX + Math.cos(toEvt) * stepDist, myGY + Math.sin(toEvt) * stepDist);
+    return {
+        name: "guardian_check",
+        label: "Checking Disturbance",
+        reason: "Stepping forward calmly to inspect " + (sourceLabel || "sudden alert"),
+        urgency: 0.72,
+        durationMs: 28000,
+        thought: "Stepped forward calmly to make sure everything is safe",
+        steps: [
+            { kind: "travel", gait: "trot", label: "Stepping forward", gx: checkPt.gx, gy: checkPt.gy },
+            { kind: "act", label: "Alert stance", states: ["pose", "nod"], facePoint: { gx: gx, gy: gy } },
+            { kind: "observe", durationMs: 3200, facePoint: { gx: gx, gy: gy }, label: "Checking area" },
+            { kind: "act", label: "All clear nod", states: ["nod"] }
+        ]
+    };
+}
+
+function buildTimidHideBehindPlan(pet, guardian, threatGX, threatGY) {
+    var gName = guardian.petData.name;
+    var gGX = guardian.screenX() + guardian.worldX;
+    var gGY = guardian.screenY() + guardian.worldY;
+    var awayAng = Math.atan2(gGY - threatGY, gGX - threatGX);
+    var hidePt = _clampedScreenPoint(pet, gGX + Math.cos(awayAng) * 62, gGY + Math.sin(awayAng) * 48);
+    return {
+        name: "timid_hide",
+        label: "Tucking Behind " + gName,
+        reason: "Startled — scooting behind " + gName + " for reassurance",
+        otherName: gName,
+        urgency: 0.76,
+        durationMs: 26000,
+        thought: "Startled and scooted safely behind " + gName,
+        steps: [
+            { kind: "travel", gait: "scamper", label: "Scooting behind " + gName, gx: hidePt.gx, gy: hidePt.gy },
+            { kind: "act", label: "Peeking out", states: ["cringe", "nod"], facePoint: { gx: threatGX, gy: threatGY } },
+            { kind: "observe", durationMs: 2800, attend: "other", label: "Catching breath behind " + gName }
+        ]
+    };
+}
+
+function buildLedgeStrollPlan(perch, pet) {
+    var cls = perch.cls || "window";
+    var goRight = Math.random() < 0.5;
+    var startGX = goRight ? perch.leftGX : perch.rightGX;
+    var cornerGX = goRight ? perch.rightGX : perch.leftGX;
+    var cornerDirRow = goRight ? 1 : 7;
+    return {
+        name: "ledge_stroll",
+        label: "Strolling " + cls + " Ledge",
+        reason: "Walking along " + cls + "'s titlebar and peering over the corner",
+        windowClass: cls,
+        windowAddr: perch.address,
+        urgency: 0.50,
+        durationMs: 180000,
+        thought: "Strolled along " + cls + "'s top ledge and peered down over the corner",
+        steps: [
+            { kind: "travel", gait: "trot", label: "Hopping onto " + cls, gx: startGX, gy: perch.gy },
+            { kind: "perch", windowAddr: perch.address, durationMs: 7500, label: "Settling on ledge" },
+            { kind: "travel", gait: "amble", label: "Strolling across titlebar", gx: cornerGX, gy: perch.gy },
+            { kind: "perch", windowAddr: perch.address, dirRow: cornerDirRow, durationMs: 28000 + Math.random() * 24000, label: "Peering over corner" }
+        ]
+    };
+}
+
+function buildLedgeParkourPlan(fromPerch, jumpInfo, pet) {
+    var fromCls = fromPerch.cls || "window";
+    var toPerch = jumpInfo.perch;
+    var toCls = toPerch.cls || "window";
+    return {
+        name: "ledge_parkour",
+        label: "Ledge Hop to " + toCls,
+        reason: "Vaulting across from " + fromCls + " onto " + toCls + "'s ledge",
+        windowClass: toCls,
+        windowAddr: toPerch.address,
+        urgency: 0.56,
+        durationMs: 180000,
+        thought: "Leapt cleanly from " + fromCls + " across to " + toCls + "'s top ledge",
+        steps: [
+            { kind: "travel", gait: "trot", label: "Trotting to " + fromCls + " edge", gx: jumpInfo.fromGX, gy: fromPerch.gy },
+            { kind: "perch", windowAddr: fromPerch.address, durationMs: 2400, label: "Sizing up the gap" },
+            { kind: "act", label: "Coiling to leap", states: ["nod"], facePoint: { gx: jumpInfo.toGX, gy: jumpInfo.toGY } },
+            { kind: "jump_to", gx: jumpInfo.toGX, gy: jumpInfo.toGY, arcBoost: 38, label: "Leaping across ledges!" },
+            { kind: "perch", windowAddr: toPerch.address, durationMs: 36000 + Math.random() * 28000, label: "Perched on " + toCls }
+        ]
+    };
+}
+
+function buildSeamPeekPlan(seamInfo, shouldCross, pet) {
+    var steps = [
+        { kind: "travel", gait: "amble", label: "Walking to display edge", gx: seamInfo.standGX, gy: seamInfo.standGY },
+        { kind: "observe", durationMs: 3800, facePoint: { gx: seamInfo.lookGX, gy: seamInfo.lookGY }, label: "Peering into " + seamInfo.screenName },
+        { kind: "act", label: "Curious head-tilt", states: ["nod"], facePoint: { gx: seamInfo.lookGX, gy: seamInfo.lookGY } }
+    ];
+    if (shouldCross) {
+        steps.push({ kind: "travel", gait: "trot", label: "Crossing into " + seamInfo.screenName, gx: seamInfo.crossGX, gy: seamInfo.crossGY });
+        steps.push({ kind: "observe", durationMs: 6500, label: "Looking around " + seamInfo.screenName });
+    }
+    return {
+        name: "seam_peek",
+        label: shouldCross ? ("Crossing to " + seamInfo.screenName) : ("Peering into " + seamInfo.screenName),
+        reason: "Gazing across the monitor seam toward " + seamInfo.screenName,
+        otherScreen: !!shouldCross,
+        urgency: 0.48,
+        durationMs: 75000,
+        thought: shouldCross
+            ? ("Peered across the seam and trotted over into " + seamInfo.screenName)
+            : ("Paused at the monitor edge peering curiously into " + seamInfo.screenName),
+        steps: steps
+    };
+}
+
+function buildZoomieStumblePlan(pet, nearestName) {
+    var steps = [
+        { kind: "act", label: "Tripped mid-sprint!", states: ["trip", "hitGround"] },
+        { kind: "act", label: "Catching balance", states: ["lostBalance", "cringe"] },
+        { kind: "act", label: "Shaking it off", states: ["shake", "rotate"] }
+    ];
+    if (nearestName) {
+        steps.push({ kind: "act", label: "Checking if anyone saw", states: ["nod"], faceOther: true });
+    }
+    return {
+        name: "zoomie_stumble",
+        label: "Shaking Off a Tumble",
+        reason: "Cornered too fast mid-zoomie and shook it off",
+        otherName: nearestName || "",
+        urgency: 0.86,
+        durationMs: 18000,
+        thought: nearestName
+            ? ("Tripped mid-zoomie, shook it off, and glanced at " + nearestName + " like nothing happened")
+            : "Tripped over own paws mid-zoomie and shook it right off",
         steps: steps
     };
 }

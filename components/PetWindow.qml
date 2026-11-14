@@ -97,7 +97,7 @@ PanelWindow {
         interval: {
             const s = pet.state_;
             if (s === "walk" || s === "wander" || s === "zoomies" || s === "airborne") return 16;
-            if (s === "perch") return 90;
+            if (s === "perch") return pet._perchRiding ? 32 : 90;
             return 250;
         }
         running: root.visible && pet.state_ !== "drag"
@@ -478,6 +478,9 @@ PanelWindow {
         target: WindowTracker
         function onWindowOpened(windowClass: string, title: string): void { pet.onWindowOpened(windowClass); }
         function onWindowFocused(windowClass: string, title: string): void { pet.onWindowEvent(windowClass); }
+        function onWindowClosed(windowClass: string, gx: real, gy: real, w: real, h: real, address: string): void {
+            pet.onWindowClosed(windowClass, gx, gy, w, h, address);
+        }
         function onWindowUrgent(windowClass: string, gx: real, gy: real): void { pet.onWindowUrgent(windowClass, gx, gy); }
         function onWorkspaceChanged(): void { pet.onWorkspaceChanged(); }
     }
@@ -485,13 +488,19 @@ PanelWindow {
     Connections {
         target: InputTracker
         function onIdleBegan(): void { pet.onIdleBegan(); }
-        function onIdleEnded(): void { pet.onIdleEnded(); }
+        function onIdleEnded(idleDurationSec: real): void { pet.onIdleEnded(idleDurationSec); }
         function onCursorWiggled(gx: real, gy: real): void { pet.onCursorWiggled(gx, gy); }
     }
 
     Connections {
         target: MediaTracker
         function onMusicStarted(title: string, artist: string): void { pet.onMusicStarted(); }
+        function onMicStateChanged(active: bool): void { pet.onMicStateChanged(active); }
+    }
+
+    Connections {
+        target: SystemMonitor
+        function onBuildCompleted(durationSec: real): void { pet.onBuildCompleted(durationSec); }
     }
 
     Component.onCompleted: {

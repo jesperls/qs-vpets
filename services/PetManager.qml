@@ -5,8 +5,10 @@ import Quickshell
 import Quickshell.Io
 import "../config"
 import "../components/PetPersistence.js" as Persist
+import "../components/SpeciesProfile.js" as SpeciesProfile
 import "../components/behavior/Memory.js" as Memory
 import "../components/behavior/Sanctuary.js" as Sanctuary
+import "../components/behavior/Evolution.js" as Evolution
 
 Singleton {
     id: root
@@ -65,6 +67,14 @@ Singleton {
         return {
             hour: hr,
             isNight: hr >= 23 || hr < 6,
+            solarPhase: SystemMonitor.solarPhase,
+            isDawn: SystemMonitor.solarPhase === "dawn",
+            isDusk: SystemMonitor.solarPhase === "dusk",
+            weatherKind: SystemMonitor.weatherKind,
+            isRaining: SystemMonitor.isRaining,
+            isSnowing: SystemMonitor.isSnowing,
+            thermalWarmth: SystemMonitor.thermalWarmth,
+            micActive: MediaTracker.micActive,
             mediaPlaying: MediaTracker.isPlaying,
             isCode: Memory.isCodeWindow(WindowTracker.activeWindowClass || ""),
             fullscreen: WindowTracker.isFullscreen
@@ -321,11 +331,64 @@ Singleton {
                 sendToPenNow(decision.retireId, false);
             } else {
                 const lp = findPetById(decision.retireId);
-                if (lp && lp.beginRetireToPen) lp.beginRetireToPen();
-                else completeRetire(decision.retireId);
+                if (lp && tryPairRetire(decision.retireId)) {
+                    // Paired side-by-side departure initiated.
+                } else if (lp && lp.beginRetireToPen) {
+                    lp.beginRetireToPen();
+                } else {
+                    completeRetire(decision.retireId);
+                }
             }
             _lastRotationMs = now;
         }
+    }
+
+    function notifySanctuaryArrival(arrivingPet: var): void {
+        if (!arrivingPet || !arrivingPet.petData) return;
+        const sx = arrivingPet.screenX(), sy = arrivingPet.screenY();
+        const aName = arrivingPet.petData.name;
+        let bestFriend = null;
+        let bestAff = 0.64;
+        for (let i = 0; i < pets.length; i++) {
+            const p = pets[i];
+            if (!p || p === arrivingPet || p._retiringToPen) continue;
+            if (p.screenX() !== sx || p.screenY() !== sy) continue;
+            if (p.state_ !== "idle" && p.state_ !== "wander") continue;
+            if (p.activePlan) continue;
+            const rel = Memory.relationWith(p, aName, arrivingPet.personality, arrivingPet.petData.sprite);
+            if (rel.affinity >= bestAff && rel.familiarity >= 0.25) {
+                bestAff = rel.affinity;
+                bestFriend = p;
+            }
+        }
+        if (bestFriend && bestFriend.greetSanctuaryArrival) {
+            bestFriend.greetSanctuaryArrival(arrivingPet);
+        }
+    }
+
+    function tryPairRetire(primaryId: string): bool {
+        if (roamingIds.length < 3) return false;
+        const lp = findPetById(primaryId);
+        if (!lp || !lp.petData || lp.restDrive < 0.44 || Math.random() > 0.45) return false;
+        const sx = lp.screenX(), sy = lp.screenY();
+        let partner = null;
+        let bestAff = 0.66;
+        for (let i = 0; i < pets.length; i++) {
+            const o = pets[i];
+            if (!o || o === lp || !o.petData || o._retiringToPen) continue;
+            if ((o.petData.roamMode || "auto") !== "auto") continue;
+            if (o.screenX() !== sx || o.screenY() !== sy) continue;
+            if (o.restDrive < 0.46 || o.state_ === "drag" || o.state_ === "airborne") continue;
+            const rel = Memory.relationWith(lp, o.petData.name, o.personality, o.petData.sprite);
+            if (rel.affinity >= bestAff && rel.familiarity >= 0.30) {
+                bestAff = rel.affinity;
+                partner = o;
+            }
+        }
+        if (!partner || !lp.beginJointRetireWith || !partner.beginJointRetireWith) return false;
+        lp.beginJointRetireWith(partner, false);
+        partner.beginJointRetireWith(lp, true);
+        return true;
     }
 
     function register(pet: var): void {
@@ -391,6 +454,47 @@ Singleton {
             if (rec) rec.rekeyRelationship(oldName, finalName);
         }
         return finalName;
+    }
+
+    function evolveCompanion(idOrName: string, requestedSpecies = ""): string {
+        const target = findConfigPet(idOrName);
+        if (!target) return "";
+        const lp = findPetById(target.id);
+        const rec = residentFor(target.id);
+        if (lp && rec) rec.syncFromPet(lp, false);
+
+        const evalTarget = lp || (rec ? rec.stateObj : null);
+        if (!evalTarget) return "";
+        const evo = Evolution.evaluate(evalTarget, target.sprite);
+        if (!evo.ready || evo.options.length === 0) return "";
+
+        const req = String(requestedSpecies || "").trim().toLowerCase();
+        let chosen = evo.options[0];
+        if (req.length > 0) {
+            const match = evo.options.find(o => o.species === req || o.displayName.toLowerCase() === req);
+            if (!match) return "";
+            chosen = match;
+        }
+
+        const fromSp = target.sprite;
+        const toSp = chosen.species;
+        if (lp) Evolution.recordEvolutionMilestone(lp, fromSp, toSp);
+        if (rec && rec.stateObj) {
+            if (!lp) Evolution.recordEvolutionMilestone(rec.stateObj, fromSp, toSp);
+            else {
+                rec.stateObj.journal = (lp.journal || []).slice(-24);
+                rec.stateObj.thoughts = (lp.thoughts || []).slice(-60);
+                rec.stateObj.episodes = (lp.episodes || []).slice(-120);
+            }
+            rec.stateObj.sprite = toSp;
+            rec.dirty = true;
+            rec.refreshView();
+            rec.saveNow();
+        }
+        Config.updatePetSpecies(target.id, toSp);
+        if (lp && lp.playEvolutionCeremony) lp.playEvolutionCeremony();
+        residentRevision++;
+        return SpeciesProfile.profileFor(toSp).displayName;
     }
 
     function updateDragGhost(scr: var, lx: real, ly: real, size: int, spriteName: string, mirror: bool): void {
@@ -531,6 +635,7 @@ Singleton {
                 const cfg = Config.pets[i];
                 if (!root.isRoaming(cfg.id)) {
                     const rec = root.residentFor(cfg.id);
+                    const evo = rec && rec.stateObj ? Evolution.evaluate(rec.stateObj, cfg.sprite) : { ready: false, options: [] };
                     sanctuaryList.push({
                         name: cfg.name,
                         species: cfg.sprite,
@@ -540,7 +645,8 @@ Singleton {
                         activity: rec ? rec.sanctuaryActivity : "Resting in Sanctuary",
                         mood: Math.round((rec ? rec.mood : 0.56) * 100),
                         energy: Math.round((1 - (rec ? rec.restDrive : 0.14)) * 100),
-                        bond: Math.round((rec ? rec.bond : 0.3) * 100)
+                        bond: Math.round((rec ? rec.bond : 0.3) * 100),
+                        evolutionReady: evo.ready ? evo.options.map(o => o.species) : []
                     });
                 }
             }
@@ -551,19 +657,23 @@ Singleton {
                 totalCount: Config.pets.length,
                 roamingCount: root.pets.length,
                 sanctuaryCount: sanctuaryList.length,
-                pets: root.pets.map(p => ({
-                    name: p.petData.name,
-                    species: p.petData.sprite,
-                    roamMode: p.petData.roamMode || "auto",
-                    archetype: p.archetype,
-                    state: p.state_,
-                    mood: Math.round(p.mood * 100),
-                    bond: Math.round(p.bond * 100),
-                    trust: Math.round(p.trust * 100),
-                    plan: p.activePlan ? p.activePlan.label : "Idle",
-                    thought: p.lastThoughtText,
-                    quirks: p.quirks
-                })),
+                pets: root.pets.map(p => {
+                    const evo = Evolution.evaluate(p, p.petData.sprite);
+                    return {
+                        name: p.petData.name,
+                        species: p.petData.sprite,
+                        roamMode: p.petData.roamMode || "auto",
+                        archetype: p.archetype,
+                        state: p.state_,
+                        mood: Math.round(p.mood * 100),
+                        bond: Math.round(p.bond * 100),
+                        trust: Math.round(p.trust * 100),
+                        plan: p.activePlan ? p.activePlan.label : "Idle",
+                        thought: p.lastThoughtText,
+                        quirks: p.quirks,
+                        evolutionReady: evo.ready ? evo.options.map(o => o.species) : []
+                    };
+                }),
                 sanctuary: sanctuaryList
             }, null, 2);
         }
@@ -691,6 +801,21 @@ Singleton {
         function spawn(species: string, name: string): string {
             const added = Config.addPet(species, name, "emergent");
             return "spawned " + added.name + " (" + added.sprite + ")";
+        }
+
+        function evolve(name: string, species: string): string {
+            const cfg = root.findConfigPet(name);
+            if (!cfg) return "not found";
+            const evolvedName = root.evolveCompanion(cfg.id, species || "");
+            if (!evolvedName) {
+                const lp = root.findPetById(cfg.id);
+                const rec = root.residentFor(cfg.id);
+                const evo = Evolution.evaluate(lp || (rec ? rec.stateObj : null), cfg.sprite);
+                if (!evo.hasLine) return cfg.name + " does not have an evolution line";
+                if (!evo.ready) return cfg.name + " is not ready to evolve yet (" + evo.nextHint + ")";
+                return "invalid target form (ready: " + evo.options.map(o => o.species).join(", ") + ")";
+            }
+            return "evolved " + cfg.name + " into " + evolvedName;
         }
     }
 }

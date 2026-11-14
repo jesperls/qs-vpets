@@ -177,7 +177,7 @@ function evaluateCandidates(pet, perc, nav, pickFn, m) {
     for (var i = 0; i < abs.length; i++) {
         var aid = abs[i];
 
-        if (aid === "illusion" && !pet.illusionSpecies
+        if (aid === "illusion" && !pet.illusionSpecies && !perc.micActive
                 && Social.canInitiatePeerBout(pet, 150000)
                 && perc.nearest && perc.nearest.sameScreen && perc.nearest.dist < 270
                 && !perc.nearest.resting && !perc.nearest.busySocial
@@ -193,7 +193,7 @@ function evaluateCandidates(pet, perc, nav, pickFn, m) {
             });
         }
 
-        if (aid === "phase_blink"
+        if (aid === "phase_blink" && !perc.micActive
                 && pet.exploreDrive > 0.44 && pet.playDrive > 0.30 && pet.alertness > 0.42
                 && !Memory.recent(pet, "phase_jaunt", 480000)) {
             var target = _sameScreenBlinkTarget(pet, perc);
@@ -207,36 +207,40 @@ function evaluateCandidates(pet, perc, nav, pickFn, m) {
         }
 
         if (aid === "hearth_warmth"
-                && pet.restDrive > 0.24 && pet.alertness > 0.26 && pet.alertness < 0.76
+                && (pet.restDrive > 0.24 || (perc.thermalWarmth || 0) > 0.52)
+                && pet.alertness > 0.24 && pet.alertness < 0.78
                 && !Memory.recent(pet, "hearth_bask", 540000)) {
+            var warmthLift = ((perc.thermalWarmth || 0) > 0.48 ? 0.16 : 0)
+                           + ((perc.isRaining || perc.isSnowing) ? 0.12 : 0);
             out.push({
                 name: "hearth_bask",
-                score: (pet.restDrive * 0.60 + (1 - pet.mood) * 0.25 + 0.18) * (0.45 + p.composure * 0.55) * 0.84,
+                score: (pet.restDrive * 0.60 + (1 - pet.mood) * 0.25 + 0.18 + warmthLift) * (0.45 + p.composure * 0.55) * 0.84,
                 plan: _buildHearthBaskPlan(pet, perc, prof)
             });
         }
 
-        if (aid === "lunar_pulse" && perc.isNight
+        if (aid === "lunar_pulse" && (perc.isNight || perc.isDusk)
                 && pet.alertness > 0.28
                 && !Memory.recent(pet, "lunar_vigil", 480000)) {
             out.push({
                 name: "lunar_vigil",
-                score: (0.38 + (pet.bond || 0.3) * 0.35 + p.composure * 0.30) * 0.90,
+                score: (0.38 + (pet.bond || 0.3) * 0.35 + p.composure * 0.30) * (perc.isDusk ? 0.96 : 0.90),
                 plan: _buildLunarVigilPlan(pet, perc, prof)
             });
         }
 
-        if (aid === "solar_bask" && !perc.isNight
-                && pet.restDrive > 0.20 && pet.alertness > 0.30
+        if (aid === "solar_bask" && !perc.isNight && !perc.isSnowing
+                && pet.restDrive > 0.18 && pet.alertness > 0.30
                 && !Memory.recent(pet, "sunlit_bask", 540000)) {
+            var sunWeatherMult = perc.isRaining ? 0.42 : (perc.isDawn ? 1.24 : 1.0);
             out.push({
                 name: "sunlit_bask",
-                score: (0.30 + pet.restDrive * 0.45 + p.patience * 0.28) * m.active * 0.82,
+                score: (0.30 + pet.restDrive * 0.45 + p.patience * 0.28) * m.active * 0.82 * sunWeatherMult,
                 plan: _buildSunlitBaskPlan(pet, perc, prof)
             });
         }
 
-        if (aid === "aura_sense"
+        if (aid === "aura_sense" && !perc.micActive
                 && pet.playDrive > 0.44 && pet.alertness > 0.44
                 && !Memory.recent(pet, "aura_kata", 480000)) {
             out.push({
@@ -247,7 +251,7 @@ function evaluateCandidates(pet, perc, nav, pickFn, m) {
         }
 
         if (aid === "shadow_meld"
-                && (perc.isNight || perc.userIdle)
+                && (perc.isNight || perc.isDusk || perc.userIdle)
                 && pet.exploreDrive > 0.34 && pet.alertness > 0.34
                 && !Memory.recent(pet, "shadow_prowl", 540000)) {
             out.push({
@@ -257,12 +261,13 @@ function evaluateCandidates(pet, perc, nav, pickFn, m) {
             });
         }
 
-        if (aid === "tide_splash"
-                && pet.playDrive > 0.36 && pet.alertness > 0.34
+        if (aid === "tide_splash" && !perc.micActive
+                && pet.playDrive > (perc.isRaining ? 0.22 : 0.36) && pet.alertness > 0.34
                 && !Memory.recent(pet, "puddle_spin", 480000)) {
+            var rainJoy = perc.isRaining ? 1.38 : 1.0;
             out.push({
                 name: "puddle_spin",
-                score: pet.playDrive * (0.42 + p.playfulness * 0.48 + p.composure * 0.20) * m.moodMult * m.active * 0.82,
+                score: (pet.playDrive + (perc.isRaining ? 0.14 : 0)) * (0.42 + p.playfulness * 0.48 + p.composure * 0.20) * m.moodMult * m.active * 0.82 * rainJoy,
                 plan: _buildPuddleSpinPlan(pet, prof)
             });
         }
@@ -329,18 +334,22 @@ function _buildPhaseJauntPlan(pet, target) {
 
 function _buildHearthBaskPlan(pet, perc, prof) {
     var sigState = (prof.signature && prof.signature.state) ? prof.signature.state : "rotate";
+    var steps = [];
+    var warmMachine = (perc.thermalWarmth || 0) > 0.48 && perc.win && perc.win.onMyScreen;
+    if (warmMachine) {
+        steps.push({ kind: "travel", gait: "amble", label: "Padding near warm work", gx: perc.win.loafBesideGX, gy: perc.win.loafBesideGY });
+    }
+    steps.push({ kind: "act", label: "Kindling warm embers", states: [sigState, "rotate"] });
+    steps.push({ kind: "ability_effect", effect: "warmth_aura", label: "Sharing gentle warmth" });
+    steps.push({ kind: "loaf_watch", label: "Resting in warm glow", attend: perc.win ? "window" : "", durationMs: 32000 });
     return {
         name: "hearth_bask",
-        label: "Warming the Hearth",
-        reason: "Kindling a warm, cozy spot",
+        label: warmMachine ? "Basking by Warm Work" : "Warming the Hearth",
+        reason: warmMachine ? "Soaking up gentle warmth near active work" : "Kindling a warm, cozy spot",
         urgency: 0.48,
-        durationMs: 75000,
-        thought: "Kindling gentle warmth before curling down",
-        steps: [
-            { kind: "act", label: "Kindling warm embers", states: [sigState, "rotate"] },
-            { kind: "ability_effect", effect: "warmth_aura", label: "Sharing gentle warmth" },
-            { kind: "loaf_watch", label: "Resting in warm glow", attend: perc.win ? "window" : "", durationMs: 32000 }
-        ]
+        durationMs: 80000,
+        thought: warmMachine ? "Curled up happily in the warm glow of busy work" : "Kindling gentle warmth before curling down",
+        steps: steps
     };
 }
 
@@ -595,8 +604,11 @@ function sanctuaryReadinessDelta(rec, prof, env) {
     var e = env || {};
     var delta = 0;
     var sp = rec ? rec.sprite : "";
-    if (e.isNight && has(sp, "lunar_pulse")) delta += 0.10;
-    if (!e.isNight && has(sp, "solar_bask")) delta += 0.08;
+    if ((e.isNight || e.isDusk) && has(sp, "lunar_pulse")) delta += 0.12;
+    if (!e.isNight && has(sp, "solar_bask")) delta += e.isDawn ? 0.12 : (e.isRaining ? -0.06 : 0.08);
+    if (e.isRaining && (has(sp, "tide_splash") || (prof && prof.kinGroup === "marsh_pals"))) delta += 0.16;
+    if (e.isSnowing && has(sp, "frost_calm")) delta += 0.16;
+    if ((e.thermalWarmth || 0) > 0.52 && has(sp, "hearth_warmth")) delta += 0.12;
     if (e.mediaPlaying && has(sp, "chorus_lead")) delta += 0.14;
     if (e.isCode && has(sp, "aura_sense")) delta += 0.10;
     return delta;

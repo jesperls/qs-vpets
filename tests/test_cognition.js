@@ -39,6 +39,7 @@ const Abilities = loadQmlJs("components/behavior/Abilities.js");
 const Plans = loadQmlJs("components/behavior/Plans.js");
 const Brain = loadQmlJs("components/behavior/Brain.js");
 const Sanctuary = loadQmlJs("components/behavior/Sanctuary.js");
+const Evolution = loadQmlJs("components/behavior/Evolution.js");
 const Nav = loadQmlJs("components/PetNav.js");
 const Persist = loadQmlJs("components/PetPersistence.js");
 
@@ -169,11 +170,13 @@ function createSimPet(world, name, preset = "emergent", sx = 0, species = "zorua
         sprite: {
             _animData: zoruaAnims,
             _dirRow: 1,
+            currentState: "idle",
+            squashCount: 0,
             defaultMap: SpriteSheet.DEFAULT_STATE_MAP,
             actionMap: {},
             setDirection(a) { this._dirRow = SpriteSheet.angleToDirectionRow(a); },
-            setState() {},
-            triggerSquash() {}
+            setState(s) { this.currentState = s; },
+            triggerSquash() { this.squashCount++; }
         },
         screenX() { return world.screens[this._screenIdx].x; },
         screenY() { return world.screens[this._screenIdx].y; },
@@ -1203,6 +1206,328 @@ function stepNavigationSim(world, pet, maxSeconds = 120) {
         Sanctuary.readinessScore(cressRec, [], { isNight: false, mediaPlaying: false }, restedNow) + 0.30,
         "Lunar Pulse Cresselia prefers night rotation"
     );
+}
+
+// 16. Test Ambient Ethology, Window/Seam Physicality, Machine/Weather Sensing, Micro-Imperfections & Opt-In Evolution
+{
+    // 16a. Red-Light / Green-Light sneak-up freezes when target looks back, then boops & scampers
+    {
+        const world = createSimWorld();
+        const zorua = createSimPet(world, "Sly", "playful", 0, "zorua");
+        const pikachu = createSimPet(world, "Pika", "chill", 0, "pikachu");
+        zorua.worldX = 400; zorua.worldY = 500;
+        pikachu.worldX = 620; pikachu.worldY = 500;
+        pikachu.sprite._dirRow = 2; // facing East (away from Zorua at West)
+        assert.equal(Social.isPeerLookingAt(pikachu, zorua), false, "Target facing East is not looking at stalker to the West");
+
+        const targetEntry = Perception.perceive(zorua).nearest;
+        Plans.startPlan(zorua, Plans.buildSneakBoopPlan(zorua, targetEntry), Nav, Brain._pick);
+        assert.equal(zorua.activePlan.name, "sneak_boop");
+        assert.equal(zorua.onJourney, true, "Stalker begins creeping while target looks away");
+
+        // Target glances West (row 6 -> facing PI -> directly toward Zorua!)
+        pikachu.sprite._dirRow = 6;
+        assert.equal(Social.isPeerLookingAt(pikachu, zorua), true, "isPeerLookingAt detects target glancing toward stalker");
+        Brain.onPlanBeat(zorua, Nav);
+        assert.equal(zorua.onJourney, false, "Stalker freezes immediately on Red-Light glance");
+        assert.equal(zorua.state_, "idle", "Frozen stalker poses innocently in idle");
+
+        // Target looks East again -> Green-Light resumes stalking, arrives, boops, and scampers off!
+        pikachu.sprite._dirRow = 2;
+        Brain.onPlanBeat(zorua, Nav);
+        assert.equal(zorua.onJourney, true, "Stalker resumes creeping when target looks away again");
+        zorua.worldX = 564; zorua.worldY = 500;
+        Brain.onPlanBeat(zorua, Nav); // within 74px -> advances to boop act
+        Brain.onActionFinished(zorua, Nav); // finishes boop -> social sneak_boop -> scamper away!
+        assert.ok(pikachu.emotes.includes("question"), "Booped friend whirls around with a question droplet");
+        assert.equal(zorua.gait, "scamper", "Trickster scampers off playfully after the boop");
+    }
+
+    // 16b. Mentor Patrol & Copycat Trailing
+    {
+        const world = createSimWorld();
+        const lucario = createSimPet(world, "Kaze", "brave", 0, "lucario");
+        const eevee = createSimPet(world, "Pip", "curious", 0, "eevee");
+        lucario.maturity = 0.72;
+        eevee.maturity = 0.12;
+        lucario.worldX = 500; lucario.worldY = 600;
+        eevee.worldX = 580; eevee.worldY = 610;
+        Memory.relationWith(lucario, "Pip").affinity = 0.62;
+        Memory.relationWith(eevee, "Kaze").affinity = 0.65;
+
+        Plans.startPlan(lucario, Plans.buildMentorPatrolPlan(lucario, Perception.perceive(lucario), "Pip"), Nav, Brain._pick);
+        Brain.onActionFinished(lucario, Nav); // nod -> mentor_invite -> Pip joins copycat_trail!
+        assert.equal(eevee.activePlan && eevee.activePlan.name, "copycat_trail", "Nearby hatchling joins Mentor Patrol in copycat_trail");
+        lucario.worldX = 820; lucario.worldY = 600;
+        Brain.onPlanBeat(eevee, Nav); // trail_leader updates target behind mentor
+        assert.equal(eevee.onJourney, true, "Copycat hatchling trails behind moving mentor");
+    }
+
+    // 16c. Contagious Yawns & Fireside Drift toward Hearth companion
+    {
+        const world = createSimWorld();
+        world.systemMonitor.isRaining = true;
+        const flareon = createSimPet(world, "Ember", "chill", 0, "flareon");
+        const sprig = createSimPet(world, "Fern", "chill", 0, "sprigatito");
+        flareon.worldX = 500; flareon.worldY = 520;
+        flareon.state_ = "loaf";
+        sprig.worldX = 710; sprig.worldY = 540;
+        sprig.state_ = "idle";
+        let scheduledDelay = 0;
+        let scheduledWarmName = "";
+        sprig.scheduleContagiousYawn = (delayMs, warmName) => {
+            scheduledDelay = delayMs;
+            scheduledWarmName = warmName;
+        };
+        const origRandom = Math.random;
+        Math.random = () => 0.1;
+        try {
+            Social.broadcastYawn(flareon);
+        } finally {
+            Math.random = origRandom;
+        }
+        assert.ok(scheduledDelay >= 4800, "Contagious yawn schedules a natural 5-10s delayed catch");
+        assert.equal(scheduledWarmName, "Ember", "Hearth sleeper broadcasts warmth anchor name");
+
+        Brain.onEvent(sprig, "caught_yawn", { warmPeerName: "Ember" }, Nav);
+        assert.equal(sprig.activePlan && sprig.activePlan.name, "rest_with", "Sleepy peer drifts toward Hearth sleeper on rainy/night yawn");
+    }
+
+    // 16d. Sanctuary Gate Welcomes & Side-by-Side Departures
+    {
+        const world = createSimWorld();
+        const a = createSimPet(world, "Sunny", "playful", 0, "eevee");
+        const b = createSimPet(world, "Mochi", "playful", 0, "zorua");
+        a.worldX = 500; a.worldY = 520;
+        b.worldX = 640; b.worldY = 520;
+        Plans.startPlan(a, Plans.buildWelcomeFriendPlan(a, b), Nav, Brain._pick);
+        assert.equal(a.activePlan.name, "welcome_friend");
+        Plans.startPlan(b, Plans.buildJointRetirePlan(b, a, Perception.perceive(b), false), Nav, Brain._pick);
+        assert.equal(b.activePlan.name, "joint_retire");
+    }
+
+    // 16e. Startle Chains & Guardian Point-Check on abrupt window close
+    {
+        const world = createSimWorld();
+        const timid = createSimPet(world, "Shy", "shy", 0, "espurr");
+        const guard = createSimPet(world, "Aegis", "brave", 0, "lucario");
+        timid.basePersonality.boldness = 0.18;
+        guard.basePersonality.boldness = 0.78;
+        timid.worldX = 520; timid.worldY = 500;
+        guard.worldX = 640; guard.worldY = 520;
+
+        Brain.onEvent(timid, "window_closed", { windowClass: "kitty", gx: 450, gy: 480 }, Nav);
+        Brain.onEvent(guard, "window_closed", { windowClass: "kitty", gx: 450, gy: 480 }, Nav);
+        assert.equal(timid.activePlan && timid.activePlan.name, "timid_hide", "Timid companion scoots behind nearby Guardian");
+        assert.equal(guard.activePlan && guard.activePlan.name, "guardian_check", "Guardian companion steps forward to inspect disturbance");
+    }
+
+    // 16f. Ledge Strolling, Ledge-to-Ledge Parkour, Window-Riding & Soft Gravity Drop
+    {
+        const world = createSimWorld();
+        world.windowTracker.visibleWindows = [
+            { address: "0x1", cls: "kitty", title: "shell", x: 240, y: 260, w: 520, h: 420, focused: true, fullscreen: false },
+            { address: "0x2", cls: "firefox", title: "docs", x: 830, y: 300, w: 560, h: 460, focused: false, fullscreen: false },
+            { address: "0x3", cls: "code", title: "lower", x: 220, y: 480, w: 620, h: 420, focused: false, fullscreen: false }
+        ];
+        const cat = createSimPet(world, "Clover", "curious", 0, "sprigatito");
+        cat.worldX = 420; cat.worldY = 260 - 64 * 0.85;
+        const perc = Perception.perceive(cat);
+        const p1 = perc.perches.find(p => p.address === "0x1");
+        assert.ok(p1 && p1.adjacentLedges.length >= 1, "Perception links adjacent window titlebars for parkour");
+
+        // Ballistic jump_to parkour arc lands cleanly at target ledge
+        const p2 = p1.adjacentLedges[0];
+        Plans.startPlan(cat, Plans.buildLedgeParkourPlan(p1, p2, cat), Nav, Brain._pick);
+        cat.worldX = cat.targetGX; cat.worldY = cat.targetGY;
+        Nav.walkArrived(cat); // arrives at launch corner -> perch (sizing up gap)
+        Brain.onPlanBeat(cat, Nav); // finishes sizing up -> act ("nod" coiling to leap)
+        Brain.onActionFinished(cat, Nav); // nod -> jump_to airborne arc!
+        assert.equal(cat.state_, "airborne", "Ledge parkour launches airborne ballistic arc");
+        assert.ok(cat.vz > 0, "Parabolic vault has upward launch velocity");
+        for (let step = 0; step < 80 && cat.state_ === "airborne"; step++) {
+            Nav.updateAirborne(cat, 0.032);
+        }
+        assert.equal(cat.state_, "perch", "Cat lands cleanly in perch on destination window titlebar");
+        assert.equal(cat.perchedWindowAddr, "0x2");
+
+        // Window-riding carries perched pet & wobbles when dragged fast, shakes when stopped
+        cat.perchedWindowAddr = "0x1";
+        cat.worldX = 420; cat.worldY = Math.round(260 - 64 * 0.85);
+        Nav.updatePerch(cat, 0.032); // initializes _perchRelX
+        world.windowTracker.visibleWindows[0].x += 48; // fast drag (48 / 0.032 = 1500 px/s)
+        Nav.updatePerch(cat, 0.032);
+        assert.ok(cat.worldX > 450, "Dragged window carries perched companion horizontally");
+        assert.equal(cat.sprite.currentState, "lostBalance", "Fast window drag wobbles perched companion in lostBalance");
+        Nav.updatePerch(cat, 0.25); // window stops moving
+        assert.equal(cat.sprite.currentState, "shake", "Companion shakes off once window settles");
+
+        // Closing upper window 0x1 drops companion smoothly with gravity onto lower ledge 0x3!
+        world.windowTracker.visibleWindows.shift(); // remove 0x1; 0x3 sits directly below at y=480
+        Nav.updatePerch(cat, 0.032);
+        assert.equal(cat.state_, "airborne", "Vanished perch initiates smooth gravity soft-drop");
+        assert.ok(cat.altitude > 100, "Soft-drop starts at exact vanished ledge altitude without visual teleport");
+        for (let step = 0; step < 80 && cat.state_ === "airborne"; step++) {
+            Nav.updateAirborne(cat, 0.032);
+        }
+        assert.equal(cat.activePlan && cat.activePlan.name, "window_perch", "Soft-drop catches lower window ledge 0x3");
+    }
+
+    // 16g. Multi-Monitor Seam Peeking
+    {
+        const world = createSimWorld();
+        const fox = createSimPet(world, "Scout", "curious", 0, "vulpix");
+        const peer = createSimPet(world, "Other", "chill", 2560, "spheal");
+        fox.worldX = 2380; fox.worldY = 520;
+        peer.worldX = 220; peer.worldY = 520;
+        const perc = Perception.perceive(fox);
+        assert.ok(perc.seamPeeks.length >= 1 && perc.seamPeeks[0].hasPeer, "Perception detects shared monitor seam and peer across it");
+        const plan = Plans.buildSeamPeekPlan(perc.seamPeeks[0], true, fox);
+        assert.equal(plan.name, "seam_peek");
+        assert.equal(plan.otherScreen, true);
+    }
+
+    // 16h. Hardware Thermal Basking & Build-Finish Tells
+    {
+        const world = createSimWorld();
+        world.systemMonitor.thermalWarmth = 0.82;
+        world.systemMonitor.cpuTempC = 79;
+        const vulpix = createSimPet(world, "Cinder", "chill", 0, "vulpix");
+        vulpix.worldX = 900; vulpix.worldY = 700;
+        vulpix.restDrive = 0.45;
+        const vPerc = Perception.perceive(vulpix);
+        const vCands = Abilities.evaluateCandidates(vulpix, vPerc, Nav, Brain._pick, { moodMult: 1, active: 1 });
+        const bask = vCands.find(c => c.name === "hearth_bask");
+        assert.ok(bask && bask.plan.steps[0].kind === "travel", "Thermal warmth draws Hearth companion over to warm active window");
+
+        const riolu = createSimPet(world, "Sensei", "brave", 0, "riolu");
+        riolu.state_ = "idle";
+        Brain.onEvent(riolu, "build_completed", null, Nav);
+        assert.ok(["nod", "pose"].includes(riolu.state_), "Aura Sense companion gives a quiet nod when sustained build finishes");
+    }
+
+    // 16i. Voice-Call Etiquette ("Library Mode") suppresses noisy plans & calms active zoomies
+    {
+        const world = createSimWorld();
+        world.mediaTracker.micActive = true;
+        const z = createSimPet(world, "Whisper", "playful", 0, "zorua");
+        const p = createSimPet(world, "Buddy", "playful", 0, "pikachu");
+        z.worldX = 480; z.worldY = 500;
+        p.worldX = 620; p.worldY = 500;
+        z.playDrive = 0.95;
+        z.socialDrive = 0.90;
+        z.alertness = 0.90;
+        const noisy = new Set(["zoomies", "bid_attention", "squabble", "sneak_boop", "illusion_prank"]);
+        for (let i = 0; i < 60; i++) {
+            Plans.clearPlan(z);
+            z.enterState("idle");
+            Brain.think(z, Nav);
+            if (z.activePlan) {
+                assert.ok(!noisy.has(z.activePlan.name), `Library mode never initiates noisy plan '${z.activePlan.name}'`);
+            }
+        }
+        // Starting a mic call mid-zoomies immediately calms down to idle
+        Plans.startPlan(z, { name: "zoomies", steps: [{ kind: "zoomies" }] }, Nav, Brain._pick);
+        Brain.onEvent(z, "mic_changed", { active: true }, Nav);
+        assert.equal(z.activePlan, null, "Active zoomies politely abort when microphone goes live");
+        assert.equal(z.state_, "idle");
+    }
+
+    // 16j. Staggered Wakeups After Long Idle (>= 30 min)
+    {
+        const world = createSimWorld();
+        const sleepy = createSimPet(world, "Snor", "lazy", 0, "munchlax");
+        sleepy.state_ = "deepsleep";
+        let wakeScheduledMs = 0;
+        sleepy.scheduleStaggeredWake = (delayMs) => { wakeScheduledMs = delayMs; };
+        Brain.onEvent(sleepy, "user_active", { idleDurationSec: 2400 }, Nav);
+        assert.ok(wakeScheduledMs >= 450, "Long-idle return schedules staggered wake instead of simultaneous pop-up");
+        assert.equal(sleepy.state_, "deepsleep", "Sleeping pet remains asleep until its staggered wake timer fires");
+    }
+
+    // 16k. Weather & Sun-Arc Resonance
+    {
+        const world = createSimWorld();
+        world.systemMonitor.isRaining = true;
+        world.systemMonitor.solarPhase = "dusk";
+        const mudkip = createSimPet(world, "Splash", "playful", 0, "mudkip");
+        mudkip.playDrive = 0.42;
+        const mCands = Abilities.evaluateCandidates(mudkip, Perception.perceive(mudkip), Nav, Brain._pick, { moodMult: 1, active: 1 });
+        assert.ok(mCands.some(c => c.name === "puddle_spin"), "Rain unlocks Tide Splash puddle_spin at lower play threshold");
+
+        const umbreon = createSimPet(world, "Dusk", "nocturnal", 0, "umbreon");
+        const uCands = Abilities.evaluateCandidates(umbreon, Perception.perceive(umbreon), Nav, Brain._pick, { moodMult: 1, active: 1 });
+        assert.ok(uCands.some(c => c.name === "lunar_vigil"), "Dusk solar phase activates Lunar Pulse vigil before midnight");
+
+        assert.ok(
+            Abilities.sanctuaryReadinessDelta({ sprite: "mudkip" }, SpeciesProfile.profileFor("mudkip"), { isRaining: true }) >= 0.15,
+            "Rain boosts Tidepool readiness"
+        );
+        assert.ok(
+            Abilities.sanctuaryReadinessDelta({ sprite: "glaceon" }, SpeciesProfile.profileFor("glaceon"), { isSnowing: true }) >= 0.15,
+            "Snow boosts Frost Calm readiness"
+        );
+    }
+
+    // 16l. Rare Zoomie Stumble recovery sequence
+    {
+        const world = createSimWorld();
+        const pup = createSimPet(world, "Tumble", "playful", 0, "rockruff");
+        const peer = createSimPet(world, "Witness", "chill", 0, "rowlet");
+        pup.worldX = 500; pup.worldY = 500;
+        peer.worldX = 650; peer.worldY = 500;
+        Brain.onEvent(pup, "zoomie_stumble", null, Nav);
+        assert.equal(pup.activePlan && pup.activePlan.name, "zoomie_stumble", "Zoomie stumble starts self-conscious recovery plan");
+        assert.ok(["trip", "hitGround"].includes(pup.state_));
+    }
+
+    // 16m. Lifestyle-Earned Opt-In Evolution across all 4 evolutionary lines
+    {
+        const world = createSimWorld();
+        const eevee = createSimPet(world, "Vee", "nocturnal", 0, "eevee");
+        assert.equal(Evolution.evaluate(eevee, "eevee").ready, false, "Newly adopted Eevee is not yet ready to evolve");
+
+        // Earn Umbreon (night vigils) & Flareon (hearth / friendship) simultaneously so player gets branching choice!
+        eevee.maturity = 0.55;
+        eevee.bond = 0.72;
+        eevee.trust = 0.68;
+        eevee.quirks = ["night_watch"];
+        Memory.adjustRelation(eevee, "Bestie", 0.35, 0.5);
+        for (let i = 0; i < 4; i++) {
+            Memory.recordEpisode(eevee, "night_vigil", { valence: 0.4 });
+            Memory.recordEpisode(eevee, "rested_with", { valence: 0.4, withPet: "Bestie" });
+        }
+        const eeveeEval = Evolution.evaluate(eevee, "eevee");
+        assert.equal(eeveeEval.ready, true, "Lifestyle-matured Eevee unlocks opt-in Evolution Ready state");
+        const readyIds = eeveeEval.options.map(f => f.species);
+        assert.ok(readyIds.includes("umbreon"), "Nocturnal vigil Eevee unlocks Umbreon");
+        assert.ok(readyIds.includes("flareon"), "Warm cuddle-bonded Eevee unlocks Flareon");
+
+        // Verify Riolu -> Lucario, Vulpix -> Ninetales, Charmander -> Charizard readiness
+        const riolu = createSimPet(world, "Aura", "brave", 0, "riolu");
+        riolu.maturity = 0.50; riolu.bond = 0.66; riolu.trust = 0.58;
+        Memory.relationWith(riolu, "Rival").sparCount = 4;
+        assert.equal(Evolution.evaluate(riolu, "riolu").options[0].species, "lucario", "Spar-seasoned bonded Riolu unlocks Lucario");
+
+        const vulpix = createSimPet(world, "Foxfire", "chill", 0, "vulpix");
+        vulpix.maturity = 0.52; vulpix.bond = 0.62; vulpix.basePersonality.composure = 0.65;
+        Memory.recordEpisode(vulpix, "hearth_bask", { valence: 0.4 });
+        Memory.recordEpisode(vulpix, "rested_with", { valence: 0.4 });
+        assert.equal(Evolution.evaluate(vulpix, "vulpix").options[0].species, "ninetales", "Composed mature Vulpix unlocks Ninetales");
+
+        const char = createSimPet(world, "Blaze", "brave", 0, "charmander");
+        char.maturity = 0.62; char.bond = 0.66; char.basePersonality.boldness = 0.65;
+        Memory.recordEpisode(char, "scout_complete", { valence: 0.4 });
+        Memory.recordEpisode(char, "hearth_bask", { valence: 0.4 });
+        assert.equal(Evolution.evaluate(char, "charmander").options[0].species, "charizard", "Bold seasoned Charmander unlocks Charizard");
+
+        // Evolving records milestone while preserving episodes & relationships
+        const epCountBefore = eevee.episodes.length;
+        Evolution.recordEvolutionMilestone(eevee, "eevee", "umbreon");
+        assert.ok(eevee.episodes.length > epCountBefore, "Evolution appends milestone without wiping prior episodes");
+        assert.ok(eevee.journal.some(j => j.text.includes("Umbreon")), "Evolution records permanent journal milestone");
+        assert.ok(Memory.relationWith(eevee, "Bestie").affinity > 0.6, "Evolution preserves companion relationships");
+    }
 }
 
 console.log("All cognitive, developmental, social, Sanctuary rotation, physics, multi-monitor, species ethology, modular ability, and persistence tests passed!");
