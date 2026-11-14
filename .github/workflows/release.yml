@@ -51,8 +51,10 @@ jobs:
           cp -L result-portable/qs-vpets-portable-${{ matrix.arch }}.tar.zst* dist/
           ls -lh dist/
 
+          # GitHub's Ubuntu 24.04 runner image enables unprivileged userns restriction by default.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
           sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends bubblewrap zstd
+          sudo apt-get install -y -qq --no-install-recommends zstd
           tmp_test=$(mktemp -d)
           mkdir -p "$tmp_test/home"
           tar -I zstd -xf "dist/qs-vpets-portable-${{ matrix.arch }}.tar.zst" -C "$tmp_test"
