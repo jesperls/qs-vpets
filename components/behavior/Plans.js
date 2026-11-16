@@ -214,12 +214,12 @@ function advanceStep(pet, nav, pickFn) {
                     break;
                 }
             }
-            if (!liveWin) {
+            var jpw = pet.width || 64, jph = pet.height || 64;
+            if (!liveWin || liveWin.y < Topology.minPerchY(Topology.currentScreen(pet), jph)) {
                 clearPlan(pet);
                 pet.enterState("idle");
                 return;
             }
-            var jpw = pet.width || 64, jph = pet.height || 64;
             var wSpan = Math.max(1, liveWin.w - jpw);
             var minLX = liveWin.x + Math.min(12, wSpan * 0.5);
             var maxLX = Math.max(minLX, liveWin.x + wSpan - 12);

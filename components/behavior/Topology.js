@@ -50,6 +50,13 @@ function currentScreen(pet) {
     return { x: sx, y: sy, width: pet.screenW(), height: pet.screenH(), name: "", topInset: 0, bottomInset: 0 };
 }
 
+function minPerchY(screen, petH) {
+    var sy = screen ? screen.y : 0;
+    var topBar = (screen && screen.topInset) || 0;
+    var h = petH || 64;
+    return sy + (topBar > 0 ? Math.max(topBar + 4, h * 0.4) : h * 0.78);
+}
+
 function seamBetween(a, b, petW, petH) {
     if (!a || !b || sameScreen(a, b)) return null;
     var minOvX = Math.min(petW || 64, 32);

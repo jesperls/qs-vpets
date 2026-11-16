@@ -2118,6 +2118,34 @@ function stepNavigationSim(world, pet, maxSeconds = 120) {
         Nav.updatePerch(percher, 0.016);
         const perchSnap = Math.hypot(percher.worldX - prevVisX, (percher.worldY - percher.altitude) - prevVisY);
         assert.ok(perchSnap < 1.0, `Zero snap when updatePerch engages (${perchSnap.toFixed(3)}px)`);
+
+        // Barless monitor (topInset = 0): top-tiled/near-bezel windows (< petH * 0.78) are non-perchable,
+        // and dragging a perched window flush to the top bezel makes the companion hop off cleanly.
+        worldJ.screens = [{ x: 0, y: 0, width: 1920, height: 1080, name: "DP-1", topInset: 0, bottomInset: 0 }];
+        worldJ.windowTracker.visibleWindows = [
+            { address: "0xflush", cls: "kitty", x: 0, y: 0, w: 960, h: 1080, focused: true, fullscreen: false },
+            { address: "0xgapped", cls: "firefox", x: 968, y: 36, w: 944, h: 1036, focused: false, fullscreen: false },
+            { address: "0xsanctuary", cls: "quickshell", title: "Pokémon Sanctuary", x: 300, y: 160, w: 720, h: 520, focused: false, fullscreen: false },
+            { address: "0xfloat", cls: "code", x: 420, y: 180, w: 720, h: 520, focused: false, fullscreen: false }
+        ];
+        worldJ.windowTracker.activeWindowPos = { address: "0xsanctuary", x: 300, y: 160, w: 720, h: 520 };
+        worldJ.windowTracker.activeWindowTitle = "Pokémon Sanctuary";
+        const barlessPerc = Perception.perceive(percher);
+        assert.equal(barlessPerc.win, null, "Sanctuary self-window is ignored as an active work target");
+        assert.deepEqual(
+            Array.from(barlessPerc.perches, p => p.address),
+            ["0xfloat"],
+            "Barless top-edge windows and Sanctuary self-window are excluded while lower floating window stays perchable"
+        );
+        percher.worldX = 560;
+        percher.worldY = 180 - percher.height * 0.85;
+        percher.perchedWindowAddr = "0xfloat";
+        percher.enterState("perch");
+        Nav.updatePerch(percher, 0.016);
+        assert.equal(percher.state_, "perch");
+        worldJ.windowTracker.visibleWindows[3].y = 12; // User drags/tiles window flush to top bezel!
+        Nav.updatePerch(percher, 0.016);
+        assert.equal(percher.state_, "airborne", "Companion hops down cleanly when perched window is pushed to top bezel");
     }
 }
 

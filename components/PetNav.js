@@ -305,12 +305,13 @@ function _dropFromLostPerch(pet, wins) {
     var curGX = globalX(pet), curGY = globalY(pet);
     var sx = pet.screenX(), sy = pet.screenY();
     var sw = pet.screenW(), sh = pet.screenH();
+    var minLedgeY = Topology.minPerchY(Topology.currentScreen(pet), petH);
     var bestLedgeGY = Infinity;
     var bestAddr = "";
 
     for (var i = 0; i < wins.length; i++) {
         var w = wins[i];
-        if (!w || w.fullscreen || w.w < 200 || w.h < 120) continue;
+        if (!w || w.fullscreen || w.title === "Pokémon Sanctuary" || w.w < 200 || w.h < 120 || w.y < minLedgeY) continue;
         var wcx = w.x + w.w * 0.5;
         if (wcx < sx || wcx >= sx + sw || w.y < sy || w.y >= sy + sh) continue;
         if (curGX + petW * 0.5 < w.x + 12 || curGX + petW * 0.5 > w.x + w.w - 12) continue;
@@ -348,12 +349,12 @@ function updatePerch(pet, dt) {
             break;
         }
     }
-    if (!match) {
+    var petW = pet.width || 64, petH = pet.height || 64;
+    if (!match || match.y < Topology.minPerchY(Topology.currentScreen(pet), petH)) {
         _dropFromLostPerch(pet, wins);
         return;
     }
 
-    var petW = pet.width || 64, petH = pet.height || 64;
     var curGX = globalX(pet), curGY = globalY(pet);
     var span = Math.max(1, match.w - petW);
 

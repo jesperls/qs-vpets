@@ -25,14 +25,15 @@ function perceive(pet) {
 
     var wt = pet.windowTracker || {};
     var wp = wt.activeWindowPos || null;
+    var activeTitle = wt.activeWindowTitle || "";
     var win = null;
-    if (wp && wp.w > 40 && wp.h > 40) {
+    if (wp && wp.w > 40 && wp.h > 40 && activeTitle !== "Pokémon Sanctuary") {
         var cx = wp.x + wp.w / 2, cy = wp.y + wp.h / 2;
         var winScr = Topology.screenAt(reachable, cx, cy);
         if (winScr) {
             var cls = wt.activeWindowClass || "";
             var bInset = winScr.bottomInset || 0;
-            var minLedgeY = winScr.y + Math.max((winScr.topInset || 0) + 4, petH * 0.4);
+            var minLedgeY = Topology.minPerchY(winScr, petH);
             var canPerchTop = wp.y >= minLedgeY && wp.w >= 180 && !wt.isFullscreen;
             var maxWinX = winScr.x + winScr.width - petW - 8;
             var maxWinY = winScr.y + winScr.height - bInset - petH - 8;
@@ -95,7 +96,7 @@ function perceive(pet) {
     var myScreenFullscreen = false;
     for (var w = 0; w < rawWins.length; w++) {
         var rw = rawWins[w];
-        if (!rw) continue;
+        if (!rw || rw.title === "Pokémon Sanctuary") continue;
         var rcx = rw.x + rw.w * 0.5, rcy = rw.y + rw.h * 0.5;
         var isTrueFs = rw.trueFullscreen !== undefined ? !!rw.trueFullscreen : !!rw.fullscreen;
         if (isTrueFs && rcx >= sx && rcx < sx + sw && rcy >= sy && rcy < sy + sh) {
@@ -104,7 +105,7 @@ function perceive(pet) {
         if (rw.fullscreen || rw.w < 200 || rw.h < 120) continue;
         var wScreen = Topology.screenAt(reachable, rcx, rcy);
         if (!wScreen) continue;
-        if (rw.y < wScreen.y + Math.max((wScreen.topInset || 0) + 4, petH * 0.4)) continue;
+        if (rw.y < Topology.minPerchY(wScreen, petH)) continue;
         var px = rw.x + rw.w * 0.5;
         var py = Math.max(wScreen.y, rw.y - petH * 0.85);
         var leftGX = Math.max(wScreen.x + 8, rw.x + 12);
