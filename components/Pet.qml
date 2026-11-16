@@ -67,6 +67,7 @@ Item {
     property real _perchSteadyTime: 0
     property real _wanderTurnVel: 0
     property real _stridePhase: 0
+    property double _journeyBeganMs: 0
     property var _pendingReactions: []
     property string _yawnWarmPeerName: ""
     property bool _wakeWarmGreet: false
@@ -282,10 +283,7 @@ Item {
 
         switch (s) {
         case "idle":
-            idleTimer.interval = alertness > 0.55 ? (14000 + Math.random() * 12000)
-                               : alertness > 0.25 ? (22000 + Math.random() * 18000)
-                               : (38000 + Math.random() * 30000);
-            idleTimer.restart();
+            restartIdle(1.0);
             break;
         case "perch":
             if (!Plans.hasActivePlan(root)) restartIdle(1.0);
@@ -297,6 +295,7 @@ Item {
             }
             break;
         case "walk":
+            _journeyBeganMs = Date.now();
             walkTimer.interval = 2400 + Math.random() * 2600;
             walkTimer.restart();
             break;
@@ -304,7 +303,7 @@ Item {
             _wanderTurnVel = (Math.random() - 0.5) * 0.95;
             wanderDirTimer.interval = 1200 + Math.random() * 1400;
             wanderDirTimer.restart();
-            wanderEndTimer.interval = 4200 + Math.random() * 6800;
+            wanderEndTimer.interval = 6500 + Math.random() * 8500;
             wanderEndTimer.restart();
             break;
         case "loaf":
@@ -341,10 +340,11 @@ Item {
     }
 
     function restartIdle(mult): void {
-        const base = alertness > 0.55 ? (14000 + Math.random() * 12000)
-                   : alertness > 0.25 ? (22000 + Math.random() * 18000)
-                   : (38000 + Math.random() * 30000);
-        idleTimer.interval = base * (mult || 1);
+        const base = alertness > 0.55 ? (11000 + Math.random() * 9500)
+                   : alertness > 0.25 ? (18000 + Math.random() * 15000)
+                   : (34000 + Math.random() * 26000);
+        const tempo = (1.26 - personality.energy * 0.54) * (1.0 - boredom * 0.34);
+        idleTimer.interval = Math.max(4500, base * tempo * (mult || 1));
         idleTimer.restart();
     }
 
@@ -442,6 +442,9 @@ Item {
         id: wanderEndTimer
         onTriggered: {
             root.enterState("idle");
+            root.restartIdle(0.40);
+            idleFidgetTimer.interval = 9000 + Math.random() * 7000;
+            idleFidgetTimer.restart();
             if (Math.random() < 0.38) {
                 const f = Gestures.fidget(root);
                 if (f) {
@@ -534,12 +537,11 @@ Item {
 
     Timer {
         id: ambientGazeTimer
-        interval: 4400 + Math.random() * 5400
+        interval: 8200 + Math.random() * 7200
         repeat: true
         running: !PetManager.hidden && (root.state_ === "idle" || (root.state_ === "perch" && !root._perchStrolling))
         onTriggered: {
-            const hold0 = SpeciesProfile.standSpec(root.renderedSpecies).mode === "hold0";
-            interval = hold0 ? (4200 + Math.random() * 4400) : (5400 + Math.random() * 6800);
+            interval = 8200 + Math.random() * 7600;
             if (fidgetRevert.running || Date.now() < root.attentionUntil) return;
             const nextRow = Gestures.ambientGlanceRow(root, spriteAnim._dirRow);
             spriteAnim.setDirectionRow(nextRow, false);
@@ -595,6 +597,13 @@ Item {
             Brain.syncArchetype(root);
             if (++root._metabolismTicks % 6 === 0) {
                 Memory.decayMemories(root);
+            }
+            if (root.state_ === "idle" && !idleTimer.running && !planBeatTimer.running) {
+                root.restartIdle(0.6);
+            } else if (root.state_ === "walk" && root.onJourney && root._journeyBeganMs > 0
+                    && (now - root._journeyBeganMs) > 28000) {
+                root.onJourney = false;
+                Brain.onBlocked(root);
             }
         }
         Component.onCompleted: interval = 4600 + Math.random() * 800

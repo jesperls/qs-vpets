@@ -61,22 +61,32 @@ function scoreCandidates(pet, perc, nav, pickFn) {
 
     cands.push({
         name: "idle_watch",
-        score: 0.38 + p.patience * 0.18 + p.composure * 0.08 - pet.boredom * 0.22
-             + (justWoke ? 0.22 : 0) + (settled ? 0.22 : 0) + (perc.micActive ? 0.22 : 0),
+        score: 0.16 + p.patience * 0.12 + p.composure * 0.05 - pet.boredom * 0.46
+             - Math.max(0, pet.playDrive - 0.40) * 0.18
+             - Math.max(0, pet.exploreDrive - 0.35) * 0.16
+             + (justWoke ? 0.24 : 0) + (settled ? 0.20 : 0) + (perc.micActive ? 0.22 : 0),
         exec: function() {
             _attendToSomething(pet, perc);
-            pet.restartIdle(0.95 + p.patience * 0.55);
+            pet.restartIdle(0.80 + p.patience * 0.42);
         }
     });
 
-    var restThreshold = Math.max(0.20, 0.36 - p.sleepiness * 0.18);
-    if ((pet.restDrive > restThreshold && pet.alertness < 0.78) || pet.alertness < 0.18) {
-        var restScore = pet.restDrive * (0.72 + p.sleepiness * 0.96)
+    var isNocturnal = spProf.nocturnalAffinity
+                   || Personality.hasQuirk(pet, "night_watch")
+                   || Abilities.has(pet, "lunar_pulse");
+    var shyAtHome = perc.atHome && (p.boldness < 0.34 || Personality.hasQuirk(pet, "cozy_hermit"));
+    var restThreshold = (perc.isNight && !isNocturnal)
+        ? 0.12
+        : (shyAtHome ? 0.08 : Math.max(0.14, 0.34 - p.sleepiness * 0.16));
+    if (pet.restDrive > restThreshold || pet.alertness < 0.24 || (perc.isNight && !isNocturnal && perc.userIdle)) {
+        var restScore = pet.restDrive * (0.76 + p.sleepiness * 0.94)
                       + p.sleepiness * 0.18
-                      + (1 - pet.alertness) * 0.36 - pet.alertness * 0.20
-                      + perc.placeAffectHere * 0.28
-                      + (perc.atHome ? 0.12 : 0);
-        if (perc.isNight) restScore *= Personality.hasQuirk(pet, "night_watch") && !perc.userIdle ? 0.9 : 1.38;
+                      + Math.max(0, 0.75 - pet.alertness) * 0.32
+                      + perc.placeAffectHere * 0.24
+                      + (perc.atHome ? 0.12 : 0)
+                      + ((perc.isNight && !isNocturnal) ? 0.26 : 0)
+                      + (p.boldness < 0.30 && perc.atHome ? 0.10 : 0);
+        if (perc.isNight) restScore *= isNocturnal && !perc.userIdle ? 0.78 : 1.38;
         if (perc.micActive) restScore *= 1.16;
         if (perc.isRaining && (spProf.biome === "Warm Hearth" || spProf.biome === "Sunlit Meadow")) restScore *= 1.15;
         restScore *= 1 + (quietHour - 0.5) * 0.48;
@@ -160,30 +170,37 @@ function scoreCandidates(pet, perc, nav, pickFn) {
         });
     }
 
+    if (pet.alertness > 0.24 && (pet.exploreDrive > 0.10 || pet.boredom > 0.10) && !justWoke) {
+        var wTarget = pet.exploreDrive > 0.25 ? Memory.explorationTarget(pet) : null;
+        cands.push({
+            name: "wander",
+            score: 0.12 + pet.exploreDrive * (0.48 + p.curiosity * 0.38) * active * nightMult * fsCalm
+                 + pet.boredom * 0.60 + (shyAtHome ? 0.06 : 0),
+            exec: function() {
+                pet.boredom = Math.max(0, pet.boredom - 0.08);
+                nav.wanderStart(pet, wTarget ? Math.atan2(wTarget.gy - perc.petGY, wTarget.gx - perc.petGX) : undefined);
+            }
+        });
+    }
+
     if (pet.alertness > 0.30 && pet.exploreDrive > 0.25 && !justWoke) {
         var target = Memory.explorationTarget(pet);
         if (target && pet.exploreDrive > 0.32) {
             var dTarget = Math.hypot(target.gx - perc.petGX, target.gy - perc.petGY);
+            var scoutScore = pet.exploreDrive * (0.56 + p.curiosity * 0.74)
+                           * active * nightMult * fsCalm * boredomBoost
+                           + (target.visits === 0 ? 0.14 : 0)
+                           + (target.otherScreen ? p.boldness * 0.14 + (Personality.hasQuirk(pet, "screen_hopper") ? 0.18 : 0) : 0)
+                           - _distCost(pet, dTarget) * 0.5;
+            if (Memory.recent(pet, "scout_complete", 120000)) scoutScore *= 0.36;
             cands.push({
                 name: "scout_expedition",
-                score: pet.exploreDrive * (0.56 + p.curiosity * 0.74)
-                     * active * nightMult * fsCalm * boredomBoost
-                     + (target.visits === 0 ? 0.14 : 0)
-                     + (target.otherScreen ? p.boldness * 0.14 + (Personality.hasQuirk(pet, "screen_hopper") ? 0.18 : 0) : 0)
-                     - _distCost(pet, dTarget) * 0.5,
+                score: scoutScore,
                 exec: function() {
-                    Plans.startPlan(pet, Plans.buildScoutPlan(target), nav, pickFn);
+                    Plans.startPlan(pet, Plans.buildScoutPlan(target, pet), nav, pickFn);
                 }
             });
         }
-        cands.push({
-            name: "wander",
-            score: pet.exploreDrive * (0.32 + p.curiosity * 0.28) * active * nightMult * fsCalm
-                 + pet.boredom * 0.12,
-            exec: function() {
-                nav.wanderStart(pet, target ? Math.atan2(target.gy - perc.petGY, target.gx - perc.petGX) : undefined);
-            }
-        });
 
         if (perc.seamPeeks && perc.seamPeeks.length > 0 && !perc.fullscreen
                 && pet.alertness > 0.34 && pet.exploreDrive > 0.28 && p.curiosity > 0.38
@@ -216,10 +233,10 @@ function scoreCandidates(pet, perc, nav, pickFn) {
         if (perc.isRaining && (spProf.biome === "Warm Hearth" || spProf.biome === "Sunlit Meadow")) {
             supBoost += 0.14;
         }
-        var supScore = (pet.exploreDrive * 0.58 + pet.socialDrive * 0.42)
-                     * (0.45 + p.curiosity * 0.72) * (0.55 + pref * 0.55) * (0.65 + novelty * 0.45)
+        var supScore = (0.14 + (pet.exploreDrive * 0.56 + pet.socialDrive * 0.44)
+                     * (0.52 + p.curiosity * 0.68) * (0.65 + pref * 0.45) * (0.72 + novelty * 0.35))
                      * spProf.windowWatchAffinity * active * nightMult + supBoost
-                     - _distCost(pet, perc.win.dist);
+                     - _distCost(pet, perc.win.dist) * 0.68;
         if (Memory.recent(pet, "supervised_code", 180000)) supScore *= 0.32;
         cands.push({
             name: "supervise_work",
@@ -231,8 +248,8 @@ function scoreCandidates(pet, perc, nav, pickFn) {
     }
 
     if (pet.enablePerching !== false && perc.perches && perc.perches.length > 0
-            && !perc.fullscreen && pet.alertness > 0.40 && !justWoke
-            && !Memory.recent(pet, "perched_window", 210000)) {
+            && !perc.fullscreen && pet.alertness > 0.36 && !justWoke
+            && !Memory.recent(pet, "perched_window", 135000)) {
         var bestPerch = perc.perches[0];
         for (var pi = 1; pi < perc.perches.length; pi++) {
             if (perc.perches[pi].focused) { bestPerch = perc.perches[pi]; break; }
@@ -241,10 +258,10 @@ function scoreCandidates(pet, perc, nav, pickFn) {
         if ((perc.thermalWarmth || 0) > 0.48 && Abilities.has(pet, "frost_calm")) {
             perchBonus += 0.24 * perc.thermalWarmth;
         }
-        var perchScore = (pet.exploreDrive * 0.52 + pet.playDrive * 0.28)
-                       * (0.38 + p.boldness * 0.45 + p.curiosity * 0.35)
+        var perchScore = (0.10 + (pet.exploreDrive * 0.54 + pet.playDrive * 0.32)
+                       * (0.42 + p.boldness * 0.45 + p.curiosity * 0.38))
                        * spProf.perchAffinity * active * nightMult + perchBonus
-                       - _distCost(pet, bestPerch.dist);
+                       - _distCost(pet, bestPerch.dist) * 0.68;
         cands.push({
             name: "window_perch",
             score: perchScore,
@@ -299,7 +316,8 @@ function scoreCandidates(pet, perc, nav, pickFn) {
     }
 
     if (perc.isNight && !perc.userIdle && !perc.fullscreen
-            && bond > 0.38 && pet.alertness > 0.25
+            && (isNocturnal || (bond > 0.65 && p.composure > 0.62 && p.sleepiness < 0.42))
+            && bond > 0.36 && pet.alertness > 0.25
             && !Memory.recent(pet, "night_vigil", 420000)) {
         var vigilScore = (0.35 + bond * 0.4 + p.sociability * 0.35)
                        + (Personality.hasQuirk(pet, "night_watch") ? 0.28 : 0);
@@ -375,25 +393,27 @@ function scoreCandidates(pet, perc, nav, pickFn) {
     }
 
     var sig = spProf.signature;
-    if (pet.playDrive > sig.minPlay && pet.alertness > 0.38 && !justWoke) {
-        var soloScore = pet.playDrive * (0.46 + p.playfulness * 0.72) * moodMult * active * fsCalm * nightMult;
-        if (Memory.recent(pet, "played_solo", 320000)) soloScore *= 0.25;
+    var effMinPlay = sig.minPlay + Math.max(0, 0.48 - p.playfulness) * 0.25;
+    if (pet.playDrive > effMinPlay && pet.alertness > 0.34 && !justWoke) {
+        var soloScore = pet.playDrive * (0.26 + p.playfulness * 0.78 + p.energy * 0.22) * moodMult * active * fsCalm * nightMult;
+        if (Memory.recent(pet, "played_solo", 165000)) soloScore *= 0.25;
         cands.push({
             name: "play_solo",
             score: soloScore,
             exec: function() {
-                pet.playDrive = Math.max(0, pet.playDrive - 0.20);
+                pet.playDrive = Math.max(0, pet.playDrive - 0.24);
                 Memory.recordEpisode(pet, "played_solo", { valence: 0.3 });
                 Plans.startPlan(pet, Plans.buildPlaySoloPlan(pet, sig), nav, pickFn);
             }
         });
 
-        if (!perc.micActive && pet.playDrive > 0.76 && pet.alertness > 0.55 && !Memory.recent(pet, "zoomies", 480000)) {
+        var zoomAt = Math.max(0.52, 0.76 - p.playfulness * 0.14 - p.energy * 0.10);
+        if (!perc.micActive && pet.playDrive > zoomAt && pet.alertness > 0.50 && !Memory.recent(pet, "zoomies", 240000)) {
             cands.push({
                 name: "zoomies",
-                score: Math.pow(pet.playDrive, 1.55) * (0.38 + p.playfulness * 0.75)
-                     * (0.3 + p.energy * 0.7) * moodMult * boredomBoost
-                     * (perc.fullscreen ? 0.25 : 1) * (perc.isNight ? 0.35 : 1) - 0.12,
+                score: Math.pow(pet.playDrive, 1.45) * (0.40 + p.playfulness * 0.75)
+                     * (0.32 + p.energy * 0.68) * moodMult * boredomBoost
+                     * (perc.fullscreen ? 0.25 : 1) * (perc.isNight ? 0.35 : 1) - 0.08,
                 exec: function() {
                     pet.playDrive = Math.max(0, pet.playDrive - 0.28);
                     Memory.recordEpisode(pet, "zoomies", { valence: 0.35 });
@@ -475,11 +495,11 @@ function _socialCandidates(pet, perc, nav, pickFn, cands, m) {
         (function(o) {
             if (o.busySocial) return;
 
-            var closeProx = o.sameScreen && o.dist < 260;
-            var closeFriendMed = o.sameScreen && o.dist >= 260 && o.dist < 500
-                              && o.affinity >= 0.65 && o.familiarity >= 0.36 && o.sinceInteract > 360000;
+            var closeProx = o.sameScreen && o.dist < 340;
+            var closeFriendMed = o.sameScreen && o.dist >= 340 && o.dist < 540
+                              && o.affinity >= 0.64 && o.familiarity >= 0.34 && o.sinceInteract > 320000;
             var soulmateFar = o.affinity >= 0.76 && o.familiarity >= 0.48
-                           && o.sinceInteract > 540000 && o.dist >= 260
+                           && o.sinceInteract > 540000 && o.dist >= 340
                            && (o.sameScreen || p.boldness > 0.50 || Personality.hasQuirk(pet, "screen_hopper"));
 
             if (!closeProx && !closeFriendMed && !soulmateFar) return;
@@ -500,7 +520,25 @@ function _socialCandidates(pet, perc, nav, pickFn, cands, m) {
                 return;
             }
 
-            if (!perc.micActive && o.sameScreen && o.dist > 105 && o.dist < 360
+            if (closeProx && o.dist >= 95 && !o.resting && o.sinceInteract > 120000
+                    && o.affinity >= 0.34 && o.familiarity < 0.28 && pet.socialDrive > 0.34
+                    && pet.alertness > 0.32) {
+                var mingleScore = ((pet.socialDrive * 0.64 + pet.exploreDrive * 0.36)
+                                * (0.34 + p.sociability * 0.54 + p.curiosity * 0.22)
+                                * (0.42 + o.affinity * 0.52) * m.moodMult * m.active * m.nightMult
+                                + 0.08 - _distCost(pet, o.dist) * 0.5) * libMult;
+                cands.push({
+                    name: "social_mingle",
+                    otherName: o.name,
+                    score: mingleScore,
+                    exec: function() {
+                        Social.claimPeerBout(pet, "greet", 135000);
+                        Plans.startPlan(pet, Plans.buildSocialMinglePlan(pet, o), nav, pickFn);
+                    }
+                });
+            }
+
+            if (!perc.micActive && o.sameScreen && o.dist > 105 && o.dist < 380
                     && !o.resting && (o.state === "idle" || o.state === "sitNorth")
                     && o.affinity >= 0.46 && o.sinceInteract > 180000
                     && !Social.isPeerLookingAt(o.pet, pet)
@@ -522,7 +560,7 @@ function _socialCandidates(pet, perc, nav, pickFn, cands, m) {
             }
 
             if ((myStyle === "guardian" || ((pet.maturity || 0) >= 0.45 && p.composure >= 0.58))
-                    && o.sameScreen && o.dist < 320 && !o.resting && o.affinity >= 0.48
+                    && o.sameScreen && o.dist < 340 && !o.resting && o.affinity >= 0.48
                     && ((o.pet.maturity || 0) < 0.30 || o.respect >= 0.62)
                     && o.sinceInteract > 210000 && pet.exploreDrive > 0.24
                     && !Memory.recent(pet, "mentor_patrol", 480000)) {
@@ -545,7 +583,7 @@ function _socialCandidates(pet, perc, nav, pickFn, cands, m) {
             if (!o.resting && o.sinceInteract > 150000 && pet.playDrive > 0.28 && pet.alertness > 0.38) {
                 var wantsSpar = myStyle === "brawler" || o.socialStyle === "brawler"
                              || o.sparCount >= 2 || (p.boldness > 0.58 && p.playfulness > 0.48);
-                if (wantsSpar && o.affinity >= 0.38 && o.dist < (closeFriendMed ? 460 : 245)) {
+                if (wantsSpar && o.affinity >= 0.38 && o.dist < (closeFriendMed ? 520 : 320)) {
                     var sparScore = (pet.playDrive * (0.32 + p.boldness * 0.46 + p.playfulness * 0.40)
                                   * (0.42 + o.respect * 0.58) * m.moodMult * m.active
                                   + (myStyle === "brawler" ? 0.16 : 0)

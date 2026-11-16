@@ -782,20 +782,27 @@ function finishPlan(pet, pickFn) {
         Memory.recordEpisode(pet, "calm_company", { valence: 0.38, note: "parked_cursor" });
         break;
 
+    case "social_mingle":
+        pet.socialDrive = Math.max(0, pet.socialDrive - 0.18);
+        Drives.happier(pet, 0.02);
+        break;
+
     default:
         Abilities.onPlanFinished(pet, plan);
         break;
     }
 
+    Drives.eventful(pet, 0.10);
     var stayPerchedAddr = pet.state_ === "perch" ? (pet.perchedWindowAddr || "") : "";
     clearPlan(pet);
     if (stayPerchedAddr) {
         pet.perchedWindowAddr = stayPerchedAddr;
         pet.enterState("perch");
-        if (pet.restartIdle) pet.restartIdle(1.0);
+        if (pet.restartIdle) pet.restartIdle(0.85);
         return;
     }
     pet.enterState("idle");
+    if (pet.restartIdle) pet.restartIdle(0.68);
 }
 
 function resolveBidSuccess(pet, nav, pickFn) {
@@ -887,6 +894,7 @@ var buildPeacekeeperPlan = PlanBuildersSocial.buildPeacekeeperPlan;
 var buildSpectatePlan = PlanBuildersSocial.buildSpectatePlan;
 var buildPackRallyPlan = PlanBuildersSocial.buildPackRallyPlan;
 var buildBestFriendVisitPlan = PlanBuildersSocial.buildBestFriendVisitPlan;
+var buildSocialMinglePlan = PlanBuildersSocial.buildSocialMinglePlan;
 var buildSneakBoopPlan = PlanBuildersSocial.buildSneakBoopPlan;
 var buildMentorPatrolPlan = PlanBuildersSocial.buildMentorPatrolPlan;
 var buildCopycatTrailPlan = PlanBuildersSocial.buildCopycatTrailPlan;

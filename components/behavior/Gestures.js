@@ -47,14 +47,21 @@ function ambientGlanceRow(pet, currentRow) {
         return toRow(Math.atan2(perc.win.gy - perc.petGY, perc.win.gx - perc.petGX));
     }
 
-    var cozyRows = [7, 1, 7, 1, 6, 2, 0, 5, 3];
+    if (cur !== 0 && cur !== 4 && Math.random() < 0.56) {
+        return cur;
+    }
+
+    var cozyRows = [7, 1, 7, 1, 6, 2, 0];
     var target = cozyRows[Math.floor(Math.random() * cozyRows.length)];
     if (target === cur) {
-        target = cur === 0 ? (Math.random() < 0.5 ? 1 : 7) : ((cur + (Math.random() < 0.5 ? 1 : 7)) % 8);
+        target = cur === 0 ? (Math.random() < 0.5 ? 1 : 7) : cur;
     }
-    var diff = ((target - cur + 12) % 8) - 4;
-    if (Math.abs(diff) > 2) {
-        return (cur + (diff > 0 ? 2 : 6)) % 8;
+    // Step across the front semicircle (6-7-0-1-2) rather than spinning through the back (3-4-5).
+    var frontOrder = [6, 7, 0, 1, 2];
+    var ci = frontOrder.indexOf(cur);
+    var ti = frontOrder.indexOf(target);
+    if (ci !== -1 && ti !== -1 && Math.abs(ti - ci) > 2) {
+        return frontOrder[ci + (ti > ci ? 2 : -2)];
     }
     return target;
 }

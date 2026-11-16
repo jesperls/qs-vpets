@@ -121,9 +121,9 @@ var QUIRK_DEFS = {
 };
 
 var JITTER = 0.08;
-var CORE_BOUND = 0.28;
+var CORE_BOUND = 0.22;
 var RECENT_BOUND = 0.14;
-var MAX_ACTIVE_QUIRKS = 4;
+var MAX_ACTIVE_QUIRKS = 3;
 
 var clamp = Util.clamp;
 var clamp01 = Util.clamp01;
@@ -211,20 +211,48 @@ function consolidateCore(coreDrift, recentDrift, episodeSignals, maturity) {
     for (var i = 0; i < TRAIT_KEYS.length; i++) {
         var k = TRAIT_KEYS[i];
         var sig = (episodeSignals && episodeSignals[k]) || 0;
-        var carry = (nextRecent[k] || 0) * 0.28; // fold session drift into permanent character
+        var carry = (nextRecent[k] || 0) * 0.26;
         var delta = (sig + carry) * rate;
         var cur = nextCore[k] || 0;
-        // Homeostatic pull settles traits proportionally to ongoing habits rather than pegging bounds.
-        var homeo = -cur * 0.024;
+        // Homeostatic pull preserves innate identity while letting sustained lifestyle differences stick.
+        var homeo = -cur * 0.062;
         var updated = clamp(cur + delta + homeo, -CORE_BOUND, CORE_BOUND);
         if (Math.abs(updated) < 0.003) delete nextCore[k];
         else nextCore[k] = Math.round(updated * 10000) / 10000;
 
-        var rem = (nextRecent[k] || 0) * 0.65;
+        var rem = (nextRecent[k] || 0) * 0.62;
         if (Math.abs(rem) < 0.003) delete nextRecent[k];
         else nextRecent[k] = Math.round(rem * 10000) / 10000;
     }
     return { core: nextCore, recent: nextRecent };
+}
+
+function quirkAffinity(traits, qid) {
+    var t = traits || PRESETS.emergent;
+    switch (qid) {
+    case "screen_hopper":
+        return clamp(0.45 + t.boldness * 0.52 + t.curiosity * 0.42 + t.energy * 0.25 - t.sleepiness * 0.22, 0.38, 1.55);
+    case "window_percher":
+        return clamp(0.48 + t.curiosity * 0.48 + t.boldness * 0.44 - t.sleepiness * 0.24, 0.40, 1.50);
+    case "terminal_supervisor":
+        return clamp(0.28 + t.patience * 0.62 + t.composure * 0.48 - t.energy * 0.28, 0.25, 1.50);
+    case "melomaniac":
+        return clamp(0.50 + t.playfulness * 0.56 + t.energy * 0.28, 0.44, 1.50);
+    case "night_watch":
+        return clamp(0.46 + t.composure * 0.54 + t.curiosity * 0.38 - t.sleepiness * 0.24 + (t.composure > 0.65 && t.patience > 0.62 ? 0.12 : 0), 0.38, 1.55);
+    case "velcro_companion":
+        return clamp(0.46 + t.sociability * 0.68 + t.patience * 0.22, 0.40, 1.55);
+    case "cozy_hermit":
+        return clamp(0.44 + t.patience * 0.44 + (1 - t.sociability) * 0.42 + (1 - t.boldness) * 0.28, 0.40, 1.55);
+    case "pack_spark":
+        return clamp(0.42 + t.playfulness * 0.58 + t.sociability * 0.44 + t.energy * 0.20, 0.38, 1.55);
+    case "sky_acrobat":
+        return clamp(0.44 + t.boldness * 0.54 + t.playfulness * 0.48, 0.40, 1.55);
+    case "daydreamer":
+        return clamp(0.42 + t.sleepiness * 0.68 + t.patience * 0.32 - t.energy * 0.18, 0.38, 1.55);
+    default:
+        return 1.0;
+    }
 }
 
 function updateQuirks(quirkProgress, currentQuirks, increments) {
@@ -267,27 +295,43 @@ function archetypeTitle(traits, quirks, maturity, bond) {
     if (m < 0.06 && (!quirks || quirks.length === 0)) return "Curious Hatchling";
 
     var adj = "Balanced";
-    if (traits.playfulness > 0.74 && traits.boldness > 0.62) adj = "Mischievous";
-    else if (traits.composure > 0.75 && traits.patience > 0.72) adj = "Serene";
-    else if (traits.curiosity > 0.75 && traits.boldness > 0.6) adj = "Intrepid";
-    else if (traits.curiosity > 0.72) adj = "Inquisitive";
-    else if (traits.energy > 0.76) adj = "Spirited";
+    if (traits.boldness < 0.22) adj = "Bashful";
     else if (traits.sleepiness > 0.74) adj = "Dreamy";
-    else if (traits.boldness < 0.28) adj = "Bashful";
-    else if (traits.sociability < 0.28 && traits.patience < 0.4) adj = "Prickly";
-    else if (b > 0.75 && traits.sociability > 0.65) adj = "Devoted";
-    else if (traits.sociability > 0.72) adj = "Affectionate";
+    else if (traits.boldness < 0.29) adj = "Bashful";
+    else if (traits.sociability < 0.28 && traits.patience < 0.42) adj = "Prickly";
+    else if (traits.playfulness > 0.74 && traits.boldness > 0.60) adj = "Mischievous";
+    else if (traits.energy > 0.76 && traits.playfulness > 0.58) adj = "Spirited";
+    else if (traits.composure > 0.74 && traits.patience > 0.70) adj = "Serene";
+    else if (b > 0.74 && traits.sociability > 0.64) adj = "Devoted";
+    else if (traits.curiosity > 0.76 && traits.boldness > 0.60) adj = "Intrepid";
+    else if (traits.curiosity > 0.72) adj = "Inquisitive";
+    else if (traits.sociability > 0.70) adj = "Affectionate";
+    else if (traits.energy > 0.70) adj = "Lively";
+    else if (traits.patience > 0.72) adj = "Unhurried";
 
-    if (quirks && quirks.length > 0 && QUIRK_DEFS[quirks[0]]) {
-        return adj + " " + QUIRK_DEFS[quirks[0]].label;
+    if (quirks && quirks.length > 0) {
+        var bestQ = "";
+        var bestFit = -1;
+        for (var i = 0; i < quirks.length; i++) {
+            var qid = quirks[i];
+            if (!QUIRK_DEFS[qid]) continue;
+            var fit = quirkAffinity(traits, qid) + (i === 0 ? 0.10 : 0);
+            if (fit > bestFit) {
+                bestFit = fit;
+                bestQ = qid;
+            }
+        }
+        if (bestQ) return adj + " " + QUIRK_DEFS[bestQ].label;
     }
 
     var noun = "Companion";
-    if (traits.curiosity >= traits.playfulness && traits.curiosity > 0.62) noun = "Scout";
+    if (traits.sleepiness > 0.66) noun = "Loafer";
+    else if (traits.boldness < 0.30) noun = "Wallflower";
+    else if (traits.sociability < 0.30) noun = "Loner";
     else if (traits.playfulness > 0.66) noun = "Trickster";
-    else if (traits.sleepiness > 0.68) noun = "Loafer";
-    else if (traits.patience > 0.72) noun = "Observer";
-    else if (traits.boldness > 0.72) noun = "Vanguard";
+    else if (traits.curiosity >= traits.playfulness && traits.curiosity > 0.62) noun = "Scout";
+    else if (traits.patience > 0.70) noun = "Observer";
+    else if (traits.boldness > 0.70) noun = "Vanguard";
     return adj + " " + noun;
 }
 

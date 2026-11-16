@@ -114,7 +114,7 @@ function countRecent(pet, types, withinMs) {
 }
 
 function wasRecentlyPetted(pet) { return !!recent(pet, "petted", 35000); }
-function justWokeUp(pet) { return !!recent(pet, "well_rested", 45000); }
+function justWokeUp(pet) { return !!recent(pet, "well_rested", 22000); }
 
 function addJournalEntry(pet, text, kind) {
     if (!pet.journal) pet.journal = [];
@@ -145,7 +145,9 @@ function consolidateSleep(pet) {
         boldness: 0, sociability: 0, patience: 0, composure: 0
     };
     var quirkInc = {};
-    function bumpQuirk(k, v) { quirkInc[k] = (quirkInc[k] || 0) + v; }
+    function bumpQuirk(k, v) {
+        quirkInc[k] = (quirkInc[k] || 0) + v * Personality.quirkAffinity(pet.basePersonality, k);
+    }
 
     var dreamCandidate = batch[0];
     var positiveCount = 0;
@@ -183,26 +185,28 @@ function consolidateSleep(pet) {
             break;
         case "adventure":
         case "scout_complete":
-            signals.curiosity += 0.010;
-            signals.boldness += 0.007;
-            signals.energy += 0.004;
-            if (ep.otherScreen) bumpQuirk("screen_hopper", 0.085);
+            signals.curiosity += 0.004;
+            signals.boldness += 0.003;
+            signals.energy += 0.002;
+            signals.sleepiness -= 0.002;
+            if (ep.otherScreen) bumpQuirk("screen_hopper", 0.048);
             break;
         case "supervised_code":
-            signals.patience += 0.009;
-            signals.composure += 0.007;
-            signals.curiosity += 0.004;
-            bumpQuirk("terminal_supervisor", 0.09);
+            signals.patience += 0.005;
+            signals.composure += 0.005;
+            signals.playfulness -= 0.002;
+            bumpQuirk("terminal_supervisor", 0.048);
             break;
         case "perched_window":
             signals.boldness += 0.005;
             signals.curiosity += 0.005;
-            bumpQuirk("window_percher", 0.08);
+            signals.sleepiness -= 0.002;
+            bumpQuirk("window_percher", 0.085);
             break;
         case "music_groove":
             signals.playfulness += 0.009;
             signals.energy += 0.005;
-            bumpQuirk("melomaniac", 0.095);
+            bumpQuirk("melomaniac", 0.082);
             break;
         case "night_vigil":
             signals.composure += 0.006;
@@ -284,12 +288,23 @@ function consolidateSleep(pet) {
             if (pet.personality.sleepiness > 0.52) bumpQuirk("daydreamer", 0.04);
             break;
         case "resting":
-            if (pet.personality.sleepiness > 0.62) bumpQuirk("daydreamer", 0.035);
-            if (pet.personality.patience > 0.65 && pet.personality.energy < 0.40) bumpQuirk("cozy_hermit", 0.03);
+            signals.sleepiness += 0.003;
+            signals.energy -= 0.002;
+            if (pet.personality.sleepiness > 0.56) bumpQuirk("daydreamer", 0.045);
+            if (pet.personality.patience > 0.62 && pet.personality.energy < 0.44) bumpQuirk("cozy_hermit", 0.04);
             break;
         case "well_rested":
             signals.composure += 0.004;
-            if (pet.personality.sleepiness > 0.54) bumpQuirk("daydreamer", 0.06);
+            signals.patience += 0.003;
+            signals.sleepiness += 0.003;
+            signals.energy -= 0.002;
+            if (pet.personality.sleepiness > 0.50) bumpQuirk("daydreamer", 0.065);
+            break;
+        case "zoomies":
+        case "played_solo":
+            signals.playfulness += 0.006;
+            signals.energy += 0.005;
+            signals.sleepiness -= 0.003;
             break;
         case "foraged":
             signals.composure += 0.003;

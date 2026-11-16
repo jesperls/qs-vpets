@@ -72,6 +72,7 @@ in
         cd "${src}"
         node tests/test_sprites.js
         node tests/test_cognition.js
+        node tests/test_soak.js
         touch "$out"
       '';
 

@@ -54,6 +54,7 @@ let
 
       node tests/test_sprites.js
       node tests/test_cognition.js
+      node tests/test_soak.js
       bash -n scripts/qs-vpets.sh
       shellcheck scripts/qs-vpets.sh
       if [ -f install.sh ]; then

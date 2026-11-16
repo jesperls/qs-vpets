@@ -213,7 +213,7 @@ function onArrived(pet, nav) {
         Plans.advanceStep(pet, nav, _pick);
         return;
     }
-    Drives.eventful(pet, 0.18);
+    Drives.eventful(pet, 0.05);
     pet.enterState("idle");
 }
 

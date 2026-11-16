@@ -389,6 +389,26 @@ function buildBestFriendVisitPlan(pet, other) {
     };
 }
 
+function buildSocialMinglePlan(pet, other) {
+    var off = other.pet ? _naturalOffsetFrom(pet, other.pet, 74) : { offsetX: 66, offsetY: 18 };
+    return {
+        name: "social_mingle",
+        label: "Saying Hi to " + other.name,
+        reason: "Trotting over to greet " + other.name,
+        otherName: other.name,
+        urgency: 0.54,
+        durationMs: 55000,
+        thought: "Trotted over to say hello to " + other.name,
+        steps: [
+            { kind: "travel", gait: "trot", label: "Trotting toward " + other.name, dynamic: "other_pet", offsetX: off.offsetX, offsetY: off.offsetY },
+            { kind: "social", interaction: "greet", label: "Friendly sniff" },
+            { kind: "act", label: "Warm greeting", states: SpeciesProfile.greetGesturesFor(pet), faceOther: true },
+            { kind: "observe", durationMs: 1800, attend: "other", label: "Hanging out briefly" },
+            { kind: "wander_apart", dist: 125, gait: "amble", label: "Ambling onward" }
+        ]
+    };
+}
+
 function buildSneakBoopPlan(pet, other) {
     return {
         name: "sneak_boop",

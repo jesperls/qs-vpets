@@ -68,11 +68,12 @@ function integrate(pet, perc, dt) {
     }
 
     if (moving) {
-        pet.exploreDrive = clamp01(pet.exploreDrive - 0.00055 * dt);
+        pet.exploreDrive = clamp01(pet.exploreDrive - 0.00050 * dt);
     } else if (resting) {
         pet.exploreDrive = clamp01(pet.exploreDrive - 0.00012 * dt);
     } else {
-        var er = (0.00011 + p.curiosity * 0.00028) * (0.3 + pet.alertness * 0.7);
+        var er = (0.00018 + p.curiosity * 0.00038) * (0.3 + pet.alertness * 0.7);
+        if (s === "idle" && !pet.activePlan) er *= 1.35;
         if (perc.windowCount > 3) er *= 1.25;
         if (perc.userBusy && !watching) {
             var steadyAnchor = p.composure >= 0.56
@@ -103,8 +104,13 @@ function integrate(pet, perc, dt) {
 
     if (playing) {
         pet.playDrive = clamp01(pet.playDrive - 0.0045 * dt);
+    } else if (deep) {
+        pet.playDrive = clamp01(pet.playDrive - 0.00008 * dt);
+    } else if (loafing) {
+        var restPlay = p.playfulness > 0.55 ? 0.00003 * p.playfulness : -0.00003;
+        pet.playDrive = clamp01(pet.playDrive + restPlay * dt);
     } else {
-        var pr = (0.000065 + p.playfulness * 0.00030) * (0.2 + pet.alertness * 0.8);
+        var pr = (0.000045 + p.playfulness * 0.00034) * (0.2 + pet.alertness * 0.8);
         if (pet.happiness > 0.6) pr *= 1.35;
         if (perc.mediaPlaying) pr *= hasMelomaniac ? 1.65 : 1.2;
         if (perc.isRaining && SpeciesProfile.hasAbility(pet, "tide_splash")) pr *= 1.35;
@@ -114,11 +120,14 @@ function integrate(pet, perc, dt) {
     }
 
     if (resting || playing) {
-        pet.boredom = clamp01(pet.boredom - 0.0006 * dt);
+        pet.boredom = clamp01(pet.boredom - 0.00055 * dt);
+    } else if (moving) {
+        pet.boredom = clamp01(pet.boredom - 0.00030 * dt);
     } else if (watching && !perc.userIdle) {
-        pet.boredom = clamp01(pet.boredom - 0.00018 * dt);
+        pet.boredom = clamp01(pet.boredom - 0.00012 * dt);
     } else {
-        var br = 0.00026 * (0.45 + p.energy * 0.8) * (perc.micActive ? 0.45 : 1.0);
+        var idleMult = (s === "idle" && !pet.activePlan) ? 2.2 : 1.0;
+        var br = (0.00030 + p.energy * 0.00052) * idleMult * (perc.micActive ? 0.45 : 1.0);
         pet.boredom = clamp01(pet.boredom + br * dt);
     }
 

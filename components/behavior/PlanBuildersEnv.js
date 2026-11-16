@@ -171,8 +171,12 @@ function buildLedgeParkourPlan(fromPerch, jumpInfo, pet) {
     };
 }
 
-function buildScoutPlan(target) {
+function buildScoutPlan(target, pet) {
     var dest = target.otherScreen ? (target.screenName || "another monitor") : "quiet corner";
+    var sniffs = pet ? SpeciesProfile.calmGesturesFor(pet) : ["nod"];
+    var hopX = target.gx + Math.round((Math.random() < 0.5 ? -1 : 1) * (75 + Math.random() * 75));
+    var hopY = target.gy + Math.round((Math.random() - 0.5) * 95);
+    var leg2 = pet ? Util.clampToScreen(pet, hopX, hopY) : { gx: target.gx, gy: target.gy };
     return {
         name: "scout_expedition",
         label: "Exploring " + dest,
@@ -183,8 +187,10 @@ function buildScoutPlan(target) {
         thought: "Trotting over to explore " + dest,
         steps: [
             { kind: "travel", gait: "trot", label: "Walking to " + dest, gx: target.gx, gy: target.gy },
-            { kind: "act", label: "Sniffing around", states: ["nod"] },
-            { kind: "observe", label: "Looking around", durationMs: 12000 + Math.random() * 14000 }
+            { kind: "act", label: "Sniffing around", states: sniffs },
+            { kind: "travel", gait: "amble", label: "Exploring nearby", gx: leg2.gx, gy: leg2.gy },
+            { kind: "act", label: "Checking surroundings", states: ["lookUp", "head", "nod"] },
+            { kind: "observe", label: "Taking in the view", durationMs: 3600 + Math.random() * 2400 }
         ]
     };
 }
@@ -265,7 +271,9 @@ function buildMusicGroovePlan(perc, friendName, pet) {
     if (friendName) {
         steps.unshift({ kind: "social", label: "Swaying near " + friendName, interaction: "groove" });
     }
-    steps.push({ kind: "observe", label: "Listening", durationMs: 12000 });
+    steps.push({ kind: "observe", label: "Listening", durationMs: 3400 });
+    steps.push({ kind: "act", label: "Grooving along", states: ["dance", "twirl", "rotate"].concat(swayStates) });
+    steps.push({ kind: "act", label: "Happy sway", states: swayStates });
     return {
         name: "music_groove",
         label: "Listening to Music",
