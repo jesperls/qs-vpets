@@ -168,13 +168,16 @@ function buildScoutPlan(target) {
     };
 }
 
-function buildSeamPeekPlan(seamInfo, shouldCross) {
+function buildSeamPeekPlan(seamInfo, shouldCross, pet) {
     var steps = [
         { kind: "travel", gait: "amble", label: "Walking to display edge", gx: seamInfo.standGX, gy: seamInfo.standGY },
         { kind: "observe", durationMs: 3800, facePoint: { gx: seamInfo.lookGX, gy: seamInfo.lookGY }, label: "Peering into " + seamInfo.screenName },
         { kind: "act", label: "Curious head-tilt", states: ["nod"], facePoint: { gx: seamInfo.lookGX, gy: seamInfo.lookGY } }
     ];
     if (shouldCross) {
+        if (pet && pet.personality && pet.personality.boldness < 0.46) {
+            steps.push({ kind: "act", label: "Planting paws cautiously", states: ["pull", "cringe"], facePoint: { gx: seamInfo.lookGX, gy: seamInfo.lookGY } });
+        }
         steps.push({ kind: "travel", gait: "trot", label: "Crossing into " + seamInfo.screenName, gx: seamInfo.crossGX, gy: seamInfo.crossGY });
         steps.push({ kind: "observe", durationMs: 6500, label: "Looking around " + seamInfo.screenName });
     }
@@ -307,10 +310,11 @@ function buildForagePlan(perc) {
     };
 }
 
-function buildRestPlan(pet, perc, goHomeFirst, sanctuarySpot, deep) {
+function buildRestPlan(pet, perc, goHomeFirst, sanctuarySpot, deep, sploot) {
     var steps = [];
-    var label = deep ? "Curling Up to Sleep" : "Settling Down to Loaf";
-    var reason = perc.isNight ? "Sleeping through the night" : (deep ? "Deep nap" : "Relaxing on its belly");
+    var useSploot = !deep && !!sploot;
+    var label = deep ? "Curling Up to Sleep" : (useSploot ? "Sprawling Out Comfortably" : "Settling Down to Loaf");
+    var reason = perc.isNight ? "Sleeping through the night" : (deep ? "Deep nap" : (useSploot ? "Sprawled flat in the warmth" : "Relaxing on its belly"));
     if (sanctuarySpot) {
         label = "Resting in Favorite Spot";
         reason = "Resting in favorite cozy spot";
@@ -319,14 +323,20 @@ function buildRestPlan(pet, perc, goHomeFirst, sanctuarySpot, deep) {
         steps.push({ kind: "travel", gait: "amble", label: "Walking home to rest", gx: pet.homeGX, gy: pet.homeGY });
     }
     steps.push({ kind: "act", label: "Circling spot", states: SpeciesProfile.settleGesturesFor(pet) });
-    steps.push({ kind: "rest", label: deep ? "Deep sleep" : "Loafing", deep: deep, sanctuary: !!sanctuarySpot });
+    steps.push({
+        kind: "rest",
+        label: deep ? "Deep sleep" : (useSploot ? "Sprawled out" : "Loafing"),
+        deep: deep,
+        postState: useSploot ? "laying" : "loaf",
+        sanctuary: !!sanctuarySpot
+    });
     return {
         name: goHomeFirst ? "go_home_rest" : "rest",
         label: label,
         reason: reason,
         urgency: Math.max(pet.restDrive, pet.comfortDrive),
         durationMs: 240000,
-        thought: deep ? "Curling up to sleep" : "Lying down to rest comfortably",
+        thought: deep ? "Curling up to sleep" : (useSploot ? "Sprawling flat to soak up the warmth" : "Lying down to rest comfortably"),
         steps: steps
     };
 }
@@ -403,18 +413,25 @@ function buildUserPlayPlan(pet) {
 }
 
 function buildZoomiesPlan(pet) {
+    var winded = (pet.restDrive || 0) > 0.50
+              || !!(pet.systemMonitor && (pet.systemMonitor.thermalWarmth || 0) > 0.56);
+    var steps = [
+        { kind: "zoomies", label: "Scampering around" },
+        { kind: "pant", label: "Catching breath" }
+    ];
+    if (winded) {
+        steps.push({ kind: "rest", deep: false, postState: "laying", label: "Flopping flat after zoomies" });
+    } else {
+        steps.push({ kind: "act", label: "Shaking off", states: SpeciesProfile.calmGesturesFor(pet) });
+    }
     return {
         name: "zoomies",
         label: "Zoomies",
         reason: "Burst of playful zoomies",
         urgency: 0.85,
         durationMs: 28000,
-        thought: "Scampering in a burst of zoomies",
-        steps: [
-            { kind: "zoomies", label: "Scampering around" },
-            { kind: "pant", label: "Catching breath" },
-            { kind: "act", label: "Shaking off", states: SpeciesProfile.calmGesturesFor(pet) }
-        ]
+        thought: winded ? "Scampered in a burst of zoomies and flopped flat" : "Scampering in a burst of zoomies",
+        steps: steps
     };
 }
 
@@ -448,18 +465,29 @@ function buildRetirePlan(pet, perc) {
     var edgeX = nearLeft ? (perc.screen.x + 8) : Math.max(perc.screen.x + 8, perc.screen.x + perc.screen.w - pw - 8);
     var edgeY = Topology.clamp(perc.petGY, perc.screen.y + (perc.screen.topInset || 0) + 24,
                                Math.max(perc.screen.y + 24, perc.screen.y + perc.screen.h - (perc.screen.bottomInset || 0) - 80));
+    var reluctant = !sleepy && pet && pet.personality
+                 && pet.personality.playfulness > 0.58 && pet.personality.patience < 0.48
+                 && (!!pet._forceBedtimeProtest || Math.random() < 0.26);
+    var steps = [
+        { kind: "travel", gait: sleepy ? "amble" : "trot", label: "Walking toward Sanctuary", gx: edgeX, gy: edgeY }
+    ];
+    if (reluctant) {
+        steps.push({ kind: "act", label: "Planting paws stubbornly", states: ["pull"] });
+        steps.push({ kind: "pant", label: "Reluctant sigh" });
+    } else {
+        steps.push({ kind: "act", label: sleepy ? "Yawning goodnight" : "Waving goodbye", states: sleepy ? SpeciesProfile.settleGesturesFor(pet) : SpeciesProfile.greetGesturesFor(pet), emote: sleepy ? "sleepy" : undefined });
+    }
+    steps.push({ kind: "retire_finish", label: "Entered Sanctuary" });
     return {
         name: "retire_to_pen",
         label: sleepy ? "Heading Off to Rest" : "Sanctuary Stroll",
         reason: sleepy ? "Padding off-screen for a Sanctuary nap" : "Wandering off into the Sanctuary pasture",
         urgency: 0.82,
         durationMs: 55000,
-        thought: sleepy ? "Padding off-screen to rest in the Sanctuary" : "Trotting off for a break in the Sanctuary",
-        steps: [
-            { kind: "travel", gait: sleepy ? "amble" : "trot", label: "Walking toward Sanctuary", gx: edgeX, gy: edgeY },
-            { kind: "act", label: sleepy ? "Yawning goodnight" : "Waving goodbye", states: sleepy ? SpeciesProfile.settleGesturesFor(pet) : SpeciesProfile.greetGesturesFor(pet), emote: sleepy ? "sleepy" : undefined },
-            { kind: "retire_finish", label: "Entered Sanctuary" }
-        ]
+        thought: reluctant
+            ? "Planted paws stubbornly before trudging off to the Sanctuary"
+            : (sleepy ? "Padding off-screen to rest in the Sanctuary" : "Trotting off for a break in the Sanctuary"),
+        steps: steps
     };
 }
 
@@ -488,6 +516,85 @@ function buildArrivePlan(pet, perc, fromLeft) {
         urgency: 0.65,
         durationMs: 24000,
         thought: "Strolled back onto the desktop refreshed",
+        steps: steps
+    };
+}
+
+function buildStealWarmSpotPlan(spot, pet) {
+    var owner = spot.petName || "a friend";
+    return {
+        name: "steal_warm_spot",
+        label: "Claiming Warm Spot",
+        reason: "Settling into the warm spot " + owner + " just vacated",
+        otherName: spot.petName || "",
+        urgency: 0.56,
+        durationMs: 120000,
+        thought: "Trotted straight into the pre-warmed spot " + owner + " just left",
+        steps: [
+            { kind: "travel", gait: "trot", label: "Trotting to warm spot", gx: spot.gx, gy: spot.gy },
+            { kind: "act", label: "Sniffing warm spot", states: ["head", "nod"] },
+            { kind: "rest", deep: false, postState: "laying", label: "Sprawled in warm spot" }
+        ]
+    };
+}
+
+function buildParkedCursorCompanyPlan(gx, gy, sideOffset, pet) {
+    var nuzzles = SpeciesProfile.nuzzleGesturesFor(pet);
+    return {
+        name: "parked_cursor_company",
+        label: "Keeping Cursor Company",
+        reason: "Resting quietly beside the stationary pointer",
+        urgency: 0.52,
+        durationMs: 110000,
+        thought: "Crept up quietly beside the still pointer to keep company",
+        steps: [
+            { kind: "travel", gait: "amble", label: "Padding beside cursor", gx: gx + sideOffset, gy: gy + 8 },
+            { kind: "act", label: "Gentle nuzzle", states: nuzzles, facePoint: { gx: gx, gy: gy } },
+            { kind: "loaf_watch", label: "Resting by pointer", attend: "cursor", durationMs: 38000 }
+        ]
+    };
+}
+
+function buildCalmCompanyPlan(perc, pet) {
+    var tx = perc.win ? perc.win.loafBesideGX : perc.petGX;
+    var ty = perc.win ? perc.win.loafBesideGY : perc.petGY;
+    return {
+        name: "calm_company",
+        label: "Steady Presence",
+        reason: "Settling calmly nearby while the workspace is busy",
+        windowClass: perc.win ? perc.win.cls : "",
+        urgency: 0.54,
+        durationMs: 140000,
+        thought: "Settled down steadily nearby to offer calm company",
+        steps: [
+            { kind: "travel", gait: "amble", label: "Padding steadily nearby", gx: tx, gy: ty },
+            { kind: "act", label: "Grounding breath", states: ["deepBreath", "nod"], attendWindow: !!perc.win },
+            { kind: "loaf_watch", label: "Steady watch", attend: perc.win ? "window" : "", durationMs: 48000 }
+        ]
+    };
+}
+
+function buildWindowShiftInspectPlan(stepOutGX, stepOutGY, winCenterGX, winCenterGY, cls, annoyed) {
+    var name = cls || "window";
+    var steps = [
+        { kind: "travel", gait: annoyed ? "trot" : "amble", label: "Stepping clear of " + name, gx: stepOutGX, gy: stepOutGY }
+    ];
+    if (annoyed) {
+        steps.push({ kind: "act", label: "Planting paws at shifted edge", states: ["pull", "head"], facePoint: { gx: winCenterGX, gy: winCenterGY }, emote: "frustrated" });
+    } else {
+        steps.push({ kind: "act", label: "Sniffing shifted border", states: ["head", "nod"], facePoint: { gx: winCenterGX, gy: winCenterGY } });
+        steps.push({ kind: "observe", durationMs: 3600, facePoint: { gx: winCenterGX, gy: winCenterGY }, label: "Sizing up new layout" });
+    }
+    return {
+        name: "window_shift_inspect",
+        label: annoyed ? ("Displaced by " + name) : ("Checking Moved " + name),
+        reason: annoyed ? (name + " moved right across resting spot") : ("Inspecting " + name + "'s new position"),
+        windowClass: cls || "",
+        urgency: 0.64,
+        durationMs: 32000,
+        thought: annoyed
+            ? ("Huffed when " + name + " expanded right over resting spot")
+            : ("Stepped aside and sniffed " + name + "'s newly shifted edge"),
         steps: steps
     };
 }

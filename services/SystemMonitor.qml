@@ -4,6 +4,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import Quickshell.Services.UPower
 
 Singleton {
     id: root
@@ -20,6 +21,17 @@ Singleton {
         return hasThermalSensor ? (tempNorm * 0.68 + loadNorm * 0.32) : loadNorm;
     }
 
+    readonly property UPowerDevice _batDev: UPower.displayDevice
+    readonly property bool hasBattery: _batDev !== null && _batDev.isPresent && _batDev.type === UPowerDeviceType.Battery
+    readonly property real batteryLevel: {
+        if (!hasBattery || !_batDev) return 1.0;
+        const raw = _batDev.percentage;
+        return Math.max(0, Math.min(1, raw > 1.01 ? (raw / 100) : raw));
+    }
+    readonly property bool onBattery: hasBattery && UPower.onBattery
+    readonly property bool isPluggedIn: hasBattery && !UPower.onBattery
+    readonly property bool lowBattery: onBattery && batteryLevel <= 0.20
+
     property string solarPhase: "day"
     property string weatherKind: "clear"
     property real outdoorTempC: 16
@@ -28,6 +40,12 @@ Singleton {
     readonly property bool isSnowing: weatherKind === "snow"
 
     signal buildCompleted(durationSec: real)
+    signal powerPluggedChanged(pluggedIn: bool, batteryLevel: real)
+    signal lowBatteryWarn(batteryLevel: real)
+    signal weatherChanged(oldKind: string, newKind: string)
+    signal solarTransitioned(oldPhase: string, newPhase: string)
+    signal systemResumed(sleptSec: real)
+    signal toastArrived(appName: string, urgency: string, silent: bool)
 
     property real _lastCpuTotal: 0
     property real _lastCpuIdle: 0
@@ -37,6 +55,15 @@ Singleton {
     property string _sunrise: ""
     property string _sunset: ""
     property bool _customWeatherFresh: false
+    property bool _solarBaselineReady: false
+    property bool _weatherBaselineReady: false
+    property bool _powerBaselineReady: false
+    property bool _prevPluggedIn: false
+    property int _lastLowBatteryTier: 0
+    property double _lastWallClockMs: Date.now()
+    property double _bootMs: Date.now()
+    property string _lastToastSig: ""
+    property double _lastToastEmitMs: 0
 
     readonly property string _cacheBase: {
         const xdg = Quickshell.env("XDG_CACHE_HOME");
@@ -47,6 +74,12 @@ Singleton {
         return (envFile && envFile.length > 0) ? envFile : (_cacheBase + "/qs-vpets/weather.json");
     }
     readonly property string _panguWeatherPath: _cacheBase + "/pangu/weather.json"
+    readonly property string _customToastPath: {
+        const envFile = Quickshell.env("QS_VPETS_TOAST_FILE");
+        return (envFile && envFile.length > 0) ? envFile : (_cacheBase + "/qs-vpets/toast.json");
+    }
+    readonly property string _panguToastPath: _cacheBase + "/pangu/toast.json"
+    readonly property string _panguNotificationsPath: _cacheBase + "/pangu/notifications.json"
 
     function _parseClockHour(hhmm: string, fallback: real): real {
         if (!hhmm || hhmm.indexOf(":") === -1) return fallback;
@@ -57,15 +90,40 @@ Singleton {
         return h + m / 60;
     }
 
+    function _setSolarPhase(nextPhase: string): void {
+        const prev = root.solarPhase;
+        root.solarPhase = nextPhase;
+        if (!root._solarBaselineReady) {
+            root._solarBaselineReady = true;
+            return;
+        }
+        if (nextPhase !== prev) {
+            root.solarTransitioned(prev, nextPhase);
+        }
+    }
+
+    function _setWeatherKind(nextKind: string): void {
+        const prev = root.weatherKind;
+        root.weatherKind = nextKind;
+        if (!root._weatherBaselineReady) {
+            root._weatherBaselineReady = true;
+            return;
+        }
+        if (nextKind !== prev) {
+            root.weatherChanged(prev, nextKind);
+        }
+    }
+
     function _updateSolarPhase(): void {
         const now = new Date();
         const hr = now.getHours() + now.getMinutes() / 60;
         const rise = _parseClockHour(root._sunrise, 6.25);
         const set = _parseClockHour(root._sunset, 19.25);
-        if (hr >= rise - 0.85 && hr < rise + 1.35) root.solarPhase = "dawn";
-        else if (hr >= rise + 1.35 && hr < set - 1.1) root.solarPhase = "day";
-        else if (hr >= set - 1.1 && hr < set + 1.1) root.solarPhase = "dusk";
-        else root.solarPhase = "night";
+        let next = "night";
+        if (hr >= rise - 0.85 && hr < rise + 1.35) next = "dawn";
+        else if (hr >= rise + 1.35 && hr < set - 1.1) next = "day";
+        else if (hr >= set - 1.1 && hr < set + 1.1) next = "dusk";
+        _setSolarPhase(next);
     }
 
     function _classifyWeatherCode(code: int): string {
@@ -79,7 +137,7 @@ Singleton {
 
     function _resetWeatherDefaults(): void {
         root.weatherAvailable = false;
-        root.weatherKind = "clear";
+        root._setWeatherKind("clear");
         root.outdoorTempC = 16;
         root._sunrise = "";
         root._sunset = "";
@@ -98,10 +156,11 @@ Singleton {
                     if ((Date.now() - tsMs) > 3 * 3600 * 1000) return false;
                 }
             }
+            let nextKind = root.weatherKind;
             if (typeof d.weatherKind === "string" && d.weatherKind.length > 0) {
-                root.weatherKind = d.weatherKind;
+                nextKind = d.weatherKind;
             } else if (d.weatherCode !== undefined) {
-                root.weatherKind = root._classifyWeatherCode(parseInt(d.weatherCode, 10) || 0);
+                nextKind = root._classifyWeatherCode(parseInt(d.weatherCode, 10) || 0);
             }
             if (d.tempC !== undefined && Number.isFinite(Number(d.tempC))) {
                 root.outdoorTempC = Number(d.tempC);
@@ -109,6 +168,7 @@ Singleton {
             if (typeof d.sunrise === "string") root._sunrise = d.sunrise;
             if (typeof d.sunset === "string") root._sunset = d.sunset;
             root.weatherAvailable = true;
+            root._setWeatherKind(nextKind);
             root._updateSolarPhase();
             return true;
         } catch (e) {
@@ -126,6 +186,100 @@ Singleton {
             root._resetWeatherDefaults();
         }
     }
+
+    function _normalizeUrgency(u: var): string {
+        if (typeof u === "number") {
+            if (u >= 2) return "critical";
+            if (u <= 0) return "low";
+            return "normal";
+        }
+        const s = String(u || "normal").trim().toLowerCase();
+        if (s === "critical" || s === "high" || s === "2") return "critical";
+        if (s === "low" || s === "0") return "low";
+        return "normal";
+    }
+
+    function emitExternalToast(appName: string, urgency: string, silent: bool): void {
+        const now = Date.now();
+        if (now - root._lastToastEmitMs < 2500) return;
+        root._lastToastEmitMs = now;
+        root.toastArrived(String(appName || "Desktop"), root._normalizeUrgency(urgency), !!silent);
+    }
+
+    function _ingestToastJson(raw: string): void {
+        if (!raw || !raw.trim()) return;
+        try {
+            const d = JSON.parse(raw);
+            if (!d || typeof d !== "object") return;
+            const rawTs = Number(d.updatedAt ?? d.time ?? 0);
+            const tsMs = rawTs > 0 && rawTs < 1e11 ? (rawTs * 1000) : rawTs;
+            if (!(tsMs > root._bootMs) || (Date.now() - tsMs) > 15000) return;
+            const sig = String(d.id ?? "") + ":" + String(d.appName ?? "") + ":" + String(Math.floor(tsMs / 1000));
+            if (sig === root._lastToastSig) return;
+            root._lastToastSig = sig;
+            root.emitExternalToast(String(d.appName ?? "Notification"), root._normalizeUrgency(d.urgency), !!d.silent);
+        } catch (e) {
+            return;
+        }
+    }
+
+    function _ingestNotificationsListJson(raw: string): void {
+        if (!raw || !raw.trim()) return;
+        try {
+            const list = JSON.parse(raw);
+            if (!Array.isArray(list) || list.length === 0) return;
+            let newest = null;
+            let newestTs = 0;
+            for (let i = Math.max(0, list.length - 12); i < list.length; i++) {
+                const item = list[i];
+                if (!item || typeof item !== "object") continue;
+                const t = Number(item.time ?? 0);
+                if (t > newestTs) {
+                    newestTs = t;
+                    newest = item;
+                }
+            }
+            if (!newest || !(newestTs > root._bootMs) || (Date.now() - newestTs) > 15000) return;
+            const sig = String(newest.id ?? "") + ":" + String(newest.appName ?? "") + ":" + String(Math.floor(newestTs / 1000));
+            if (sig === root._lastToastSig) return;
+            root._lastToastSig = sig;
+            root.emitExternalToast(String(newest.appName ?? "Notification"), root._normalizeUrgency(newest.urgency), false);
+        } catch (e) {
+            return;
+        }
+    }
+
+    function _evaluatePower(): void {
+        if (!root.hasBattery) {
+            root._lastLowBatteryTier = 0;
+            return;
+        }
+        const plugged = root.isPluggedIn;
+        if (!root._powerBaselineReady) {
+            root._powerBaselineReady = true;
+            root._prevPluggedIn = plugged;
+        } else if (plugged !== root._prevPluggedIn) {
+            root._prevPluggedIn = plugged;
+            root.powerPluggedChanged(plugged, root.batteryLevel);
+        }
+
+        if (plugged) {
+            root._lastLowBatteryTier = 0;
+            return;
+        }
+        const pct = Math.round(root.batteryLevel * 100);
+        const tier = pct <= 10 ? 10 : (pct <= 20 ? 20 : 0);
+        if (tier > 0 && tier !== root._lastLowBatteryTier) {
+            root._lastLowBatteryTier = tier;
+            root.lowBatteryWarn(root.batteryLevel);
+        } else if (tier === 0 && pct >= 24) {
+            root._lastLowBatteryTier = 0;
+        }
+    }
+
+    onHasBatteryChanged: _evaluatePower()
+    onIsPluggedInChanged: _evaluatePower()
+    onBatteryLevelChanged: _evaluatePower()
 
     Process {
         id: thermalProbe
@@ -154,7 +308,20 @@ Singleton {
         running: root.activeSampling
         repeat: true
         triggeredOnStart: true
+        onRunningChanged: {
+            if (running) root._lastWallClockMs = Date.now();
+        }
         onTriggered: {
+            const now = Date.now();
+            const wallGap = now - root._lastWallClockMs;
+            root._lastWallClockMs = now;
+            if (wallGap > 180000) {
+                root._heavyLoadSinceMs = 0;
+                root._updateSolarPhase();
+                customWeatherFile.reload();
+                panguWeatherFile.reload();
+                root.systemResumed(wallGap / 1000);
+            }
             cpuFile.reload();
             memFile.reload();
             if (root._thermalPath.length > 0) tempFile.reload();
@@ -258,8 +425,38 @@ Singleton {
         onFileChanged: reload()
     }
 
+    FileView {
+        id: customToastFile
+        path: root._customToastPath
+        watchChanges: true
+        printErrors: false
+        onLoaded: root._ingestToastJson(text())
+        onFileChanged: reload()
+    }
+
+    FileView {
+        id: panguToastFile
+        path: root._panguToastPath
+        watchChanges: true
+        printErrors: false
+        onLoaded: root._ingestToastJson(text())
+        onFileChanged: reload()
+    }
+
+    FileView {
+        id: panguNotificationsFile
+        path: root._panguNotificationsPath
+        watchChanges: true
+        printErrors: false
+        onLoaded: root._ingestNotificationsListJson(text())
+        onFileChanged: reload()
+    }
+
     Component.onCompleted: {
+        root._bootMs = Date.now();
+        root._lastWallClockMs = root._bootMs;
         root._updateSolarPhase();
+        root._evaluatePower();
         thermalProbe.running = true;
     }
 }

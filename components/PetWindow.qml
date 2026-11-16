@@ -231,6 +231,8 @@ PanelWindow {
         }
 
         if (!root.screen || screens.indexOf(root.screen) === -1) {
+            const wasDisplaced = root.screen !== null;
+            const oldScrX = root.screen ? root.screen.x : 0;
             let next = null;
             if (root.preferredMonitor) {
                 next = screens.find(s => s.name === root.preferredMonitor) ?? null;
@@ -240,8 +242,15 @@ PanelWindow {
             const maxX = Math.max(0, next.width - root.petSize);
             const maxY = Math.max(0, next.height - root.petSize);
             const ins = WindowTracker.insetsFor(next.name);
-            petItem.worldX = Math.max(0, Math.min(maxX, petItem.worldX || Math.round(maxX * 0.5)));
+            if (wasDisplaced) {
+                petItem.worldX = oldScrX < next.x ? Math.min(20, maxX) : Math.max(0, maxX - 20);
+            } else {
+                petItem.worldX = Math.max(0, Math.min(maxX, petItem.worldX || Math.round(maxX * 0.5)));
+            }
             petItem.worldY = Math.max(Math.min(maxY, (ins.top || 0) + 24), Math.min(maxY, petItem.worldY || Math.round(maxY * 0.6)));
+            if (wasDisplaced) {
+                Qt.callLater(() => petItem.onDisplacedMonitor());
+            }
         }
 
         if (root.screen && !_screenAt(petItem.homeGX, petItem.homeGY)) {
@@ -358,6 +367,7 @@ PanelWindow {
                     petItem.altitude = 18;
                     petItem.sprite.triggerSquash(0.88, 1.14);
                     petItem.enterState("drag");
+                    PetManager.notifyPetDragBegan(petItem);
                     PetManager._syncCursorTracking();
                 }
                 if (dragging) {
@@ -491,8 +501,13 @@ PanelWindow {
         function onWindowClosed(windowClass: string, gx: real, gy: real, w: real, h: real, address: string): void {
             petItem.onWindowClosed(windowClass, gx, gy, w, h, address);
         }
+        function onWindowShifted(windowClass: string, x: real, y: real, w: real, h: real, address: string): void {
+            petItem.onWindowShifted(windowClass, x, y, w, h, address);
+        }
         function onWindowUrgent(windowClass: string, gx: real, gy: real): void { petItem.onWindowUrgent(windowClass, gx, gy); }
         function onWorkspaceChanged(): void { petItem.onWorkspaceChanged(); }
+        function onWorkspaceCleared(): void { petItem.onWorkspaceCleared(); }
+        function onMonitorConnected(screenName: string): void { petItem.onMonitorConnected(screenName); }
     }
 
     Connections {
@@ -500,17 +515,28 @@ PanelWindow {
         function onIdleBegan(): void { petItem.onIdleBegan(); }
         function onIdleEnded(idleDurationSec: real): void { petItem.onIdleEnded(idleDurationSec); }
         function onCursorWiggled(gx: real, gy: real): void { petItem.onCursorWiggled(gx, gy); }
+        function onCursorParkedNear(gx: real, gy: real): void { petItem.onCursorParked(gx, gy); }
+        function onCursorUnparked(gx: real, gy: real, speed: real): void { petItem.onCursorUnparked(gx, gy, speed); }
     }
 
     Connections {
         target: MediaTracker
         function onMusicStarted(title: string, artist: string): void { petItem.onMusicStarted(); }
+        function onMusicPausedAbruptly(title: string, artist: string): void { petItem.onMusicPaused(); }
         function onMicStateChanged(active: bool): void { petItem.onMicStateChanged(active); }
+        function onAudioVolumeSpiked(volume: real): void { petItem.onAudioSpiked(volume); }
+        function onAudioMuteChanged(muted: bool): void { petItem.onAudioMuteChanged(muted); }
     }
 
     Connections {
         target: SystemMonitor
         function onBuildCompleted(durationSec: real): void { petItem.onBuildCompleted(durationSec); }
+        function onPowerPluggedChanged(pluggedIn: bool, batteryLevel: real): void { petItem.onPowerPluggedChanged(pluggedIn, batteryLevel); }
+        function onLowBatteryWarn(batteryLevel: real): void { petItem.onLowBatteryWarn(batteryLevel); }
+        function onWeatherChanged(oldKind: string, newKind: string): void { petItem.onWeatherChanged(oldKind, newKind); }
+        function onSolarTransitioned(oldPhase: string, newPhase: string): void { petItem.onSolarTransitioned(oldPhase, newPhase); }
+        function onSystemResumed(sleptSec: real): void { petItem.onSystemResumed(sleptSec); }
+        function onToastArrived(appName: string, urgency: string, silent: bool): void { petItem.onToastArrived(appName, urgency, silent); }
     }
 
     Component.onCompleted: {

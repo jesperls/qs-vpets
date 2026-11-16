@@ -50,6 +50,17 @@ const toxWakeClip = SpriteSheet.resolveClip("wake", toxAnims, {}, "toxapex");
 assert.equal(toxWakeClip.animName, "Withdraw", "Toxapex wakes via Withdraw pop-out slice");
 assert.equal(toxWakeClip.startFrame, 6, "Toxapex wake starts at shell-opening frame 6");
 
+const eeveeAnims = parseSpeciesAnims("eevee");
+const eeveeHeadClip = SpriteSheet.resolveClip("head", eeveeAnims, {}, "eevee");
+assert.equal(eeveeHeadClip.animName, "Head", "Eevee resolves dormant Head sheet");
+assert.ok(eeveeHeadClip.endHoldTicks >= 18, "Single-frame Head pose holds cleanly");
+const eeveePullClip = SpriteSheet.resolveClip("pull", eeveeAnims, {}, "eevee");
+assert.equal(eeveePullClip.animName, "Pull", "Eevee resolves dormant Pull sheet");
+const eeveeLayingClip = SpriteSheet.resolveClip("laying", eeveeAnims, {}, "eevee");
+assert.equal(eeveeLayingClip.animName, "Laying", "Eevee resolves dormant Laying sheet");
+assert.equal(eeveeLayingClip.loop, true, "Laying posture loops cleanly");
+assert.ok(SpeciesProfile.nuzzleGesturesFor("eevee").includes("head"), "nuzzleGesturesFor prioritizes head nuzzle");
+
 const emojiRegex = /[\p{Extended_Pictographic}]/u;
 
 let totalAnimsVerified = 0;
@@ -154,5 +165,28 @@ assert.equal(SpriteSheet.angleToDirectionRow(Math.PI), 6);
 assert.equal(SpriteSheet.angleToDirectionRow(-Math.PI / 2), 4);
 assert.equal(SpriteSheet.angleToDirectionRow(Math.PI / 4), 1);
 assert.equal(SpriteSheet.angleToDirectionRow((3 * Math.PI) / 4), 7);
+
+const qmlFiles = [
+    path.join(rootDir, "shell.qml"),
+    ...["config", "services", "components"].flatMap(dir =>
+        fs.readdirSync(path.join(rootDir, dir))
+            .filter(f => f.endsWith(".qml"))
+            .map(f => path.join(rootDir, dir, f))
+    )
+];
+for (const qmlPath of qmlFiles) {
+    const src = fs.readFileSync(qmlPath, "utf8");
+    const props = new Set();
+    for (const m of src.matchAll(/^\s{4}(?:(?:readonly|required|default)\s+)*property\s+\S+\s+([A-Za-z_]\w*)/gm)) {
+        props.add(m[1]);
+    }
+    for (const m of src.matchAll(/^\s{4}signal\s+([A-Za-z_]\w*)/gm)) {
+        const sig = m[1];
+        if (sig.endsWith("Changed")) {
+            const base = sig.slice(0, -"Changed".length);
+            assert.ok(!props.has(base), `${path.basename(qmlPath)}: signal '${sig}' collides with property '${base}'`);
+        }
+    }
+}
 
 console.log(`Sprite verification passed: ${SpriteSheet.SPECIES_LIST.length} species, ${totalAnimsVerified} animations verified.`);

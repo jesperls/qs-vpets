@@ -295,6 +295,23 @@ function consolidateSleep(pet) {
             signals.composure += 0.003;
             signals.curiosity += 0.003;
             break;
+        case "social_referenced":
+            signals.boldness += 0.008;
+            signals.composure += 0.006;
+            break;
+        case "calm_company":
+            signals.composure += 0.007;
+            signals.patience += 0.006;
+            bumpQuirk("velcro_companion", 0.05);
+            break;
+        case "distracted":
+            signals.curiosity += 0.005;
+            signals.patience -= 0.003;
+            break;
+        case "warm_spot":
+            signals.sleepiness += 0.004;
+            bumpQuirk("cozy_hermit", 0.04);
+            break;
         case "annoyed":
         case "annoyed_by":
         case "rebuffed":

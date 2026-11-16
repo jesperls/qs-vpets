@@ -16,11 +16,26 @@ const Plans = loadQmlJs("components/behavior/Plans.js");
 const Brain = loadQmlJs("components/behavior/Brain.js");
 const Sanctuary = loadQmlJs("components/behavior/Sanctuary.js");
 const Evolution = loadQmlJs("components/behavior/Evolution.js");
+const CompositorWindows = loadQmlJs("components/behavior/CompositorWindows.js");
+const Util = loadQmlJs("components/behavior/Util.js");
 const Nav = loadQmlJs("components/PetNav.js");
 const Persist = loadQmlJs("components/PetPersistence.js");
 
 const zoruaXml = fs.readFileSync(path.join(rootDir, "assets/sprites/zorua/AnimData.xml"), "utf8");
 const zoruaAnims = SpriteSheet.parseAnimData(zoruaXml).anims;
+
+const petQmlSrc = fs.readFileSync(path.join(rootDir, "components/Pet.qml"), "utf8");
+const PET_WRITABLE_PROPS = new Set([
+    "x", "y", "z", "width", "height", "opacity", "visible", "scale", "rotation",
+    "_simNow", "_screenIdx", "emotes", "directEmotes", "savedJson", "enablePerching", "enableMusicReact"
+]);
+for (const m of petQmlSrc.matchAll(/^\s{4}property\s+\S+\s+([A-Za-z_]\w*)/gm)) {
+    PET_WRITABLE_PROPS.add(m[1]);
+}
+const PET_QML_METHODS = new Set();
+for (const m of petQmlSrc.matchAll(/^\s{4}function\s+([A-Za-z_]\w*)/gm)) {
+    PET_QML_METHODS.add(m[1]);
+}
 
 function createSimWorld() {
     const world = {
@@ -176,14 +191,23 @@ function createSimPet(world, name, preset = "emergent", sx = 0, species = "zorua
         petWindow: {
             moveToGlobal(gx, gy) {
                 const idx = gx >= 2560 ? 1 : 0;
-                pet._screenIdx = idx;
-                pet.worldX = gx - world.screens[idx].x;
-                pet.worldY = gy - world.screens[idx].y;
+                proxy._screenIdx = idx;
+                proxy.worldX = gx - world.screens[idx].x;
+                proxy.worldY = gy - world.screens[idx].y;
             }
         }
     };
-    world.petManager.pets.push(pet);
-    return pet;
+    const proxy = new Proxy(pet, {
+        set(target, prop, value, receiver) {
+            if (typeof prop === "string" && !PET_WRITABLE_PROPS.has(prop)
+                    && !(typeof value === "function" && PET_QML_METHODS.has(prop))) {
+                throw new Error(`Cannot assign to undeclared or readonly Pet.qml property '${prop}'`);
+            }
+            return Reflect.set(target, prop, value, receiver);
+        }
+    });
+    world.petManager.pets.push(proxy);
+    return proxy;
 }
 
 function advanceTime(world, dtSec) {
@@ -1637,6 +1661,291 @@ function stepNavigationSim(world, pet, maxSeconds = 120) {
         assert.equal(peer.relationships.Vee.species, "eevee");
         Memory.relationWith(peer, "Vee", eevee.personality, "umbreon");
         assert.equal(peer.relationships.Vee.species, "umbreon", "relationWith updates cached peer species after evolution");
+    }
+
+    // 18a. Sway & Niri compositor geometry adapters produce full window-ledge perches
+    {
+        const swayJson = JSON.stringify({
+            type: "root",
+            nodes: [
+                { name: "__i3", type: "output", nodes: [] },
+                {
+                    name: "DP-1",
+                    type: "output",
+                    active: true,
+                    current_workspace: "1",
+                    rect: { x: 0, y: 0, width: 2560, height: 1440 },
+                    nodes: [
+                        {
+                            name: "1",
+                            type: "workspace",
+                            focused: true,
+                            rect: { x: 0, y: 36, width: 2560, height: 1404 },
+                            nodes: [
+                                {
+                                    id: 101,
+                                    type: "con",
+                                    app_id: "foot",
+                                    name: "zsh",
+                                    pid: 4200,
+                                    focused: true,
+                                    fullscreen_mode: 0,
+                                    border: "normal",
+                                    deco_rect: { x: 40, y: 180, width: 900, height: 24 },
+                                    rect: { x: 40, y: 204, width: 900, height: 700 }
+                                }
+                            ],
+                            floating_nodes: [
+                                {
+                                    id: 102,
+                                    type: "floating_con",
+                                    app_id: "firefox",
+                                    name: "Docs",
+                                    pid: 4300,
+                                    focused: false,
+                                    fullscreen_mode: 0,
+                                    rect: { x: 1020, y: 210, width: 920, height: 740 }
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        });
+        const swaySnap = CompositorWindows.parseSwayTree(swayJson);
+        assert.equal(swaySnap.insets["DP-1"].top, 36, "Sway bar inset derived from output vs workspace rect");
+        assert.equal(swaySnap.wins.length, 2, "Sway tiled and floating windows extracted");
+        assert.equal(swaySnap.wins[0].y, 180, "Sway normal border includes titlebar deco_rect");
+        assert.equal(swaySnap.activeCls, "foot");
+
+        const world = createSimWorld();
+        world.windowTracker.visibleWindows = swaySnap.wins;
+        world.windowTracker.activeWindowPos = swaySnap.activePos;
+        const scout = createSimPet(world, "Leaf", "curious", 0, "grovyle");
+        const swayPerc = Perception.perceive(scout);
+        assert.equal(swayPerc.perches.length, 2, "Sway windows become valid perches");
+        assert.ok(swayPerc.perches[0].adjacentLedges.length >= 1, "Adjacent Sway windows link for ledge parkour");
+
+        const niriState = CompositorWindows.createNiriState();
+        CompositorWindows.ingestNiriOutputs(niriState, JSON.stringify({
+            "DP-1": { name: "DP-1", logical: { x: 0, y: 0, width: 2560, height: 1440 } }
+        }));
+        CompositorWindows.applyNiriEvent(niriState, JSON.stringify({
+            WorkspacesChanged: {
+                workspaces: [{ id: 1, output: "DP-1", is_active: true, is_focused: true }]
+            }
+        }));
+        CompositorWindows.applyNiriEvent(niriState, JSON.stringify({
+            WindowsChanged: {
+                windows: [
+                    {
+                        id: 11,
+                        app_id: "kitty",
+                        title: "nvim",
+                        workspace_id: 1,
+                        is_focused: true,
+                        layout: {
+                            window_size: [1100, 900],
+                            tile_pos_in_workspace_view: [80, 160],
+                            window_offset_in_tile: [0, 0]
+                        }
+                    }
+                ]
+            }
+        }));
+        const niriSnap = CompositorWindows.buildNiriSnapshot(niriState, world.screens);
+        assert.equal(niriSnap.wins.length, 1, "Niri workspace-view window mapped to global ledge rect");
+        assert.equal(niriSnap.wins[0].y, 160);
+        assert.equal(niriSnap.activeCls, "kitty");
+    }
+
+    // 18b. Abrupt music pause freezes grooving companion with question droplet
+    {
+        const world = createSimWorld();
+        world.mediaTracker.isPlaying = true;
+        world.mediaTracker.trackTitle = "Lo-Fi Rain";
+        const dancer = createSimPet(world, "Tempo", "playful", 0, "meloetta");
+        Plans.startPlan(dancer, Plans.buildMusicGroovePlan(Perception.perceive(dancer), "", dancer), Nav, Brain._pick);
+        assert.equal(dancer.activePlan.name, "music_groove");
+        world.mediaTracker.isPlaying = false;
+        Brain.onEvent(dancer, "music_paused", null, Nav);
+        assert.equal(dancer.activePlan, null, "Abrupt music pause clears groove plan");
+        assert.ok(dancer.directEmotes.includes("question"), "Confused question droplet emitted on music cut");
+    }
+
+    // 18c. Spectating & judging tosses + manual outer-bezel tuck-in
+    {
+        const world = createSimWorld();
+        const flyer = createSimPet(world, "Aero", "playful", 0, "emolga");
+        const timidJudge = createSimPet(world, "Pip", "shy", 0, "espurr");
+        const boldJudge = createSimPet(world, "Brawl", "brave", 0, "riolu");
+        timidJudge.basePersonality.boldness = 0.18;
+        boldJudge.quirks = ["sky_acrobat"];
+        flyer.worldX = 600; flyer.worldY = 500;
+        timidJudge.worldX = 720; timidJudge.worldY = 510;
+        boldJudge.worldX = 480; boldJudge.worldY = 510;
+
+        timidJudge.socialEvent("friend_lifted", flyer);
+        assert.ok(timidJudge.attentionUntil > world.now, "Bystander tracks lifted friend with gaze");
+
+        timidJudge.socialEvent("friend_tossed", flyer, { speed: 620, cleanLanding: true });
+        boldJudge.socialEvent("friend_tossed", flyer, { speed: 620, cleanLanding: true });
+        assert.ok(["cringe", "tumbleBack"].includes(timidJudge.state_), "Timid bystander winces at fast toss");
+        assert.ok(["hop", "pose"].includes(boldJudge.state_), "Acrobat bystander cheers clean landing");
+
+        // Gentle drop of a tired auto companion at the outer left bezel initiates retire_to_pen
+        const sleepyFox = createSimPet(world, "Drowse", "lazy", 0, "vulpix");
+        sleepyFox.petData.roamMode = "auto";
+        sleepyFox.restDrive = 0.72;
+        sleepyFox.worldX = 12;
+        sleepyFox.worldY = 500;
+        let retiredToPen = false;
+        sleepyFox.beginRetireToPen = function() { retiredToPen = true; };
+        Brain.onEvent(sleepyFox, "dropped", { speed: 80 }, Nav);
+        assert.equal(retiredToPen, true, "Gentle release at outer screen bezel tucks sleepy companion into Sanctuary");
+    }
+
+    // 18d. Battery & charger ethology + toast notification ear-perks & social referencing
+    {
+        const world = createSimWorld();
+        const spark = createSimPet(world, "Volt", "energetic", 0, "jolteon");
+        const jolteonXml = fs.readFileSync(path.join(rootDir, "assets/sprites/jolteon/AnimData.xml"), "utf8");
+        spark.sprite._animData = SpriteSheet.parseAnimData(jolteonXml).anims;
+        Brain.onEvent(spark, "power_plugged", { pluggedIn: true, batteryLevel: 0.45 }, Nav);
+        assert.ok(["shock", "charge", "hop"].includes(spark.state_), "Electric companion perks up when charger connects");
+
+        const guard = createSimPet(world, "Warden", "brave", 0, "lucario");
+        guard.bond = 0.7;
+        Brain.onEvent(guard, "low_battery", { batteryLevel: 0.15 }, Nav);
+        assert.ok(["lookUp", "nod"].includes(guard.state_), "Guardian glances up toward bar on low battery");
+
+        // Toast notification: shy hatchling checks resting high-composure elder instead of spooking
+        const elder = createSimPet(world, "Sage", "chill", 0, "ninetales");
+        elder.maturity = 0.65;
+        elder.basePersonality.composure = 0.85;
+        elder.state_ = "loaf";
+        elder.worldX = 520; elder.worldY = 500;
+
+        const young = createSimPet(world, "Kit", "shy", 0, "vulpix");
+        young.maturity = 0.10;
+        young.basePersonality.boldness = 0.22;
+        young.worldX = 600; young.worldY = 510;
+        const prevBold = young.personality.boldness;
+        Brain.onEvent(young, "toast_arrived", { appName: "Vesktop", urgency: "normal", silent: false }, Nav);
+        assert.ok(young.personality.boldness > prevBold, "Shy hatchling gains boldness by referencing calm loafing elder");
+        assert.ok(Memory.recent(young, "social_referenced", 5000), "Social referencing episode recorded");
+    }
+
+    // 18e. Mid-journey distraction, overtired crankiness, personal-space steering & accidental trampling
+    {
+        const world = createSimWorld();
+        const wanderer = createSimPet(world, "Pip", "curious", 0, "eevee");
+        wanderer.basePersonality.curiosity = 0.90;
+        wanderer.basePersonality.playfulness = 0.85;
+        wanderer.basePersonality.patience = 0.20;
+        wanderer.worldX = 500; wanderer.worldY = 500;
+
+        const playerA = createSimPet(world, "Dash", "playful", 0, "pikachu");
+        playerA.worldX = 620; playerA.worldY = 520;
+        playerA.state_ = "zoomies";
+
+        Plans.startPlan(wanderer, Plans.buildGoHomePlan(wanderer), Nav, Brain._pick);
+        wanderer.activePlan.urgency = 0.35;
+        wanderer.activePlan.started = world.now - 4000;
+        const origRnd = Math.random;
+        Math.random = () => 0.1;
+        let sidetracked = false;
+        try {
+            sidetracked = Brain.checkMidJourneyDistraction(wanderer, Nav);
+        } finally {
+            Math.random = origRnd;
+        }
+        assert.equal(sidetracked, true, "Distractible companion abandons low-urgency errand to watch nearby play");
+        assert.equal(wanderer.activePlan.name, "spectate_bout");
+
+        // Overtiredness lowers effectivePatience
+        wanderer.basePersonality.patience = 0.45;
+        wanderer.restDrive = 0.92;
+        assert.ok(Drives.effectivePatience(wanderer) < 0.30, "Overtiredness reduces effective social patience");
+
+        // Polite walker curves around sleeping companion; rowdy zoomies tramples grumpy sleeper awake
+        const world2 = createSimWorld();
+        const grumpySleeper = createSimPet(world2, "Grump", "grumpy", 0, "sneasel");
+        grumpySleeper.state_ = "laying";
+        grumpySleeper.worldX = 600; grumpySleeper.worldY = 500;
+        assert.equal(Util.isRestingState("laying"), true, "Laying is recognized as a resting state");
+
+        const polite = createSimPet(world2, "Gentle", "chill", 0, "leafeon");
+        polite.worldX = 530; polite.worldY = 500;
+        Nav.journeyToGlobal(polite, 800, 500);
+        const initialAngle = polite.moveAngle;
+        Nav.updateSteering(polite, 0.05);
+        assert.notEqual(polite.moveAngle, initialAngle, "Polite walker deflects around sleeping companion");
+        assert.equal(grumpySleeper.state_, "laying", "Polite walker does not wake sleeper");
+
+        const zoomer = createSimPet(world2, "Rocket", "energetic", 0, "jolteon");
+        zoomer.state_ = "zoomies";
+        zoomer.worldX = 590; zoomer.worldY = 505;
+        Nav.updateSteering(zoomer, 0.05);
+        assert.notEqual(grumpySleeper.state_, "laying", "Zooming companion clipping sleeper wakes them up");
+    }
+
+    // 18f. Warm-spot stealing, attention jealousy, startle cascades & desktop world shifts
+    {
+        const world = createSimWorld();
+        world.petManager.vacatedWarmSpots = [
+            { gx: 680, gy: 540, petName: "Flare", warmth: 0.85, time: world.now - 3000 }
+        ];
+        constflareOwner: {
+            const owner = createSimPet(world, "Flare", "grumpy", 0, "flareon");
+            owner.worldX = 740; owner.worldY = 540;
+            const sly = createSimPet(world, "Trick", "lazy", 0, "zorua");
+            sly.worldX = 520; sly.worldY = 520;
+            sly.restDrive = 0.45;
+            const perc = Perception.perceive(sly);
+            assert.ok(perc.warmSpot && perc.warmSpot.petName === "Flare", "Perception detects freshly vacated warm spot");
+            Plans.startPlan(sly, Plans.buildStealWarmSpotPlan(perc.warmSpot, sly), Nav, Brain._pick);
+            sly.worldX = sly.targetGX; sly.worldY = sly.targetGY;
+            Nav.walkArrived(sly); // head/nod sniff
+            Brain.onActionFinished(sly, Nav); // settles into laying!
+            assert.equal(sly.state_, "laying", "Warm-spot thief sprawls flat in laying posture");
+            assert.ok(["pull", "cringe"].includes(owner.state_), "Nearby low-patience owner huffs when warm spot is stolen");
+        }
+
+        // Attention jealousy wedge-in
+        const worldJ = createSimWorld();
+        const pampered = createSimPet(worldJ, "Star", "chill", 0, "eevee");
+        const velcro = createSimPet(worldJ, "Shadow", "playful", 0, "riolu");
+        velcro.quirks = ["velcro_companion"];
+        pampered.worldX = 600; pampered.worldY = 500;
+        velcro.worldX = 720; velcro.worldY = 510;
+        velcro.socialEvent("peer_pampered", pampered);
+        assert.equal(velcro.activePlan && velcro.activePlan.name, "jealous_wedge", "Devoted bystander wedges in for headpats");
+
+        // Workspace switch drops perched companion instead of stranding at mid-air Y
+        const worldW = createSimWorld();
+        worldW.windowTracker.visibleWindows = [];
+        const percher = createSimPet(worldW, "Roost", "curious", 0, "rowlet");
+        percher.worldX = 500; percher.worldY = 200;
+        percher.state_ = "perch";
+        Brain.onEvent(percher, "workspace_changed", null, Nav);
+        assert.equal(percher.state_, "airborne", "Workspace switch drops perched companion cleanly via gravity");
+
+        // Window shift overlapping resting pet prompts inspection / relocation
+        const worldS = createSimWorld();
+        const loafer = createSimPet(worldS, "Loaf", "grumpy", 0, "sprigatito");
+        loafer.worldX = 500; loafer.worldY = 500;
+        loafer.state_ = "loaf";
+        Brain.onEvent(loafer, "window_shifted", { windowClass: "kitty", x: 460, y: 460, w: 500, h: 400, address: "0x9" }, Nav);
+        assert.equal(loafer.activePlan && loafer.activePlan.name, "window_shift_inspect", "Shifted window overlapping resting pet triggers relocation");
+
+        // Parked cursor draws bonded companion beside pointer
+        const worldP = createSimWorld();
+        const buddy = createSimPet(worldP, "Nuzzle", "chill", 0, "umbreon");
+        buddy.bond = 0.72;
+        buddy.worldX = 500; buddy.worldY = 500;
+        Brain.onEvent(buddy, "cursor_parked", { gx: 680, gy: 520 }, Nav);
+        assert.equal(buddy.activePlan && buddy.activePlan.name, "parked_cursor_company", "Bonded companion pads over to parked cursor");
     }
 }
 

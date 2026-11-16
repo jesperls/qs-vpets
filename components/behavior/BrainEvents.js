@@ -1,6 +1,7 @@
 .pragma library
 
 .import "../SpeciesProfile.js" as SpeciesProfile
+.import "../SpriteSheet.js" as SpriteSheet
 .import "Personality.js" as Personality
 .import "Drives.js" as Drives
 .import "Memory.js" as Memory
@@ -8,6 +9,7 @@
 .import "Social.js" as Social
 .import "Abilities.js" as Abilities
 .import "Plans.js" as Plans
+.import "Topology.js" as Topology
 .import "Gestures.js" as Gestures
 .import "Util.js" as Util
 
@@ -43,6 +45,57 @@ function _findNearbyGuardian(pet, maxDist) {
     return best;
 }
 
+function _findCalmElder(pet, maxDist) {
+    if (!pet.petManager || !pet.petManager.pets) return null;
+    var all = pet.petManager.pets;
+    var myGX = Util.petGX(pet), myGY = Util.petGY(pet);
+    var best = null;
+    var bestDist = maxDist || 250;
+    for (var i = 0; i < all.length; i++) {
+        var e = all[i];
+        if (!e || e === pet || e.state_ === "drag" || e.state_ === "airborne" || e.state_ === "zoomies") continue;
+        if (typeof e.screenX === "function" && typeof pet.screenX === "function"
+                && (e.screenX() !== pet.screenX() || e.screenY() !== pet.screenY())) continue;
+        var ep = e.personality;
+        var isElder = Util.isRestingState(e.state_) && ep && ep.composure >= 0.60 && (e.maturity || 0) >= 0.25;
+        if (!isElder) continue;
+        var d = Math.hypot(Util.petGX(e) - myGX, Util.petGY(e) - myGY);
+        if (d < bestDist) {
+            bestDist = d;
+            best = e;
+        }
+    }
+    return best;
+}
+
+function _trySocialReference(pet, pickFn) {
+    var p = pet.personality;
+    if (p.boldness >= 0.40 && (pet.maturity || 0) >= 0.25) return false;
+    var elder = _findCalmElder(pet, 250);
+    if (!elder) return false;
+    var now = Util.now(pet);
+    pet.attentionGX = Util.petGX(elder);
+    pet.attentionGY = Util.petGY(elder);
+    pet.attentionUntil = now + 4500;
+    Util.faceGlobal(pet, pet.attentionGX, pet.attentionGY);
+    pet.recentDrift = Personality.shiftRecent(pet.recentDrift, "boldness", 0.006);
+    pet.recentDrift = Personality.shiftRecent(pet.recentDrift, "composure", 0.005);
+    Memory.adjustRelation(pet, elder.petData.name, 0.008, 0.03, null, { respectDelta: 0.02 });
+    Memory.recordEpisode(pet, "social_referenced", { valence: 0.28, withPet: elder.petData.name });
+    Memory.thinkAloud(pet, "social_ref", "Checked " + elder.petData.name + "'s calm posture and relaxed", { minGapMs: 30000 });
+    if (pet.state_ === "idle" && !Plans.hasActivePlan(pet)) {
+        pet.enterState(pickFn(pet, ["nod"]));
+    }
+    return true;
+}
+
+function _isElectricSpecies(pet) {
+    var sp = SpeciesProfile.trueSpeciesOf(pet);
+    if (sp === "pikachu" || sp === "jolteon" || sp === "shinx" || sp === "emolga") return true;
+    var animData = pet.sprite ? pet.sprite._animData : null;
+    return !!(animData && SpriteSheet.hasDirectAnim("shock", animData, pet.sprite.actionMap || {}, sp));
+}
+
 function _cancelRetire(pet) {
     if (pet && typeof pet.cancelRetireIfInterrupted === "function") {
         pet.cancelRetireIfInterrupted();
@@ -52,7 +105,7 @@ function _cancelRetire(pet) {
 function handleEvent(pet, type, data, nav, pickFn) {
     var p = pet.personality;
     var now = Util.now(pet);
-    var loafing = pet.state_ === "loaf" || pet.state_ === "sit";
+    var loafing = pet.state_ === "loaf" || pet.state_ === "laying" || pet.state_ === "sit";
     var resting = loafing || pet.state_ === "deepsleep";
     var trust = pet.trust === undefined ? 0.35 : pet.trust;
     if (pet.state_ === "drag" && type !== "dropped") return;
@@ -87,6 +140,7 @@ function handleEvent(pet, type, data, nav, pickFn) {
                 } else if (p.boldness < 0.28 && nav && pet.inputTracker) {
                     pet.gait = "scamper";
                     nav.fleeFrom(pet, pet.inputTracker.cursorX, pet.inputTracker.cursorY, 170 + Math.random() * 110);
+                    Social.broadcastAlarm(pet, pet.inputTracker.cursorX, pet.inputTracker.cursorY);
                 } else {
                     pet.enterState(pickFn(pet, Gestures.HIDE_STATES));
                 }
@@ -154,9 +208,14 @@ function handleEvent(pet, type, data, nav, pickFn) {
         pet.recentDrift = Personality.shiftRecent(pet.recentDrift, "sociability", 0.01);
         Memory.thinkAloud(pet, "petted", "Leaning into warm headpats", { minGapMs: 8000 });
         if (pet.emitEmote) pet.emitEmote("heart", true);
+        if (pet.petManager && pet.petManager.recordUserAffection) {
+            pet.petManager.recordUserAffection(pet);
+        }
         if (!resting && pet.state_ !== "sitNorth" && pet.state_ !== "perch") {
             Plans.clearPlan(pet);
-            var aff = SpeciesProfile.affectionGesturesFor(pet);
+            var aff = (pet.bond || 0.3) > 0.50
+                ? SpeciesProfile.nuzzleGesturesFor(pet)
+                : SpeciesProfile.affectionGesturesFor(pet);
             if (p.playfulness > 0.68) aff = aff.concat(["hop"]);
             pet.enterState(pickFn(pet, aff));
         }
@@ -247,6 +306,20 @@ function handleEvent(pet, type, data, nav, pickFn) {
                    || Abilities.enjoysAcrobaticToss(pet)
                    || (p.boldness > 0.62 && p.playfulness > 0.58 && trust > 0.45);
         if (speed < 360) {
+            if (speed < 220 && pet.petData && (pet.petData.roamMode || "auto") === "auto"
+                    && (pet.restDrive || 0) >= 0.56 && typeof pet.beginRetireToPen === "function") {
+                var curScr = Topology.currentScreen(pet);
+                var allScr = pet.allScreens ? pet.allScreens() : [curScr];
+                var pw = pet.width || 64;
+                var nearLeftBezel = pet.worldX <= 26 && !Topology.adjacentScreenAt(allScr, curScr, "left", pet.worldY, pw);
+                var nearRightBezel = pet.worldX >= (curScr.width - pw - 26)
+                                  && !Topology.adjacentScreenAt(allScr, curScr, "right", pet.worldY, pw);
+                if (nearLeftBezel || nearRightBezel) {
+                    Memory.thinkAloud(pet, "tucked_to_pen", "Took the gentle nudge to the edge and headed in to rest", { minGapMs: 4000 });
+                    pet.beginRetireToPen();
+                    break;
+                }
+            }
             Drives.shiftTrust(pet, 0.015);
             pet.exploreDrive = Drives.clamp01(pet.exploreDrive + 0.15);
             Memory.thinkAloud(pet, "gentle_drop", "Set down in a new spot", { minGapMs: 8000 });
@@ -261,6 +334,9 @@ function handleEvent(pet, type, data, nav, pickFn) {
             Memory.thinkAloud(pet, "toss_whee", "Landed an acrobatic toss", { minGapMs: 4000 });
             if (pet.emitEmote) pet.emitEmote("note", true);
             pet.enterState(pickFn(pet, ["hop", "rotate"]));
+            if (pet.petManager && pet.petManager.notifyPetTossLanded) {
+                pet.petManager.notifyPetTossLanded(pet, speed, true);
+            }
         } else {
             pet.mood = Math.max(0, pet.mood - 0.08);
             Drives.shiftTrust(pet, -0.025);
@@ -270,6 +346,9 @@ function handleEvent(pet, type, data, nav, pickFn) {
             Memory.thinkAloud(pet, "toss_oof", "Dizzy from a fast toss", { minGapMs: 4000 });
             if (pet.emitEmote) pet.emitEmote("exclaim", true);
             pet.enterState(pickFn(pet, ["hitGround", "trip", "tumbleBack", "cringe"]));
+            if (pet.petManager && pet.petManager.notifyPetTossLanded) {
+                pet.petManager.notifyPetTossLanded(pet, speed, false);
+            }
         }
         break;
     }
@@ -345,10 +424,13 @@ function handleEvent(pet, type, data, nav, pickFn) {
             var guardC = _findNearbyGuardian(pet, 380);
             if (guardC && nav) {
                 Plans.startPlan(pet, Plans.buildTimidHideBehindPlan(pet, guardC, data.gx || 0, data.gy || 0), nav, pickFn);
+            } else if (_trySocialReference(pet, pickFn)) {
+                break;
             } else if (nav) {
                 Plans.clearPlan(pet);
                 pet.gait = "scamper";
                 nav.fleeFrom(pet, data.gx || 0, data.gy || 0, 140);
+                Social.broadcastAlarm(pet, data.gx || 0, data.gy || 0);
             } else {
                 Plans.clearPlan(pet);
                 pet.enterState(pickFn(pet, Gestures.HIDE_STATES));
@@ -388,13 +470,324 @@ function handleEvent(pet, type, data, nav, pickFn) {
     }
 
     case "workspace_changed":
-        if (pet.state_ === "perch" || pet.state_ === "sitNorth") {
+        if (pet.state_ === "perch") {
+            Plans.abortPlan(pet, "perch_lost");
+            if (nav && nav.dropFromPerchIfNeeded) {
+                nav.dropFromPerchIfNeeded(pet);
+            } else {
+                pet.enterState("idle");
+            }
+            break;
+        }
+        if (pet.state_ === "sitNorth") {
             Plans.abortPlan(pet, "perch_lost");
             pet.enterState("idle");
             break;
         }
         Drives.stimulate(pet, 0.03 + p.boldness * 0.04);
+        if (!resting && pet.state_ === "idle" && !Plans.hasActivePlan(pet) && p.curiosity > 0.50 && Math.random() < 0.45) {
+            pet.enterState(pickFn(pet, ["lookUp", "nod"]));
+        }
         break;
+
+    case "workspace_cleared":
+        Drives.stimulate(pet, 0.12 + p.energy * 0.08);
+        pet.exploreDrive = Drives.clamp01(pet.exploreDrive + 0.16);
+        pet.playDrive = Drives.clamp01(pet.playDrive + 0.12 * p.playfulness);
+        Memory.thinkAloud(pet, "open_field", "Perked up as the workspace cleared into open room", { minGapMs: 90000 });
+        if (loafing && !Plans.hasActivePlan(pet) && Math.random() < 0.32 + p.energy * 0.35) {
+            pet.enterState(SpeciesProfile.wakeStateFor(pet));
+        }
+        break;
+
+    case "window_shifted": {
+        if (!data || _cooldown(pet, "window_shifted", 18000)) return;
+        var sPetGX = Util.petGX(pet), sPetGY = Util.petGY(pet);
+        var pwS = pet.width || 64, phS = pet.height || 64;
+        var wx = Number(data.x || 0), wy = Number(data.y || 0), ww = Number(data.w || 0), wh = Number(data.h || 0);
+        var nearMovedWin = sPetGX + pwS >= wx - 42 && sPetGX <= wx + ww + 42
+                        && sPetGY + phS >= wy - 42 && sPetGY <= wy + wh + 42;
+        if (!nearMovedWin) break;
+        if (pet.state_ === "perch" && pet.perchedWindowAddr === data.address) break;
+        if (pet.state_ === "deepsleep" && p.sleepiness > 0.68 && p.composure > 0.55) break;
+        if (!nav) break;
+
+        var curScrS = Topology.currentScreen(pet);
+        var leftEdgeGX = wx - pwS - 16;
+        var rightEdgeGX = wx + ww + 16;
+        var pickLeft = leftEdgeGX >= curScrS.x + 8
+                    && (rightEdgeGX > curScrS.x + curScrS.width - pwS - 8 || sPetGX < wx + ww * 0.5);
+        var rawOutX = pickLeft ? leftEdgeGX : (rightEdgeGX <= curScrS.x + curScrS.width - pwS - 8 ? rightEdgeGX : (sPetGX < curScrS.x + curScrS.width * 0.5 ? curScrS.x + 18 : curScrS.x + curScrS.width - pwS - 18));
+        var outPt = Util.clampToScreen(pet, rawOutX, sPetGY);
+        var fav = Memory.favoriteSpot(pet);
+        var coveredFav = !!(fav && fav.gx >= wx - 24 && fav.gx <= wx + ww + 24 && fav.gy >= wy - 24 && fav.gy <= wy + wh + 24);
+        var annoyedShift = (resting || coveredFav) && Drives.effectivePatience(pet) < 0.46;
+        Drives.stimulate(pet, 0.08);
+        Plans.startPlan(pet, Plans.buildWindowShiftInspectPlan(outPt.gx, outPt.gy, wx + ww * 0.5, wy + wh * 0.5, data.windowClass || "window", annoyedShift), nav, pickFn);
+        break;
+    }
+
+    case "music_paused": {
+        if (pet.enableMusicReact === false) break;
+        var activeNameMp = pet.activePlan ? pet.activePlan.name : "";
+        var wasGrooving = activeNameMp === "music_groove" || activeNameMp === "sync_dance";
+        if (!wasGrooving && (resting || !Personality.hasQuirk(pet, "melomaniac") || pet.state_ !== "idle")) break;
+        if (_cooldown(pet, "music_paused", 15000)) return;
+        var groovePartner = (pet.activePlan && pet.activePlan.otherName) ? Util.findPet(pet, pet.activePlan.otherName) : null;
+        if (wasGrooving) Plans.clearPlan(pet);
+        if (groovePartner) {
+            Util.faceGlobal(pet, Util.petGX(groovePartner), Util.petGY(groovePartner));
+        } else if (pet.windowTracker && pet.windowTracker.activeWindowPos) {
+            var mwp = pet.windowTracker.activeWindowPos;
+            Util.faceGlobal(pet, mwp.x + mwp.w * 0.5, mwp.y + mwp.h * 0.5);
+        }
+        Memory.thinkAloud(pet, "music_paused", "Froze mid-sway wondering where the music went", { minGapMs: 20000 });
+        if (pet.emitEmote) pet.emitEmote("question", wasGrooving);
+        pet.enterState(pickFn(pet, ["lookUp", "nod"]));
+        break;
+    }
+
+    case "power_plugged": {
+        if (_cooldown(pet, "power_plugged", 20000)) return;
+        var pluggedIn = !!(data && data.pluggedIn);
+        if (pluggedIn) {
+            if (_isElectricSpecies(pet) && pet.state_ !== "deepsleep") {
+                Drives.stimulate(pet, 0.14);
+                pet.mood = Drives.clamp01(pet.mood + 0.08);
+                Memory.thinkAloud(pet, "charger_spark", "Perked up at the static hum of the charger", { minGapMs: 45000 });
+                if (pet.emitEmote) pet.emitEmote("exclaim");
+                if (!Plans.hasActivePlan(pet)) {
+                    pet.enterState(pickFn(pet, ["shock", "charge", "hop"]));
+                }
+            } else if (!resting && pet.state_ === "idle" && !Plans.hasActivePlan(pet) && p.curiosity > 0.58 && Math.random() < 0.35) {
+                pet.enterState(pickFn(pet, ["nod"]));
+            }
+        } else if (data && data.batteryLevel !== undefined && data.batteryLevel <= 0.25 && !resting) {
+            pet.alertness = Math.max(0.2, pet.alertness - 0.06);
+        }
+        break;
+    }
+
+    case "low_battery": {
+        if (_cooldown(pet, "low_battery", 180000)) return;
+        pet.restDrive = Drives.clamp01(pet.restDrive + 0.10);
+        if (!resting && (SpeciesProfile.socialStyleOf(pet) === "guardian" || (pet.bond || 0.3) > 0.52)
+                && pet.state_ === "idle" && !Plans.hasActivePlan(pet)) {
+            var lbScr = Topology.currentScreen(pet);
+            Util.faceGlobal(pet, lbScr.x + lbScr.width * 0.85, lbScr.y + 12);
+            Memory.thinkAloud(pet, "low_battery", "Glanced up at the status bar as battery ran low", { minGapMs: 120000 });
+            if (pet.emitEmote) pet.emitEmote("exclaim");
+            pet.enterState(pickFn(pet, ["lookUp", "nod"]));
+        }
+        break;
+    }
+
+    case "toast_arrived": {
+        if (resting || _cooldown(pet, "toast_arrived", 28000)) return;
+        var tPerc = Perception.perceive(pet);
+        if (tPerc.fullscreen) return;
+        var cornerGX = tPerc.screen.x + tPerc.screen.w - 48;
+        var cornerGY = tPerc.screen.y + (tPerc.screen.topInset || 0) + 28;
+        var quietMode = !!(data && data.silent) || tPerc.micActive;
+        if (quietMode) {
+            if ((SpeciesProfile.socialStyleOf(pet) === "guardian" || p.composure >= 0.62)
+                    && pet.state_ === "idle" && !Plans.hasActivePlan(pet)) {
+                Util.faceGlobal(pet, cornerGX, cornerGY);
+                Memory.thinkAloud(pet, "toast_guard", "Kept silent watch over an incoming notification", { minGapMs: 60000 });
+                pet.enterState(pickFn(pet, ["pose", "nod"]));
+            }
+            break;
+        }
+        if (_trySocialReference(pet, pickFn)) break;
+        if ((pet.state_ === "idle" || pet.state_ === "perch") && !Plans.hasActivePlan(pet)
+                && (p.curiosity > 0.36 || (data && data.urgency === "critical"))) {
+            pet.attentionGX = cornerGX;
+            pet.attentionGY = cornerGY;
+            pet.attentionUntil = now + 5200;
+            Util.faceGlobal(pet, cornerGX, cornerGY);
+            Memory.thinkAloud(pet, "toast_perk", "Ears perked toward a notification from " + ((data && data.appName) || "the desktop"), { minGapMs: 45000 });
+            if (pet.state_ === "idle") {
+                pet.enterState(pickFn(pet, ["lookUp", "nod"]));
+            }
+        }
+        break;
+    }
+
+    case "monitor_connected": {
+        if (resting || _cooldown(pet, "monitor_connected", 45000)) return;
+        pet.exploreDrive = Drives.clamp01(pet.exploreDrive + 0.22);
+        var mcPerc = Perception.perceive(pet);
+        if (nav && !mcPerc.fullscreen && mcPerc.seamPeeks && mcPerc.seamPeeks.length > 0
+                && pet.state_ === "idle" && !Plans.hasActivePlan(pet)
+                && (p.curiosity > 0.42 || Personality.hasQuirk(pet, "screen_hopper"))) {
+            var seamTarget = mcPerc.seamPeeks[0];
+            for (var si = 0; si < mcPerc.seamPeeks.length; si++) {
+                if (data && data.screenName && mcPerc.seamPeeks[si].screenName === data.screenName) {
+                    seamTarget = mcPerc.seamPeeks[si];
+                    break;
+                }
+            }
+            var crossNew = p.boldness >= 0.48 || Personality.hasQuirk(pet, "screen_hopper");
+            Plans.startPlan(pet, Plans.buildSeamPeekPlan(seamTarget, crossNew, pet), nav, pickFn);
+        }
+        break;
+    }
+
+    case "displaced_monitor": {
+        Plans.clearPlan(pet);
+        pet.alertness = Drives.clamp01(pet.alertness + 0.18);
+        Memory.recordEpisode(pet, "displaced_monitor", { valence: -0.18 });
+        Memory.thinkAloud(pet, "displaced_mon", "Tumbled back onto the main screen when the display disconnected", { minGapMs: 10000 });
+        if (pet.emitEmote) pet.emitEmote("question");
+        pet.enterState(pickFn(pet, ["lostBalance", "cringe", "shake"]));
+        if (pet.petManager && pet.petManager.notifyDisplacedCompanion) {
+            pet.petManager.notifyDisplacedCompanion(pet);
+        }
+        break;
+    }
+
+    case "system_resumed": {
+        var sleptSec = Math.min(28800, Math.max(0, Number(data && data.sleptSec) || 0));
+        if (sleptSec < 180) break;
+        var spProfR = SpeciesProfile.profileFor(SpeciesProfile.trueSpeciesOf(pet));
+        var nightNow = !!pet.isNighttime;
+        var activeShift = nightNow
+            ? (spProfR.nocturnalAffinity || Personality.hasQuirk(pet, "night_watch") || Abilities.has(pet, "lunar_pulse"))
+            : !spProfR.nocturnalAffinity;
+        if (activeShift) {
+            pet.restDrive = Math.max(0.08, pet.restDrive - Math.min(0.45, sleptSec / 18000));
+            pet.alertness = Drives.clamp01(pet.alertness + 0.22);
+            pet.exploreDrive = Drives.clamp01(pet.exploreDrive + 0.16);
+            Plans.clearPlan(pet);
+            Memory.thinkAloud(pet, "resume_wake", "Stretched awake as the system resumed", { minGapMs: 30000 });
+            pet.enterState(SpeciesProfile.wakeStateFor(pet));
+        } else {
+            pet.restDrive = Drives.clamp01(pet.restDrive + 0.24);
+            pet.alertness = Math.max(0.15, pet.alertness - 0.18);
+            if (!resting && !Plans.hasActivePlan(pet)) {
+                Memory.thinkAloud(pet, "resume_sleepy", "Blinked sleepily after the time jump and curled back down", { minGapMs: 30000 });
+                pet.enterState("loaf");
+            }
+        }
+        break;
+    }
+
+    case "weather_changed": {
+        if (!data || _cooldown(pet, "weather_changed", 60000)) return;
+        var nextW = data.newKind || "";
+        var mySpW = SpeciesProfile.trueSpeciesOf(pet);
+        var profW = SpeciesProfile.profileFor(mySpW);
+        if (nextW === "storm" && !resting) {
+            if (p.boldness < 0.38 && !_trySocialReference(pet, pickFn)) {
+                var guardSt = _findNearbyGuardian(pet, 380);
+                var stScr = Topology.currentScreen(pet);
+                if (guardSt && nav) {
+                    Plans.startPlan(pet, Plans.buildTimidHideBehindPlan(pet, guardSt, stScr.x + stScr.width * 0.5, stScr.y), nav, pickFn);
+                } else {
+                    Plans.clearPlan(pet);
+                    pet.enterState(pickFn(pet, ["cringe", "hide"]));
+                }
+                Memory.thinkAloud(pet, "storm_flinch", "Flinched as stormy weather rolled in", { minGapMs: 60000 });
+                break;
+            }
+        }
+        if ((nextW === "rain" || nextW === "storm") && !resting
+                && (Abilities.has(pet, "tide_splash") || profW.kinGroup === "marsh_pals")
+                && pet.state_ === "idle" && !Plans.hasActivePlan(pet)) {
+            Drives.happier(pet, 0.04);
+            pet.playDrive = Drives.clamp01(pet.playDrive + 0.12);
+            Memory.thinkAloud(pet, "rain_perk", "Perked up happily as rain began outside", { minGapMs: 60000 });
+            pet.enterState(pickFn(pet, ["lookUp", "twirl", "hop"]));
+        } else if (nextW === "snow" && !resting && Abilities.has(pet, "frost_calm")
+                && pet.state_ === "idle" && !Plans.hasActivePlan(pet)) {
+            Drives.happier(pet, 0.04);
+            Memory.thinkAloud(pet, "snow_perk", "Tilted head serenely at snowy weather", { minGapMs: 60000 });
+            pet.enterState(pickFn(pet, ["lookUp", "pose"]));
+        }
+        break;
+    }
+
+    case "solar_changed": {
+        if (!data || _cooldown(pet, "solar_changed", 120000)) return;
+        var nextPhase = data.newPhase || "";
+        if (nextPhase === "dawn") {
+            if ((Personality.hasQuirk(pet, "night_watch") || Abilities.has(pet, "lunar_pulse")) && !resting) {
+                pet.restDrive = Drives.clamp01(pet.restDrive + 0.16);
+                Memory.thinkAloud(pet, "dawn_yawn", "Let out a long breath at dawn after night watch", { minGapMs: 120000 });
+                if (pet.state_ === "idle" && !Plans.hasActivePlan(pet)) {
+                    pet.enterState(pickFn(pet, ["deepBreath", "nod"]));
+                }
+            } else if (Abilities.has(pet, "solar_bask") && loafing && !Plans.hasActivePlan(pet)) {
+                Memory.thinkAloud(pet, "dawn_wake", "Stretched awake with the morning light", { minGapMs: 120000 });
+                pet.enterState(SpeciesProfile.wakeStateFor(pet));
+            }
+        } else if ((nextPhase === "dusk" || nextPhase === "night")
+                && (Abilities.has(pet, "lunar_pulse") || SpeciesProfile.profileFor(SpeciesProfile.trueSpeciesOf(pet)).nocturnalAffinity)) {
+            pet.alertness = Drives.clamp01(pet.alertness + 0.14);
+            if (loafing && !Plans.hasActivePlan(pet)) {
+                Memory.thinkAloud(pet, "dusk_wake", "Stirred awake as evening fell", { minGapMs: 120000 });
+                pet.enterState(SpeciesProfile.wakeStateFor(pet));
+            }
+        }
+        break;
+    }
+
+    case "cursor_parked": {
+        if (resting || pet.state_ !== "idle" || Plans.hasActivePlan(pet) || !nav) return;
+        if (_cooldown(pet, "cursor_parked", 120000)) return;
+        var cpPerc = Perception.perceive(pet);
+        if (cpPerc.fullscreen || cpPerc.micActive) return;
+        var pgx = (data && data.gx !== undefined) ? data.gx : cpPerc.cursor.gx;
+        var pgy = (data && data.gy !== undefined) ? data.gy : cpPerc.cursor.gy;
+        var pDist = Math.hypot(pgx - cpPerc.petGX, pgy - cpPerc.petGY);
+        if (pDist < 52 || pDist > 360 || !Topology.pointOnScreen(Topology.currentScreen(pet), pgx, pgy)) return;
+        var drawnToCursor = (pet.bond || 0.3) > 0.44 || Personality.hasQuirk(pet, "velcro_companion") || p.curiosity > 0.56;
+        if (!drawnToCursor) return;
+        var sideOff = cpPerc.petGX < pgx ? -46 : 46;
+        Plans.startPlan(pet, Plans.buildParkedCursorCompanyPlan(pgx, pgy, sideOff, pet), nav, pickFn);
+        break;
+    }
+
+    case "cursor_unparked": {
+        var ugxC = (data && data.gx !== undefined) ? data.gx : 0;
+        var ugyC = (data && data.gy !== undefined) ? data.gy : 0;
+        var uSpd = (data && data.speed !== undefined) ? data.speed : 0;
+        var uDistC = Math.hypot(ugxC - Util.petGX(pet), ugyC - Util.petGY(pet));
+        var byPointer = (pet.activePlan && pet.activePlan.name === "parked_cursor_company") || uDistC < 105;
+        if (!byPointer) break;
+        if (pet.activePlan && pet.activePlan.name === "parked_cursor_company") {
+            Plans.clearPlan(pet);
+        }
+        if (loafing && uSpd > 260) {
+            pet.enterState(SpeciesProfile.wakeStateFor(pet));
+        } else if (pet.state_ === "idle") {
+            Util.faceGlobal(pet, ugxC, ugyC);
+            pet.enterState(pickFn(pet, ["nod"]));
+        }
+        break;
+    }
+
+    case "audio_spiked": {
+        if (pet.state_ === "deepsleep" || _cooldown(pet, "audio_spiked", 45000)) return;
+        if (_trySocialReference(pet, pickFn)) break;
+        if (loafing && p.composure < 0.65) {
+            pet.alertness = Drives.clamp01(pet.alertness + 0.14);
+            Plans.clearPlan(pet);
+            Memory.thinkAloud(pet, "audio_stir", "Ears flicked awake at a sudden jump in volume", { minGapMs: 45000 });
+            pet.enterState(SpeciesProfile.wakeStateFor(pet));
+        } else if (pet.state_ === "idle" && !Plans.hasActivePlan(pet) && p.composure < 0.55) {
+            if (pet.emitEmote) pet.emitEmote("exclaim");
+            pet.enterState(pickFn(pet, ["hop", "cringe", "lookUp"]));
+        }
+        break;
+    }
+
+    case "audio_muted": {
+        if (!resting) {
+            pet.alertness = Math.max(0.15, pet.alertness - 0.04);
+        }
+        break;
+    }
 
     case "user_idle": {
         var liveliness = p.energy * 0.5 + p.curiosity * 0.3 + p.playfulness * 0.2 - p.sleepiness * 0.25;
@@ -873,6 +1266,119 @@ function handleEvent(pet, type, data, nav, pickFn) {
         if (!resting && !Plans.hasActivePlan(pet) && nav) {
             Social.markPeerBout(pet, "greet");
             Plans.startPlan(pet, Plans.buildCopycatTrailPlan(pet, fromMp), nav, pickFn);
+        }
+        break;
+    }
+
+    case "pet_alarm_ripple": {
+        if (pet.state_ === "deepsleep" || _cooldown(pet, "alarm_ripple", 45000)) return;
+        var alarmOriginGX = (data && data.gx !== undefined) ? data.gx : Util.petGX(data.fromPet);
+        var alarmOriginGY = (data && data.gy !== undefined) ? data.gy : Util.petGY(data.fromPet);
+        if (p.boldness < 0.38) {
+            if (_trySocialReference(pet, pickFn)) break;
+            if (nav) {
+                Plans.clearPlan(pet);
+                if (loafing) {
+                    pet.enterState(SpeciesProfile.wakeStateFor(pet));
+                } else {
+                    pet.gait = "scamper";
+                    Memory.thinkAloud(pet, "flock_bolt", "Bolted instinctively when " + data.fromPet.petData.name + " spooked", { minGapMs: 45000 });
+                    nav.fleeFrom(pet, alarmOriginGX, alarmOriginGY, 155);
+                }
+            }
+        } else if ((SpeciesProfile.socialStyleOf(pet) === "guardian" || p.boldness >= 0.66)
+                && pet.state_ === "idle" && !Plans.hasActivePlan(pet) && nav) {
+            Plans.startPlan(pet, Plans.buildGuardianCheckPlan(pet, alarmOriginGX, alarmOriginGY, data.fromPet.petData.name + "'s startle"), nav, pickFn);
+        } else if (!resting && pet.state_ === "idle" && !Plans.hasActivePlan(pet)) {
+            pet.attentionGX = Util.petGX(data.fromPet);
+            pet.attentionGY = Util.petGY(data.fromPet);
+            pet.attentionUntil = now + 4500;
+            Util.faceGlobal(pet, pet.attentionGX, pet.attentionGY);
+        }
+        break;
+    }
+
+    case "pet_friend_lifted": {
+        var lifted = data.fromPet;
+        if (resting || !lifted || (pet.state_ !== "idle" && pet.state_ !== "perch")) break;
+        pet.attentionGX = Util.petGX(lifted);
+        pet.attentionGY = Util.petGY(lifted) - 24;
+        pet.attentionUntil = now + 6000;
+        Util.faceGlobal(pet, pet.attentionGX, pet.attentionGY);
+        if (pet.state_ === "idle" && !Plans.hasActivePlan(pet) && Math.random() < 0.45) {
+            pet.enterState(pickFn(pet, ["lookUp", "nod"]));
+        }
+        break;
+    }
+
+    case "pet_friend_tossed": {
+        var tossed = data.fromPet;
+        if (resting || !tossed || _cooldown(pet, "friend_tossed", 12000)) return;
+        var cleanLand = !!(data && data.cleanLanding);
+        Util.faceGlobal(pet, Util.petGX(tossed), Util.petGY(tossed));
+        if (p.boldness < 0.34) {
+            if (!Plans.hasActivePlan(pet)) {
+                Memory.thinkAloud(pet, "toss_worry", "Winced in concern watching " + tossed.petData.name + " fly across the screen", { minGapMs: 25000 });
+                pet.enterState(pickFn(pet, ["cringe", "tumbleBack"]));
+            }
+        } else if (cleanLand && (Personality.hasQuirk(pet, "sky_acrobat") || SpeciesProfile.socialStyleOf(pet) === "brawler" || p.playfulness > 0.56)) {
+            if (!Plans.hasActivePlan(pet)) {
+                Memory.thinkAloud(pet, "toss_judge_cheer", "Cheered " + tossed.petData.name + "'s clean landing", { minGapMs: 25000 });
+                if (pet.emitEmote) pet.emitEmote("exclaim");
+                pet.enterState(pickFn(pet, ["hop", "pose"]));
+            }
+        } else if (!cleanLand && !Plans.hasActivePlan(pet)) {
+            pet.enterState(pickFn(pet, ["cringe", "nod"]));
+        }
+        break;
+    }
+
+    case "pet_peer_pampered": {
+        var pampered = data.fromPet;
+        if (resting || !pampered || Plans.hasActivePlan(pet) || _cooldown(pet, "peer_pampered", 90000)) return;
+        var relPam = Memory.relationWith(pet, pampered.petData.name, pampered.personality, pampered.petData.sprite);
+        var effPatP = Drives.effectivePatience(pet);
+        if ((Personality.hasQuirk(pet, "velcro_companion") || (p.sociability > 0.56 && (pet.bond || 0.3) > 0.42)) && nav) {
+            pet.socialDrive = Drives.clamp01(pet.socialDrive + 0.18);
+            var hasCur = !!(pet.inputTracker && pet.inputTracker.cursorKnown);
+            var cgxP = hasCur ? pet.inputTracker.cursorX : 0;
+            var cgyP = hasCur ? pet.inputTracker.cursorY : 0;
+            Plans.startPlan(pet, Plans.buildJealousWedgePlan(pet, pampered, cgxP, cgyP, hasCur), nav, pickFn);
+        } else if ((effPatP < 0.36 || relPam.affinity < 0.36) && nav) {
+            Memory.thinkAloud(pet, "pamper_sulk", "Turned away aloofly while " + pampered.petData.name + " soaked up attention", { minGapMs: 60000 });
+            Plans.startPlan(pet, Plans.buildColdShoulderPlan(pampered.petData.name, "Aloof Sulk"), nav, pickFn);
+        }
+        break;
+    }
+
+    case "pet_trampled": {
+        var runner = data.fromPet;
+        if (!resting || !runner) break;
+        Plans.clearPlan(pet);
+        var effPatT = Drives.effectivePatience(pet);
+        var relTr = Memory.relationWith(pet, runner.petData.name, runner.personality, runner.petData.sprite);
+        if (effPatT < 0.46 || relTr.affinity < 0.40) {
+            Social.rebuff(pet, runner);
+            Util.faceGlobal(pet, Util.petGX(runner), Util.petGY(runner));
+            Memory.thinkAloud(pet, "trampled_mad", "Snapped awake after " + runner.petData.name + " barreled right past", { minGapMs: 20000 });
+            pet.enterState(pickFn(pet, SpeciesProfile.standoffMovesFor(pet)));
+        } else {
+            Memory.thinkAloud(pet, "trampled_wake", "Blinked awake as " + runner.petData.name + " scampered past", { minGapMs: 20000 });
+            pet.enterState(SpeciesProfile.wakeStateFor(pet));
+        }
+        break;
+    }
+
+    case "pet_spot_stolen": {
+        var thief = data.fromPet;
+        if (!thief || resting || _cooldown(pet, "spot_stolen", 90000)) return;
+        if (Drives.effectivePatience(pet) < 0.48) {
+            Social.annoy(pet, thief);
+            Util.faceGlobal(pet, Util.petGX(thief), Util.petGY(thief));
+            Memory.thinkAloud(pet, "spot_stolen", "Huffed watching " + thief.petData.name + " curl up in its warm spot", { minGapMs: 45000 });
+            if (pet.state_ === "idle" && !Plans.hasActivePlan(pet)) {
+                pet.enterState(pickFn(pet, ["pull", "cringe"]));
+            }
         }
         break;
     }

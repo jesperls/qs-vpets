@@ -472,7 +472,17 @@ function advanceStep(pet, nav, pickFn) {
 
     case "rest": {
         var deep = !!step.deep;
+        var postState = deep ? "deepsleep" : (step.postState || "loaf");
         var reason = plan.reason || "resting";
+        if (plan.name === "steal_warm_spot") {
+            Memory.recordEpisode(pet, "warm_spot", { valence: 0.36, withPet: plan.otherName || "" });
+            if (plan.otherName) {
+                var prevOwner = Util.findPet(pet, plan.otherName);
+                if (prevOwner && Util.distBetween(pet, prevOwner) < 175) {
+                    prevOwner.socialEvent("spot_stolen", pet);
+                }
+            }
+        }
         if (step.faceOther && plan.otherName) {
             var companion = Util.findPet(pet, plan.otherName);
             if (companion) Util.faceGlobal(pet, Util.petGX(companion), Util.petGY(companion));
@@ -485,13 +495,13 @@ function advanceStep(pet, nav, pickFn) {
             started: restNow,
             until: restNow + 300000,
             reason: reason,
-            stepLabel: deep ? "Deep sleep" : "Loafing"
+            stepLabel: deep ? "Deep sleep" : (postState === "laying" ? "Sprawled out" : "Loafing")
         };
         Memory.recordEpisode(pet, step.sanctuary ? "sanctuary_nap" : "resting", {
             valence: 0.25,
             salience: step.sanctuary ? 0.45 : 0.25
         });
-        pet.enterState(deep ? "deepsleep" : "loaf");
+        pet.enterState(postState);
         return;
     }
 
@@ -741,6 +751,19 @@ function finishPlan(pet, pickFn) {
         Memory.recordEpisode(pet, "foraged", { valence: 0.25, salience: 0.30 });
         break;
 
+    case "calm_company":
+        pet.socialDrive = Math.max(0, pet.socialDrive - 0.22);
+        Drives.happier(pet, 0.03);
+        Drives.shiftTrust(pet, 0.015);
+        Memory.recordEpisode(pet, "calm_company", { valence: 0.42, windowClass: plan.windowClass || "" });
+        break;
+
+    case "parked_cursor_company":
+        pet.socialDrive = Math.max(0, pet.socialDrive - 0.18);
+        Drives.shiftTrust(pet, 0.015);
+        Memory.recordEpisode(pet, "calm_company", { valence: 0.38, note: "parked_cursor" });
+        break;
+
     default:
         Abilities.onPlanFinished(pet, plan);
         break;
@@ -819,6 +842,10 @@ var buildZoomiesPlan = PlanBuildersEnv.buildZoomiesPlan;
 var buildZoomieStumblePlan = PlanBuildersEnv.buildZoomieStumblePlan;
 var buildRetirePlan = PlanBuildersEnv.buildRetirePlan;
 var buildArrivePlan = PlanBuildersEnv.buildArrivePlan;
+var buildStealWarmSpotPlan = PlanBuildersEnv.buildStealWarmSpotPlan;
+var buildParkedCursorCompanyPlan = PlanBuildersEnv.buildParkedCursorCompanyPlan;
+var buildCalmCompanyPlan = PlanBuildersEnv.buildCalmCompanyPlan;
+var buildWindowShiftInspectPlan = PlanBuildersEnv.buildWindowShiftInspectPlan;
 
 var buildShareStoryPlan = PlanBuildersSocial.buildShareStoryPlan;
 var buildInvitePlayPlan = PlanBuildersSocial.buildInvitePlayPlan;
@@ -847,4 +874,6 @@ var buildColdShoulderPlan = PlanBuildersSocial.buildColdShoulderPlan;
 var buildCooledOffPlan = PlanBuildersSocial.buildCooledOffPlan;
 var buildBackedOffPlan = PlanBuildersSocial.buildBackedOffPlan;
 var buildSharedGroovePlan = PlanBuildersSocial.buildSharedGroovePlan;
+var buildJealousWedgePlan = PlanBuildersSocial.buildJealousWedgePlan;
+var buildCheckDisplacedFriendPlan = PlanBuildersSocial.buildCheckDisplacedFriendPlan;
 var buildIllusionPrankPlan = Abilities.buildIllusionPlan;

@@ -261,6 +261,10 @@ function affectionGesturesFor(pet) {
     return profileFor(speciesOf(pet)).affectionGestures.slice();
 }
 
+function nuzzleGesturesFor(pet) {
+    return ["head"].concat(profileFor(speciesOf(pet)).affectionGestures);
+}
+
 function greetGesturesFor(pet) {
     return profileFor(speciesOf(pet)).greetGestures.slice();
 }

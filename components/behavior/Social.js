@@ -357,3 +357,47 @@ function illusionSurprise(pet, other) {
     Drives.happier(pet, 0.03);
     other.socialEvent("illusion", pet);
 }
+
+function broadcastAlarm(pet, threatGX, threatGY) {
+    if (!pet || !pet.petManager || !pet.petManager.pets) return;
+    var now = _now(pet);
+    if (now - (pet._lastAlarmBroadcastMs || 0) < 45000) return;
+    pet._lastAlarmBroadcastMs = now;
+
+    var all = pet.petManager.pets;
+    var sx = pet.screenX(), sy = pet.screenY();
+    var myGX = Util.petGX(pet), myGY = Util.petGY(pet);
+    var notified = 0;
+
+    for (var i = 0; i < all.length; i++) {
+        var o = all[i];
+        if (!o || o === pet || o._retiringToPen || o.state_ === "drag" || o.state_ === "airborne") continue;
+        if (o.screenX() !== sx || o.screenY() !== sy) continue;
+        if (Util.isRestingState(o.state_) && o.state_ === "deepsleep") continue;
+        var d = Math.hypot(Util.petGX(o) - myGX, Util.petGY(o) - myGY);
+        if (d > 380) continue;
+        o.socialEvent("alarm_ripple", pet, { gx: threatGX, gy: threatGY });
+        if (++notified >= 2) break;
+    }
+}
+
+function passingGreet(petA, petB) {
+    if (!petA || !petB || !petA.petData || !petB.petData) return;
+    var now = _now(petA);
+    Memory.adjustRelation(petA, petB.petData.name, 0.004, 0.015);
+    Memory.adjustRelation(petB, petA.petData.name, 0.004, 0.015);
+    petA.attentionGX = Util.petGX(petB);
+    petA.attentionGY = Util.petGY(petB);
+    petA.attentionUntil = now + 950;
+    petB.attentionGX = Util.petGX(petA);
+    petB.attentionGY = Util.petGY(petA);
+    petB.attentionUntil = now + 950;
+}
+
+function trampleSleeper(runner, sleeper) {
+    if (!runner || !sleeper || !sleeper.petData) return;
+    var now = _now(runner);
+    if (now - (sleeper._lastTrampledMs || 0) < 65000) return;
+    sleeper._lastTrampledMs = now;
+    sleeper.socialEvent("trampled", runner);
+}

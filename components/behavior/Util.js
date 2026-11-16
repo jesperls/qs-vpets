@@ -68,7 +68,7 @@ function clampToScreen(pet, gx, gy, padX, padY) {
 }
 
 function isRestingState(state) {
-    return state === "loaf" || state === "sit" || state === "deepsleep";
+    return state === "loaf" || state === "laying" || state === "sit" || state === "deepsleep";
 }
 
 function bumpMemoryRev(pet) {

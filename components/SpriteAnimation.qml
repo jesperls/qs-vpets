@@ -228,7 +228,7 @@ Item {
         id: fallbackBody
         visible: !root.useSpriteSheet || sheet.status === Image.Error
         width: root.width * 0.78
-        height: root.height * ((root.currentState === "sit" || root.currentState === "loaf" || root.currentState === "deepsleep") ? 0.62 : 0.76)
+        height: root.height * ((root.currentState === "sit" || root.currentState === "loaf" || root.currentState === "laying" || root.currentState === "deepsleep") ? 0.62 : 0.76)
         x: (root.width - width) / 2
         y: root.height - height - 4 - root.altitude
         radius: width * 0.28

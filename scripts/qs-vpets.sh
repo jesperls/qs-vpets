@@ -260,6 +260,7 @@ usage() {
 		  rename <old> <new>         Rename a companion while preserving memories & bonds
 		  evolve <name> [species]    Opt-in evolution when lifestyle milestones are met
 		  inspect [name]             Toggle the interactive inspector card
+		  notify [app] [urgency]     Signal an external toast notification to companions
 		  spawn <species> [name]     Adopt a new companion into the Sanctuary
 		  release <name>             Release a companion and remove its state file
 		  version                    Print version
@@ -375,6 +376,12 @@ evolve)
 	;;
 inspect)
 	ipc inspect "${1:-}"
+	;;
+notify)
+	existingPid=$(shellPid)
+	if [ -n "$existingPid" ]; then
+		ipc notify "${1:-Desktop}" "${2:-normal}"
+	fi
 	;;
 spawn)
 	[ $# -ge 1 ] || die "usage: qs-vpets spawn <species> [name]"

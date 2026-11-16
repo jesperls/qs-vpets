@@ -37,6 +37,10 @@ Singleton {
     property var _arrivingIds: ({})
     property var _knownConfigIds: ({})
     property var _pendingUnlinkPaths: []
+    property var vacatedWarmSpots: []
+    property string _affectionPetId: ""
+    property int _affectionStreak: 0
+    property double _lastAffectionMs: 0
 
     property bool dragGhostActive: false
     property var dragGhostScreen: null
@@ -85,6 +89,7 @@ Singleton {
             isRaining: SystemMonitor.isRaining,
             isSnowing: SystemMonitor.isSnowing,
             thermalWarmth: SystemMonitor.thermalWarmth,
+            lowBattery: SystemMonitor.lowBattery,
             micActive: MediaTracker.micActive,
             mediaPlaying: MediaTracker.isPlaying,
             isCode: Memory.isCodeWindow(WindowTracker.activeWindowClass || ""),
@@ -388,6 +393,108 @@ Singleton {
         }
         if (bestFriend && bestFriend.greetSanctuaryArrival) {
             bestFriend.greetSanctuaryArrival(arrivingPet);
+        }
+    }
+
+    function recordVacatedWarmSpot(pet: var, gx: real, gy: real): void {
+        if (!pet || !pet.petData) return;
+        const now = Date.now();
+        const fresh = [];
+        for (let i = 0; i < vacatedWarmSpots.length; i++) {
+            const ws = vacatedWarmSpots[i];
+            if (ws && (now - ws.time) < 28000 && ws.petName !== pet.petData.name) {
+                fresh.push(ws);
+            }
+        }
+        const spWarm = SpeciesProfile.hasAbility(pet, "hearth_warmth") ? 0.22 : 0;
+        fresh.push({
+            gx: gx,
+            gy: gy,
+            petName: pet.petData.name,
+            warmth: Math.min(1, 0.55 + spWarm + SystemMonitor.thermalWarmth * 0.25),
+            time: now
+        });
+        vacatedWarmSpots = fresh.slice(-8);
+    }
+
+    function recordUserAffection(pet: var): void {
+        if (!pet || !pet.petData) return;
+        const now = Date.now();
+        const pid = pet.petData.id || pet.petData.name;
+        if (pid === _affectionPetId && (now - _lastAffectionMs) < 25000) {
+            _affectionStreak += 1;
+        } else {
+            _affectionPetId = pid;
+            _affectionStreak = 1;
+        }
+        _lastAffectionMs = now;
+        if (_affectionStreak < 2) return;
+
+        const sx = pet.screenX(), sy = pet.screenY();
+        const px = sx + pet.worldX, py = sy + pet.worldY;
+        for (let i = 0; i < pets.length; i++) {
+            const o = pets[i];
+            if (!o || o === pet || o._retiringToPen || o.state_ === "drag" || o.state_ === "airborne") continue;
+            if (o.screenX() !== sx || o.screenY() !== sy) continue;
+            if (Math.hypot((sx + o.worldX) - px, (sy + o.worldY) - py) <= 340) {
+                o.socialEvent("peer_pampered", pet);
+            }
+        }
+    }
+
+    function notifyPetDragBegan(draggedPet: var): void {
+        if (!draggedPet) return;
+        const sx = draggedPet.screenX(), sy = draggedPet.screenY();
+        const dx = sx + draggedPet.worldX, dy = sy + draggedPet.worldY;
+        for (let i = 0; i < pets.length; i++) {
+            const o = pets[i];
+            if (!o || o === draggedPet || o._retiringToPen) continue;
+            if (o.screenX() !== sx || o.screenY() !== sy) continue;
+            if (Math.hypot((sx + o.worldX) - dx, (sy + o.worldY) - dy) <= 460) {
+                o.socialEvent("friend_lifted", draggedPet);
+            }
+        }
+    }
+
+    function notifyPetTossed(tossedPet: var, speed: real): void {
+        void speed;
+        notifyPetDragBegan(tossedPet);
+    }
+
+    function notifyPetTossLanded(landedPet: var, speed: real, cleanLanding: bool): void {
+        if (!landedPet) return;
+        const sx = landedPet.screenX(), sy = landedPet.screenY();
+        const lx = sx + landedPet.worldX, ly = sy + landedPet.worldY;
+        for (let i = 0; i < pets.length; i++) {
+            const o = pets[i];
+            if (!o || o === landedPet || o._retiringToPen || o.state_ === "drag") continue;
+            if (o.screenX() !== sx || o.screenY() !== sy) continue;
+            if (Math.hypot((sx + o.worldX) - lx, (sy + o.worldY) - ly) <= 480) {
+                o.socialEvent("friend_tossed", landedPet, { speed: speed, cleanLanding: cleanLanding });
+            }
+        }
+    }
+
+    function notifyDisplacedCompanion(refugeePet: var): void {
+        if (!refugeePet || !refugeePet.petData) return;
+        const sx = refugeePet.screenX(), sy = refugeePet.screenY();
+        const rName = refugeePet.petData.name;
+        let best = null;
+        let bestAff = 0.48;
+        for (let i = 0; i < pets.length; i++) {
+            const p = pets[i];
+            if (!p || p === refugeePet || p._retiringToPen) continue;
+            if (p.screenX() !== sx || p.screenY() !== sy) continue;
+            if (p.state_ !== "idle" && p.state_ !== "wander") continue;
+            if (p.activePlan) continue;
+            const rel = Memory.relationWith(p, rName, refugeePet.personality, refugeePet.petData.sprite);
+            if (rel.affinity >= bestAff) {
+                bestAff = rel.affinity;
+                best = p;
+            }
+        }
+        if (best && best.checkOnDisplacedFriend) {
+            best.checkOnDisplacedFriend(refugeePet);
         }
     }
 
@@ -999,6 +1106,11 @@ Singleton {
                 return "invalid target form (ready: " + evo.options.map(o => o.species).join(", ") + ")";
             }
             return "evolved " + cfg.name + " into " + evolvedName;
+        }
+
+        function notify(appName: string, urgency: string): string {
+            SystemMonitor.emitExternalToast(appName || "Desktop", urgency || "normal", false);
+            return "notified";
         }
     }
 }

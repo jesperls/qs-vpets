@@ -216,7 +216,7 @@ Rectangle {
                             implicitWidth: 6
                             implicitHeight: 6
                             radius: 3
-                            color: root.pet.state_ === "deepsleep" || root.pet.state_ === "loaf" || root.pet.state_ === "sit"
+                            color: root.pet.state_ === "deepsleep" || root.pet.state_ === "loaf" || root.pet.state_ === "laying" || root.pet.state_ === "sit"
                                 ? Theme.warm
                                 : Theme.positive
                         }
@@ -229,6 +229,7 @@ Rectangle {
                                 const step = root.pet.intention?.stepLabel ?? "";
                                 if (plan) return plan.label + (step ? (" · " + step) : "");
                                 if (root.pet.state_ === "deepsleep") return "Sleeping & consolidating dreams";
+                                if (root.pet.state_ === "laying") return "Sprawled out comfortably";
                                 if (root.pet.state_ === "loaf" || root.pet.state_ === "sit") return "Loafing quietly";
                                 return "Observing the desktop";
                             }
@@ -263,7 +264,7 @@ Rectangle {
 
                 Repeater {
                     model: {
-                        const resting = root.pet.state_ === "loaf" || root.pet.state_ === "sit" || root.pet.state_ === "deepsleep";
+                        const resting = root.pet.state_ === "loaf" || root.pet.state_ === "laying" || root.pet.state_ === "sit" || root.pet.state_ === "deepsleep";
                         return [
                             { label: "Pat", icon: "heart", act: "pat", tint: Theme.love },
                             { label: "Snack", icon: "berry", act: "feed", tint: Theme.positive },

@@ -2,6 +2,9 @@
 
 .import "behavior/Topology.js" as Topology
 .import "behavior/Brain.js" as Brain
+.import "behavior/Memory.js" as Memory
+.import "behavior/Social.js" as Social
+.import "behavior/Util.js" as Util
 
 var ARRIVAL_TOLERANCE = 44;
 var MAX_BLOCKS = 2;
@@ -16,7 +19,8 @@ function _navHandle() {
         randomDir: randomDir,
         walkArrived: walkArrived,
         launchJumpTo: launchJumpTo,
-        launchSoftDrop: launchSoftDrop
+        launchSoftDrop: launchSoftDrop,
+        dropFromPerchIfNeeded: dropFromPerchIfNeeded
     };
 }
 
@@ -158,6 +162,9 @@ function launchFromRelease(pet, vx, vy, initialAltitude) {
     pet.onJourney = false;
     if (Math.abs(pet.vx) > 10) pet.facingRight = pet.vx >= 0;
     pet.enterState("airborne");
+    if (capped >= 360 && pet.petManager && pet.petManager.notifyPetTossed) {
+        pet.petManager.notifyPetTossed(pet, capped);
+    }
 }
 
 function updateAirborne(pet, dt) {
@@ -241,6 +248,11 @@ function _dropFromLostPerch(pet, wins) {
     launchSoftDrop(pet, curGX, landGY, bestAddr);
 }
 
+function dropFromPerchIfNeeded(pet) {
+    var wins = (pet.windowTracker && pet.windowTracker.visibleWindows) || [];
+    _dropFromLostPerch(pet, wins);
+}
+
 function updatePerch(pet, dt) {
     if (pet.state_ !== "perch") return;
     var wins = (pet.windowTracker && pet.windowTracker.visibleWindows) || [];
@@ -318,16 +330,73 @@ function trySnapArrive(pet, step) {
     return true;
 }
 
+function _socialDeflection(pet) {
+    if (!pet.petManager || !pet.petManager.pets) return 0;
+    var all = pet.petManager.pets;
+    if (all.length < 2) return 0;
+    var sx = pet.screenX(), sy = pet.screenY();
+    var myGX = sx + pet.worldX, myGY = sy + pet.worldY;
+    var rowdy = pet.state_ === "zoomies" || pet.gait === "scamper";
+    var now = Util.now(pet);
+    var planOther = (pet.activePlan && pet.activePlan.otherName) ? pet.activePlan.otherName : "";
+    var deflect = 0;
+
+    for (var i = 0; i < all.length; i++) {
+        var o = all[i];
+        if (!o || o === pet || !o.petData || o.state_ === "drag" || o.state_ === "airborne") continue;
+        if (o.screenX() !== sx || o.screenY() !== sy) continue;
+        var oGX = sx + o.worldX, oGY = sy + o.worldY;
+        var dx = myGX - oGX, dy = myGY - oGY;
+        var d = Math.hypot(dx, dy);
+        if (d > 94 || d < 1) continue;
+
+        if (Util.isRestingState(o.state_)) {
+            if (rowdy) {
+                if (d < 30) Social.trampleSleeper(pet, o);
+                continue;
+            }
+            if (planOther && o.petData.name === planOther) continue;
+            var toSleeper = Math.atan2(-dy, -dx);
+            var angDiff = ((toSleeper - pet.moveAngle + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI;
+            if (Math.abs(angDiff) < 1.25) {
+                var side = angDiff >= 0 ? -1 : 1;
+                deflect += side * ((94 - d) / 94) * 1.15;
+            }
+        } else if (!rowdy && (o.state_ === "walk" || o.state_ === "wander") && d < 74) {
+            if (planOther && o.petData.name === planOther) continue;
+            var rel = Memory.relationWith(pet, o.petData.name, o.personality, o.petData.sprite);
+            if (rel.affinity >= 0.58 && (now - (pet._lastPassGreetMs || 0)) > 75000) {
+                pet._lastPassGreetMs = now;
+                o._lastPassGreetMs = now;
+                Social.passingGreet(pet, o);
+            } else if (pet.personality && o.personality
+                    && (pet.personality.boldness + 0.18 < o.personality.boldness)
+                    && rel.affinity < 0.52) {
+                if (pet._liveSpeed !== undefined) pet._liveSpeed = Math.min(pet._liveSpeed, 24);
+                deflect += (dy >= 0 ? 0.55 : -0.55) * ((74 - d) / 74);
+            }
+        }
+    }
+    return Math.max(-1.2, Math.min(1.2, deflect));
+}
+
 function updateSteering(pet, dt) {
-    if (!pet.onJourney) return;
+    var deflect = _socialDeflection(pet);
+    if (!pet.onJourney) {
+        if (Math.abs(deflect) > 0.04) {
+            _setAngle(pet, pet.moveAngle + deflect * dt * 2.4);
+        }
+        return;
+    }
     if (Brain.checkStalkGlance && Brain.checkStalkGlance(pet, _navHandle())) return;
+    if (Brain.checkMidJourneyDistraction && Brain.checkMidJourneyDistraction(pet, _navHandle())) return;
     var wp = Topology.routeWaypoint(pet, pet.targetGX, pet.targetGY);
     if (!wp.reachable) {
         pet.onJourney = false;
         Brain.onBlocked(pet);
         return;
     }
-    var desired = Math.atan2(wp.gy - globalY(pet), wp.gx - globalX(pet));
+    var desired = Math.atan2(wp.gy - globalY(pet), wp.gx - globalX(pet)) + deflect;
     var turnRate = wp.finalLeg ? (Math.PI * 2.4) : (Math.PI * 3.6);
     var next = _steerAngle(pet.moveAngle, desired, turnRate * dt);
     if (Math.abs(next - pet.moveAngle) > 0.01) {

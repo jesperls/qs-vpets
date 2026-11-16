@@ -144,9 +144,9 @@ Leave `programs.qs-vpets.pets = null` (the default) to adopt, rename, and manage
 | Desktop / Compositor | Overlay & Input | Fullscreen & Active App | Idle Detection | Window Ledge Perching |
 | :--- | :---: | :---: | :---: | :---: |
 | **Hyprland** | Yes | Yes | Yes | Yes (Hyprland IPC) |
+| **Sway / Scroll** | Yes | Yes | Yes | Yes (Sway IPC) |
+| **Niri** | Yes | Yes | Yes | Yes (Niri IPC) |
 | **KDE Plasma Wayland / SteamOS** | Yes | Yes | Yes | Graceful ground roam |
-| **Sway / Scroll** | Yes | Yes | Yes | Graceful ground roam |
-| **Niri** | Yes | Yes | Yes | Graceful ground roam |
 | **COSMIC / River / Wayfire / Labwc** | Yes | Yes | Yes | Graceful ground roam |
 | **GNOME Wayland (Mutter)** | No (`wlr-layer-shell` unsupported by Mutter) | — | — | — |
 | **X11 Sessions** | No (Wayland required) | — | — | — |

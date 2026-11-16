@@ -16,6 +16,8 @@ Singleton {
     signal idleBegan
     signal idleEnded(idleDurationSec: real)
     signal cursorWiggled(gx: real, gy: real)
+    signal cursorParkedNear(gx: real, gy: real)
+    signal cursorUnparked(gx: real, gy: real, speed: real)
 
     property bool _active: true
     property double _idleBeganMs: 0
@@ -24,6 +26,7 @@ Singleton {
     property real cursorX: 0
     property real cursorY: 0
     property real cursorSpeed: 0
+    property bool cursorParked: false
     property real _prevCursorX: 0
     property real _prevCursorY: 0
     property double _prevSampleMs: 0
@@ -37,6 +40,20 @@ Singleton {
     property real _wiggleAnchorX: 0
     property real _wiggleAnchorY: 0
     property double _lastWiggleEmitMs: 0
+
+    property real _parkAnchorX: 0
+    property real _parkAnchorY: 0
+    property double _parkAnchorMs: 0
+    property double _lastParkedEmitMs: 0
+
+    function _checkParked(now: double): void {
+        if (!root._active || !root.cursorKnown || root.cursorParked || root._parkAnchorMs <= 0) return;
+        if ((now - root._parkAnchorMs) >= 42000 && (now - root._lastParkedEmitMs) >= 90000) {
+            root.cursorParked = true;
+            root._lastParkedEmitMs = now;
+            root.cursorParkedNear(root.cursorX, root.cursorY);
+        }
+    }
 
     function _ingestSample(nx: real, ny: real): void {
         const now = Date.now();
@@ -74,6 +91,21 @@ Singleton {
         root.cursorX = nx;
         root.cursorY = ny;
         root.cursorKnown = true;
+
+        const parkDist = Math.hypot(nx - root._parkAnchorX, ny - root._parkAnchorY);
+        if (root._parkAnchorMs <= 0 || parkDist > 20) {
+            const wasParked = root.cursorParked;
+            root.cursorParked = false;
+            root._parkAnchorX = nx;
+            root._parkAnchorY = ny;
+            root._parkAnchorMs = now;
+            if (wasParked) {
+                root.cursorUnparked(nx, ny, root.cursorSpeed);
+            }
+        } else {
+            root._checkParked(now);
+        }
+
         if (dist > 4) root.registerMouseMove();
     }
 
@@ -105,6 +137,13 @@ Singleton {
         onTriggered: if (!cursorProc.running) cursorProc.running = true
     }
 
+    Timer {
+        interval: 7500
+        running: !root.hasHyprland && root._active && root.trackingEnabled && root.cursorKnown && !root.cursorParked
+        repeat: true
+        onTriggered: root._checkParked(Date.now())
+    }
+
     IdleMonitor {
         id: waylandIdle
         enabled: true
@@ -116,6 +155,8 @@ Singleton {
                     root._active = false;
                     root._idleBeganMs = Date.now();
                     root.cursorSpeed = 0;
+                    root.cursorParked = false;
+                    root._parkAnchorMs = 0;
                     root.idleBegan();
                 }
             } else {
@@ -129,6 +170,7 @@ Singleton {
             const awaySec = root._idleBeganMs > 0 ? Math.max(0, (Date.now() - root._idleBeganMs) / 1000) : 0;
             root._active = true;
             root._idleBeganMs = 0;
+            root._parkAnchorMs = Date.now();
             root.idleEnded(awaySec);
         }
     }
@@ -148,5 +190,6 @@ Singleton {
         target: !root.hasHyprland ? WindowTracker : null
         function onWindowFocused(windowClass: string, title: string): void { root.registerMouseMove(); }
         function onWindowOpened(windowClass: string, title: string): void { root.registerMouseMove(); }
+        function onWorkspaceChanged(): void { root.registerMouseMove(); }
     }
 }

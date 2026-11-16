@@ -168,7 +168,8 @@ function perceive(pet) {
         reachable: it.cursorKnown !== false && (reachable.length === 0 || cursorScr !== null),
         dist: Math.hypot(cgx - petGX, cgy - petGY),
         speed: it.cursorSpeed || 0,
-        active: !!it.userActive
+        active: !!it.userActive,
+        parked: !!it.cursorParked
     };
 
     var mt = pet.mediaTracker || { isPlaying: false, micActive: false, trackTitle: "", trackArtist: "" };
@@ -292,6 +293,32 @@ function perceive(pet) {
     var dHome = Math.hypot(petGX - pet.homeGX, petGY - pet.homeGY);
     var homeReachable = reachable.length === 0 || Topology.screenAt(reachable, pet.homeGX, pet.homeGY) !== null;
     var solarPhase = sm.solarPhase || (pet.isNighttime ? "night" : "day");
+    var myName = (pet.petData && pet.petData.name) ? pet.petData.name : "";
+
+    var warmSpot = null;
+    var rawWarm = (pet.petManager && Array.isArray(pet.petManager.vacatedWarmSpots))
+        ? pet.petManager.vacatedWarmSpots
+        : [];
+    var bestWarmScore = -Infinity;
+    for (var wi = 0; wi < rawWarm.length; wi++) {
+        var ws = rawWarm[wi];
+        if (!ws || (now - (ws.time || 0)) > 28000) continue;
+        if (myName && ws.petName === myName) continue;
+        if (!Topology.pointOnScreen(curScr, ws.gx, ws.gy)) continue;
+        var wDist = Math.hypot(ws.gx - petGX, ws.gy - petGY);
+        if (wDist < 28 || wDist > 360) continue;
+        var wScore = (ws.warmth || 0.5) - (wDist / 450);
+        if (wScore > bestWarmScore) {
+            bestWarmScore = wScore;
+            warmSpot = {
+                gx: ws.gx,
+                gy: ws.gy,
+                petName: ws.petName || "",
+                warmth: ws.warmth || 0.5,
+                dist: wDist
+            };
+        }
+    }
 
     return {
         now: now,
@@ -304,7 +331,11 @@ function perceive(pet) {
         isRaining: !!sm.isRaining,
         isSnowing: !!sm.isSnowing,
         thermalWarmth: sm.thermalWarmth !== undefined ? sm.thermalWarmth : 0,
+        lowBattery: !!sm.lowBattery,
+        isPluggedIn: !!sm.isPluggedIn,
+        batteryLevel: sm.batteryLevel !== undefined ? sm.batteryLevel : 1,
         micActive: !!mt.micActive,
+        audioMuted: !!mt.audioMuted,
         systemBusy: !!sm.isUnderLoad,
         userBusy: !!wt.isUserBusy,
         userIdle: !it.userActive,
@@ -334,6 +365,7 @@ function perceive(pet) {
         homeReachable: homeReachable,
         others: others,
         nearest: others.length > 0 ? others[0] : null,
+        warmSpot: warmSpot,
         placeAffectHere: Memory.placeAffectAt(pet, petGX, petGY)
     };
 }

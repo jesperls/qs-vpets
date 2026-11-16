@@ -89,6 +89,38 @@ function checkStalkGlance(pet, nav) {
     return true;
 }
 
+function checkMidJourneyDistraction(pet, nav) {
+    var plan = pet.activePlan;
+    if (!plan || !pet.onJourney || !nav) return false;
+    if ((plan.urgency || 0.5) >= 0.60) return false;
+    if (plan.name === "spectate_bout" || plan.name === "retire_to_pen" || plan.name === "joint_retire") return false;
+    var now = Util.now(pet);
+    if ((now - (plan.started || 0)) < 1600) return false;
+    if ((now - (pet._lastDistractionCheckMs || 0)) < 1400) return false;
+    pet._lastDistractionCheckMs = now;
+    if ((now - (pet._lastDistractedMs || 0)) < 150000) return false;
+
+    var p = pet.personality;
+    var effPat = Drives.effectivePatience(pet);
+    var distractibility = p.curiosity * 0.52 + p.playfulness * 0.44 - effPat * 0.52 + (pet.boredom || 0) * 0.24;
+    if (distractibility < 0.44) return false;
+
+    var perc = Perception.perceive(pet);
+    if (perc.fullscreen || perc.micActive) return false;
+    for (var i = 0; i < perc.others.length; i++) {
+        var o = perc.others[i];
+        if (!o.sameScreen || o.dist > 250 || o.name === plan.otherName) continue;
+        if (!o.playing && !o.grooving) continue;
+        if (Math.random() > 0.55) continue;
+        pet._lastDistractedMs = now;
+        Memory.recordEpisode(pet, "distracted", { valence: 0.22, withPet: o.name, note: plan.name });
+        Memory.thinkAloud(pet, "distracted", "Got sidetracked mid-errand watching " + o.name);
+        Plans.startPlan(pet, Plans.buildSpectatePlan(pet, o.pet), nav, _pick);
+        return true;
+    }
+    return false;
+}
+
 function onActionFinished(pet, nav) {
     if (Plans.hasActivePlan(pet)) {
         var step = Plans.currentStep(pet);
@@ -128,7 +160,8 @@ function restTick(pet) {
         var wantDeep = pet.restDrive > 0.56
                     || (perc.isNight && p.sleepiness > 0.25)
                     || (!deep && pet.restDrive > 0.42 && p.sleepiness > 0.48);
-        pet.continueResting(wantDeep ? "deepsleep" : "loaf");
+        var restContinue = wantDeep ? "deepsleep" : (pet.state_ === "laying" ? "laying" : "loaf");
+        pet.continueResting(restContinue);
         return;
     }
 

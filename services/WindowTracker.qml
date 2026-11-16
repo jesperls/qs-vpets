@@ -6,11 +6,15 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Hyprland
 import Quickshell.Wayland
+import "../components/behavior/CompositorWindows.js" as CompositorWindows
 
 Singleton {
     id: root
 
     readonly property bool hasHyprland: (Quickshell.env("HYPRLAND_INSTANCE_SIGNATURE") || "").length > 0
+    readonly property bool hasSway: !hasHyprland && (Quickshell.env("SWAYSOCK") || "").length > 0
+    readonly property bool hasNiri: !hasHyprland && !hasSway && (Quickshell.env("NIRI_SOCKET") || "").length > 0
+    readonly property bool hasIpcWindows: hasHyprland || hasSway || hasNiri
     property bool hyprlandLuaDispatch: false
 
     readonly property var realScreens: {
@@ -24,7 +28,7 @@ Singleton {
         return out;
     }
 
-    readonly property var _trackedWaylandActive: root.hasHyprland ? null : ToplevelManager.activeToplevel
+    readonly property var _trackedWaylandActive: root.hasIpcWindows ? null : ToplevelManager.activeToplevel
     property var _knownWaylandToplevels: []
     property bool _waylandBooted: false
 
@@ -39,15 +43,24 @@ Singleton {
     property int _focusChanges: 0
     readonly property bool isUserBusy: _focusChanges > 4
     property var _prevWindowMap: ({})
+    property int _prevWindowCount: 0
     property bool _hasWindowBaseline: false
     property double _lastWorkspaceChangeMs: 0
+    property double _lastShiftEmitMs: 0
     property bool _needsMonitorRefresh: true
+    property var _niriState: CompositorWindows.createNiriState()
+    property var _knownScreenNames: ({})
+    property bool _screensBooted: false
 
     signal windowOpened(windowClass: string, title: string)
     signal windowFocused(windowClass: string, title: string)
     signal windowClosed(windowClass: string, gx: real, gy: real, w: real, h: real, address: string)
+    signal windowShifted(windowClass: string, x: real, y: real, w: real, h: real, address: string)
     signal windowUrgent(windowClass: string, gx: real, gy: real)
     signal workspaceChanged
+    signal workspaceCleared
+    signal monitorConnected(screenName: string)
+    signal monitorDisconnected(screenName: string)
 
     readonly property var _ignoredEvents: ({
         activelayout: true,
@@ -99,6 +112,78 @@ Singleton {
         return { left: 0, top: 0, right: 0, bottom: 0 };
     }
 
+    function _syncScreensTopology(): void {
+        const next = {};
+        const list = root.realScreens;
+        for (let i = 0; i < list.length; i++) {
+            const n = String(list[i]?.name ?? "");
+            if (n.length > 0) next[n] = true;
+        }
+        if (root._screensBooted) {
+            const prevKeys = Object.keys(root._knownScreenNames);
+            for (let i = 0; i < prevKeys.length; i++) {
+                if (!next[prevKeys[i]]) root.monitorDisconnected(prevKeys[i]);
+            }
+            const nextKeys = Object.keys(next);
+            for (let j = 0; j < nextKeys.length; j++) {
+                if (!root._knownScreenNames[nextKeys[j]]) root.monitorConnected(nextKeys[j]);
+            }
+        }
+        root._knownScreenNames = next;
+        root._screensBooted = true;
+    }
+
+    onRealScreensChanged: _syncScreensTopology()
+
+    function _commitWindowSnapshot(snap: var): void {
+        if (!snap) return;
+        const now = Date.now();
+        const wins = snap.wins || [];
+        const allMappedAddrs = snap.allMappedAddrs || {};
+        const nextMap = {};
+        for (let i = 0; i < wins.length; i++) {
+            const w = wins[i];
+            if (w && w.address) nextMap[w.address] = w;
+        }
+
+        const quietWs = (now - root._lastWorkspaceChangeMs) > 900;
+        if (root._hasWindowBaseline && quietWs) {
+            const prevKeys = Object.keys(root._prevWindowMap);
+            for (let i = 0; i < prevKeys.length; i++) {
+                const k = prevKeys[i];
+                const prev = root._prevWindowMap[k];
+                if (!allMappedAddrs[k]) {
+                    root.windowClosed(prev.cls, prev.x + prev.w * 0.5, prev.y + prev.h * 0.5, prev.w, prev.h, k);
+                } else if (nextMap[k] && (now - root._lastShiftEmitMs) > 1400) {
+                    const cur = nextMap[k];
+                    if (!cur.fullscreen && !prev.fullscreen
+                            && (Math.abs(cur.x - prev.x) >= 36
+                                || Math.abs(cur.y - prev.y) >= 36
+                                || Math.abs(cur.w - prev.w) >= 36
+                                || Math.abs(cur.h - prev.h) >= 36)) {
+                        root._lastShiftEmitMs = now;
+                        root.windowShifted(cur.cls, cur.x, cur.y, cur.w, cur.h, k);
+                    }
+                }
+            }
+            if (root._prevWindowCount > 0 && Number(snap.windowCount || 0) === 0) {
+                root.workspaceCleared();
+            }
+        }
+
+        root._prevWindowMap = nextMap;
+        root._prevWindowCount = Number(snap.windowCount || 0);
+        root._hasWindowBaseline = true;
+
+        root.monitorInsets = snap.insets || {};
+        root.visibleWindows = wins;
+        root.activeWindowPos = snap.activePos || null;
+        root.activeWindowClass = String(snap.activeCls || "");
+        root.activeWindowTitle = String(snap.activeTitle || "");
+        root.isFullscreen = !!snap.isFullscreen;
+        root.windowCount = Number(snap.windowCount || 0);
+    }
+
     function _rebuild(): void {
         if (!root.hasHyprland) return;
         const activeWsIds = {};
@@ -123,7 +208,6 @@ Singleton {
 
         const wins = [];
         const allMappedAddrs = {};
-        const nextMap = {};
         let activePos = null;
         let activeCls = "";
         let activeTitle = "";
@@ -159,7 +243,6 @@ Singleton {
                 trueFullscreen: winTrueFs
             };
             wins.push(entry);
-            if (addr.length > 0) nextMap[addr] = entry;
 
             if (isFocused) {
                 activePos = { address: entry.address, x: entry.x, y: entry.y, w: entry.w, h: entry.h };
@@ -169,30 +252,20 @@ Singleton {
             }
         }
 
-        if (root._hasWindowBaseline && (Date.now() - root._lastWorkspaceChangeMs) > 700) {
-            const prevKeys = Object.keys(root._prevWindowMap);
-            for (let i = 0; i < prevKeys.length; i++) {
-                const k = prevKeys[i];
-                if (!allMappedAddrs[k]) {
-                    const prev = root._prevWindowMap[k];
-                    root.windowClosed(prev.cls, prev.x + prev.w * 0.5, prev.y + prev.h * 0.5, prev.w, prev.h, k);
-                }
-            }
-        }
-        root._prevWindowMap = nextMap;
-        root._hasWindowBaseline = true;
-
-        root.monitorInsets = insets;
-        root.visibleWindows = wins;
-        root.activeWindowPos = activePos;
-        root.activeWindowClass = activeCls;
-        root.activeWindowTitle = activeTitle;
-        root.isFullscreen = fs;
-        root.windowCount = focusedWsCount;
+        root._commitWindowSnapshot({
+            insets: insets,
+            wins: wins,
+            allMappedAddrs: allMappedAddrs,
+            activePos: activePos,
+            activeCls: activeCls,
+            activeTitle: activeTitle,
+            isFullscreen: fs,
+            windowCount: focusedWsCount
+        });
     }
 
     function _rebuildWayland(): void {
-        if (root.hasHyprland) return;
+        if (root.hasIpcWindows) return;
         const list = ToplevelManager.toplevels ? ToplevelManager.toplevels.values : [];
         const prev = root._knownWaylandToplevels || [];
         const nextKnown = [];
@@ -228,8 +301,13 @@ Singleton {
             }
         }
 
+        const prevCount = root._prevWindowCount;
         root._knownWaylandToplevels = nextKnown;
         root._waylandBooted = true;
+        root._prevWindowCount = openCount;
+        if (prevCount > 0 && openCount === 0) {
+            root.workspaceCleared();
+        }
 
         let activeTl = ToplevelManager.activeToplevel;
         if (!activeTl) {
@@ -249,7 +327,62 @@ Singleton {
         root.windowCount = openCount;
     }
 
+    function _handleSwayEvent(line: string): void {
+        const ev = CompositorWindows.parseSwayEvent(line);
+        if (!ev) return;
+        if (ev.hasContainer) {
+            if (ev.change === "new") {
+                root.windowOpened(ev.cls, ev.title);
+            } else if (ev.change === "focus") {
+                root.windowFocused(ev.cls, ev.title);
+                root._focusChanges++;
+            } else if (ev.change === "urgent" && ev.urgent) {
+                root.windowUrgent(ev.cls, ev.gx, ev.gy);
+            }
+        } else if (ev.hasCurrent && ev.change === "focus") {
+            root._lastWorkspaceChangeMs = Date.now();
+            root.workspaceChanged();
+        }
+        root._scheduleRefresh();
+    }
+
+    function _handleNiriEvent(line: string): void {
+        const res = CompositorWindows.applyNiriEvent(root._niriState, line);
+        if (!res) return;
+        for (let i = 0; i < res.signals.length; i++) {
+            const sig = res.signals[i];
+            if (sig.kind === "opened") {
+                root.windowOpened(sig.cls, sig.title);
+            } else if (sig.kind === "focused") {
+                root.windowFocused(sig.cls, sig.title);
+                root._focusChanges++;
+            } else if (sig.kind === "workspace") {
+                root._lastWorkspaceChangeMs = Date.now();
+                if (!niriOutputsProc.running) niriOutputsProc.running = true;
+                root.workspaceChanged();
+            } else if (sig.kind === "urgent") {
+                for (let w = 0; w < root.visibleWindows.length; w++) {
+                    const vw = root.visibleWindows[w];
+                    if (vw.address === sig.address) {
+                        root.windowUrgent(sig.cls, vw.x + vw.w * 0.5, vw.y + vw.h * 0.5);
+                        break;
+                    }
+                }
+            }
+        }
+        niriSnapshotTimer.restart();
+    }
+
     function _scheduleRefresh(): void {
+        if (root.hasSway) {
+            swayRefreshTimer.restart();
+            return;
+        }
+        if (root.hasNiri) {
+            if (!niriOutputsProc.running) niriOutputsProc.running = true;
+            niriSnapshotTimer.restart();
+            return;
+        }
         if (!root.hasHyprland) {
             waylandSnapshotTimer.restart();
             return;
@@ -264,6 +397,83 @@ Singleton {
             onRead: function(line) {
                 if (line.trim() === "ok") root.hyprlandLuaDispatch = true;
             }
+        }
+    }
+
+    Process {
+        id: swayEventsProc
+        running: root.hasSway
+        command: ["swaymsg", "-t", "subscribe", "-m", "[\"window\",\"workspace\",\"output\"]"]
+        stdout: SplitParser {
+            onRead: function(line) { root._handleSwayEvent(line); }
+        }
+        onExited: {
+            if (root.hasSway) ipcReconnectTimer.restart();
+        }
+    }
+
+    Process {
+        id: swayTreeProc
+        command: ["swaymsg", "-t", "get_tree", "-r"]
+        stdout: StdioCollector {
+            id: swayTreeCollector
+            waitForEnd: true
+        }
+        onExited: function(code) {
+            if (code === 0) {
+                root._commitWindowSnapshot(CompositorWindows.parseSwayTree(swayTreeCollector.text));
+            }
+        }
+    }
+
+    Process {
+        id: niriOutputsProc
+        command: ["niri", "msg", "--json", "outputs"]
+        stdout: StdioCollector {
+            id: niriOutputsCollector
+            waitForEnd: true
+        }
+        onExited: function(code) {
+            if (code === 0 && CompositorWindows.ingestNiriOutputs(root._niriState, niriOutputsCollector.text)) {
+                niriSnapshotTimer.restart();
+            }
+        }
+    }
+
+    Process {
+        id: niriEventsProc
+        running: root.hasNiri
+        command: ["niri", "msg", "--json", "event-stream"]
+        stdout: SplitParser {
+            onRead: function(line) { root._handleNiriEvent(line); }
+        }
+        onExited: {
+            if (root.hasNiri) ipcReconnectTimer.restart();
+        }
+    }
+
+    Timer {
+        id: ipcReconnectTimer
+        interval: 2000
+        onTriggered: {
+            if (root.hasSway && !swayEventsProc.running) swayEventsProc.running = true;
+            if (root.hasNiri && !niriEventsProc.running) niriEventsProc.running = true;
+        }
+    }
+
+    Timer {
+        id: swayRefreshTimer
+        interval: 55
+        onTriggered: {
+            if (!swayTreeProc.running) swayTreeProc.running = true;
+        }
+    }
+
+    Timer {
+        id: niriSnapshotTimer
+        interval: 45
+        onTriggered: {
+            root._commitWindowSnapshot(CompositorWindows.buildNiriSnapshot(root._niriState, root.realScreens));
         }
     }
 
@@ -345,7 +555,7 @@ Singleton {
     }
 
     Connections {
-        target: !root.hasHyprland ? ToplevelManager : null
+        target: !root.hasIpcWindows ? ToplevelManager : null
         function onActiveToplevelChanged(): void {
             const tl = ToplevelManager.activeToplevel;
             if (tl) {
@@ -357,7 +567,7 @@ Singleton {
     }
 
     Connections {
-        target: !root.hasHyprland ? ToplevelManager.toplevels : null
+        target: !root.hasIpcWindows ? ToplevelManager.toplevels : null
         function onValuesChanged(): void { root._scheduleRefresh(); }
     }
 
@@ -377,7 +587,9 @@ Singleton {
     }
 
     Component.onCompleted: {
+        root._syncScreensTopology();
         if (root.hasHyprland) luaProbe.running = true;
+        if (root.hasNiri) niriOutputsProc.running = true;
         root._scheduleRefresh();
     }
 }

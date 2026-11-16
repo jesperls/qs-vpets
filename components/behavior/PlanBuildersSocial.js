@@ -621,3 +621,47 @@ function buildSharedGroovePlan(pet, peerName) {
         ]
     };
 }
+
+function buildJealousWedgePlan(pet, pamperedPet, cursorGX, cursorGY, hasCursor) {
+    var pName = pamperedPet.petData.name;
+    var pGX = Util.petGX(pamperedPet), pGY = Util.petGY(pamperedPet);
+    var targetGX = hasCursor ? ((pGX + cursorGX) * 0.5) : (pGX + (Util.petGX(pet) < pGX ? -58 : 58));
+    var targetGY = hasCursor ? ((pGY + cursorGY) * 0.5 + 8) : (pGY + 12);
+    var pt = Util.clampToScreen(pet, targetGX, targetGY);
+    var nuzzles = SpeciesProfile.nuzzleGesturesFor(pet);
+    return {
+        name: "jealous_wedge",
+        label: "Nudging In Near " + pName,
+        reason: "Hoping for headpats too alongside " + pName,
+        otherName: pName,
+        urgency: 0.66,
+        durationMs: 28000,
+        thought: "Trotted over to nudge in for headpats alongside " + pName,
+        steps: [
+            { kind: "travel", gait: "trot", label: "Squeezing in nearby", gx: pt.gx, gy: pt.gy },
+            { kind: "act", label: "Nuzzling for attention", states: nuzzles, faceCursor: !!hasCursor, faceOther: !hasCursor },
+            { kind: "observe", durationMs: 4200, attend: hasCursor ? "cursor" : "other", label: "Waiting hopefully" }
+        ]
+    };
+}
+
+function buildCheckDisplacedFriendPlan(pet, refugeePet) {
+    var rName = refugeePet.petData.name;
+    var off = _naturalOffsetFrom(pet, refugeePet, 66);
+    var nuzzles = SpeciesProfile.nuzzleGesturesFor(pet);
+    return {
+        name: "check_displaced_friend",
+        label: "Checking on " + rName,
+        reason: "Making sure " + rName + " is okay after monitor disconnect",
+        otherName: rName,
+        urgency: 0.70,
+        durationMs: 34000,
+        thought: "Trotted over to check on " + rName + " after their display disconnected",
+        steps: [
+            { kind: "travel", gait: "trot", label: "Trotting to " + rName, dynamic: "other_pet", offsetX: off.offsetX, offsetY: off.offsetY },
+            { kind: "social", interaction: "greet", label: "Reassuring " + rName },
+            { kind: "act", label: "Reassuring nuzzle", states: nuzzles, faceOther: true },
+            { kind: "wander_apart", dist: 120, gait: "amble", label: "Walking inward" }
+        ]
+    };
+}

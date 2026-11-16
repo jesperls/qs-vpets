@@ -11,11 +11,18 @@ function _relax(current, target, dt, tau) {
     return current + (target - current) * (1 - Math.exp(-dt / tau));
 }
 
+function effectivePatience(pet) {
+    var base = (pet && pet.personality && pet.personality.patience !== undefined) ? pet.personality.patience : 0.5;
+    var rest = (pet && pet.restDrive !== undefined) ? pet.restDrive : 0;
+    var overtired = rest > 0.76 ? (rest - 0.76) * 1.15 : 0;
+    return clamp01(base - overtired);
+}
+
 function integrate(pet, perc, dt) {
     if (!(dt > 0)) return;
     var p = pet.personality;
     var s = pet.state_;
-    var loafing = s === "loaf" || s === "sit";
+    var loafing = s === "loaf" || s === "laying" || s === "sit";
     var deep = s === "deepsleep";
     var resting = loafing || deep;
     var moving = s === "walk" || s === "wander" || s === "zoomies";
@@ -43,6 +50,7 @@ function integrate(pet, perc, dt) {
         var build = 0.000038 + p.sleepiness * 0.000072;
         if (perc.isNight && !(hasNightWatch && !perc.userIdle)) build *= 1.75;
         if (perc.systemBusy) build *= 1.15;
+        if (perc.lowBattery) build *= 1.18;
         if (watching) build *= 0.55;
         if (moving) build *= (pet.gait === "scamper" || s === "zoomies") ? 1.65 : 1.22;
         pet.restDrive = clamp01(pet.restDrive + build * dt);
@@ -55,6 +63,7 @@ function integrate(pet, perc, dt) {
         var fade = 0.000020 + (1 - p.energy) * 0.000036;
         if (perc.isNight) fade *= (hasNightWatch && !perc.userIdle) ? 1.15 : 2.35;
         if (perc.mediaPlaying && hasMelomaniac) fade *= 0.65;
+        if (perc.audioMuted) fade *= 1.14;
         pet.alertness = clamp01(pet.alertness - fade * dt);
     }
 
@@ -65,7 +74,16 @@ function integrate(pet, perc, dt) {
     } else {
         var er = (0.00011 + p.curiosity * 0.00028) * (0.3 + pet.alertness * 0.7);
         if (perc.windowCount > 3) er *= 1.25;
-        if (perc.userBusy && !watching) er *= 1.30;
+        if (perc.userBusy && !watching) {
+            var steadyAnchor = p.composure >= 0.56
+                            || SpeciesProfile.hasAbility(pet, "soothing_ribbon")
+                            || Personality.hasQuirk(pet, "velcro_companion");
+            var calmPeerNear = !!(perc.nearest && perc.nearest.sameScreen && perc.nearest.dist < 220
+                                  && perc.nearest.pet && perc.nearest.pet.personality
+                                  && perc.nearest.pet.personality.composure >= 0.60);
+            er *= steadyAnchor ? 0.62 : (calmPeerNear ? 0.85 : 1.28);
+        }
+        if (perc.lowBattery) er *= 0.72;
         pet.exploreDrive = clamp01(pet.exploreDrive + er * dt);
     }
 
@@ -91,6 +109,7 @@ function integrate(pet, perc, dt) {
         if (perc.mediaPlaying) pr *= hasMelomaniac ? 1.65 : 1.2;
         if (perc.isRaining && SpeciesProfile.hasAbility(pet, "tide_splash")) pr *= 1.35;
         if (perc.micActive) pr *= 0.35;
+        if (perc.lowBattery) pr *= 0.60;
         pet.playDrive = clamp01(pet.playDrive + pr * dt);
     }
 

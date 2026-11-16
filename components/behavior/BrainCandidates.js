@@ -2,6 +2,7 @@
 
 .import "../SpeciesProfile.js" as SpeciesProfile
 .import "Personality.js" as Personality
+.import "Drives.js" as Drives
 .import "Memory.js" as Memory
 .import "Social.js" as Social
 .import "Abilities.js" as Abilities
@@ -82,13 +83,15 @@ function scoreCandidates(pet, perc, nav, pickFn) {
         if (justWoke) restScore *= 0.2;
 
         var deep = pet.restDrive > 0.68 || (perc.isNight && pet.restDrive > 0.44);
+        var wantSploot = !deep && (((perc.thermalWarmth || 0) > 0.54 && (spProf.biome === "Warm Hearth" || p.sleepiness > 0.52))
+                                   || pet.restDrive > 0.60);
         var favSpot = Memory.favoriteSpot(pet);
 
         cands.push({
             name: "rest",
             score: restScore,
             exec: function() {
-                Plans.startPlan(pet, Plans.buildRestPlan(pet, perc, false, null, deep), nav, pickFn);
+                Plans.startPlan(pet, Plans.buildRestPlan(pet, perc, false, null, deep, wantSploot), nav, pickFn);
             }
         });
 
@@ -97,7 +100,7 @@ function scoreCandidates(pet, perc, nav, pickFn) {
                 name: "go_home_rest",
                 score: restScore * 0.88 + pet.comfortDrive * 0.32 - _distCost(pet, perc.distFromHome),
                 exec: function() {
-                    Plans.startPlan(pet, Plans.buildRestPlan(pet, perc, true, null, deep), nav, pickFn);
+                    Plans.startPlan(pet, Plans.buildRestPlan(pet, perc, true, null, deep, wantSploot), nav, pickFn);
                 }
             });
         }
@@ -109,10 +112,40 @@ function scoreCandidates(pet, perc, nav, pickFn) {
                 score: restScore * (Personality.hasQuirk(pet, "cozy_hermit") ? 1.15 : 0.92)
                      + favSpot.affect * 0.25 - _distCost(pet, dSanct),
                 exec: function() {
-                    Plans.startPlan(pet, Plans.buildRestPlan(pet, perc, false, favSpot, deep), nav, pickFn);
+                    Plans.startPlan(pet, Plans.buildRestPlan(pet, perc, false, favSpot, deep, wantSploot), nav, pickFn);
                 }
             });
         }
+    }
+
+    if (perc.warmSpot && !justWoke && !perc.fullscreen && pet.alertness < 0.82
+            && (pet.restDrive > 0.18 || p.sleepiness > 0.48 || spProf.socialStyle === "trickster")) {
+        var wsScore = (0.34 + pet.restDrive * 0.55 + p.sleepiness * 0.32)
+                    + (spProf.socialStyle === "trickster" ? 0.18 : 0)
+                    + (Abilities.has(pet, "hearth_warmth") ? 0.12 : 0)
+                    - _distCost(pet, perc.warmSpot.dist);
+        cands.push({
+            name: "steal_warm_spot",
+            otherName: perc.warmSpot.petName,
+            score: wsScore,
+            exec: function() {
+                Plans.startPlan(pet, Plans.buildStealWarmSpotPlan(perc.warmSpot, pet), nav, pickFn);
+            }
+        });
+    }
+
+    if (perc.userBusy && !perc.fullscreen && !justWoke && pet.alertness > 0.24
+            && (p.composure >= 0.58 || Abilities.has(pet, "soothing_ribbon") || Personality.hasQuirk(pet, "velcro_companion"))
+            && !Memory.recent(pet, "calm_company", 300000)) {
+        var calmScore = (0.34 + bond * 0.36 + p.composure * 0.30)
+                      + (Abilities.has(pet, "soothing_ribbon") ? 0.16 : 0);
+        cands.push({
+            name: "calm_company",
+            score: calmScore,
+            exec: function() {
+                Plans.startPlan(pet, Plans.buildCalmCompanyPlan(perc, pet), nav, pickFn);
+            }
+        });
     }
 
     if (!perc.atHome && perc.homeReachable && pet.comfortDrive > 0.3) {
@@ -164,7 +197,7 @@ function scoreCandidates(pet, perc, nav, pickFn) {
                      + (sp0.hasPeer ? 0.16 : 0) + (sp0.hasWindow ? 0.10 : 0)
                      - _distCost(pet, sp0.dist) * 0.5,
                 exec: function() {
-                    Plans.startPlan(pet, Plans.buildSeamPeekPlan(sp0, shouldCross), nav, pickFn);
+                    Plans.startPlan(pet, Plans.buildSeamPeekPlan(sp0, shouldCross, pet), nav, pickFn);
                 }
             });
         }
@@ -398,6 +431,7 @@ function scoreCandidates(pet, perc, nav, pickFn) {
 
 function _socialCandidates(pet, perc, nav, pickFn, cands, m) {
     var p = pet.personality;
+    var effPat = Drives.effectivePatience(pet);
     var myStyle = SpeciesProfile.socialStyleOf(pet);
     var packSpark = Personality.hasQuirk(pet, "pack_spark") ? 0.16 : 0;
     var libMult = perc.micActive ? 0.22 : 1.0;
@@ -406,7 +440,7 @@ function _socialCandidates(pet, perc, nav, pickFn, cands, m) {
         (function(o) {
             if (o.busySocial || !o.sameScreen || o.dist >= 145) return;
             var crowdedDislike = o.affinity < 0.37
-                              || (o.affinity < 0.46 && p.patience < 0.36)
+                              || (o.affinity < 0.48 && effPat < 0.36)
                               || (o.friction >= 2 && o.affinity < 0.44);
             if (!crowdedDislike || o.sinceInteract < 45000) return;
 
@@ -414,7 +448,7 @@ function _socialCandidates(pet, perc, nav, pickFn, cands, m) {
                 cands.push({
                     name: "squabble",
                     otherName: o.name,
-                    score: (0.52 - o.affinity) * (0.95 + (1 - p.patience) * 0.65) + p.boldness * 0.16,
+                    score: (0.52 - o.affinity) * (0.95 + (1 - effPat) * 0.65) + p.boldness * 0.16,
                     exec: function() {
                         Social.claimPeerBout(pet, "squabble", 65000);
                         Plans.startPlan(pet, Plans.buildSquabblePlan(pet, o), nav, pickFn);
@@ -424,7 +458,7 @@ function _socialCandidates(pet, perc, nav, pickFn, cands, m) {
                 cands.push({
                     name: "move_away",
                     otherName: o.name,
-                    score: (0.50 - o.affinity) * (1 - p.patience * 0.45) * 1.32,
+                    score: (0.50 - o.affinity) * (1 - effPat * 0.45) * 1.32,
                     exec: function() {
                         Social.annoy(pet, o.pet);
                         Plans.clearPlan(pet);

@@ -64,6 +64,9 @@ Item {
     property real _perchSteadyTime: 0
     property string _yawnWarmPeerName: ""
     property bool _wakeWarmGreet: false
+    property double _restEnteredMs: 0
+    property real _restEnteredGX: 0
+    property real _restEnteredGY: 0
 
     property real ageSeconds: 0
     property real maturity: 0
@@ -89,6 +92,12 @@ Item {
     property double lastDiscoveryTime: 0
     property double _lastDirectEmoteMs: 0
     property double _lastAmbientEmoteMs: 0
+    property double _lastPassGreetMs: 0
+    property double _lastDistractionCheckMs: 0
+    property double _lastDistractedMs: 0
+    property double _lastYawnBroadcastMs: 0
+    property double _lastAlarmBroadcastMs: 0
+    property double _lastTrampledMs: 0
 
     property var activePlan: null
     property var intention: null
@@ -224,6 +233,18 @@ Item {
     function enterState(s: string): void {
         if (state_ === s && SpriteSheet.isLoopingState(s)) return;
         const wasMoving = state_ === "walk" || state_ === "wander" || state_ === "zoomies";
+        const wasResting = state_ === "loaf" || state_ === "laying" || state_ === "sit" || state_ === "deepsleep";
+        const nextResting = s === "loaf" || s === "laying" || s === "sit" || s === "deepsleep";
+        if (wasResting && !nextResting) {
+            if (_restEnteredMs > 0 && (Date.now() - _restEnteredMs) >= 25000) {
+                PetManager.recordVacatedWarmSpot(root, _restEnteredGX, _restEnteredGY);
+            }
+            _restEnteredMs = 0;
+        } else if (nextResting && !wasResting) {
+            _restEnteredMs = Date.now();
+            _restEnteredGX = screenX() + worldX;
+            _restEnteredGY = screenY() + worldY;
+        }
         _stopAllTimers();
         if (s === "drag") {
             onJourney = false;
@@ -274,13 +295,14 @@ Item {
             wanderEndTimer.restart();
             break;
         case "loaf":
+        case "laying":
         case "sit":
         case "deepsleep":
             if (!Plans.hasActivePlan(root)) {
                 sitTimer.interval = 65000 + Math.random() * 85000;
                 sitTimer.restart();
             }
-            if (s === "loaf" && !_retiringToPen && restDrive > 0.34) {
+            if ((s === "loaf" || s === "laying") && !_retiringToPen && restDrive > 0.34) {
                 Social.broadcastYawn(root);
             }
             break;
@@ -376,7 +398,7 @@ Item {
     Timer {
         id: wakeDelayTimer
         onTriggered: {
-            if (root.state_ === "loaf" || root.state_ === "sit" || root.state_ === "deepsleep") {
+            if (root.state_ === "loaf" || root.state_ === "laying" || root.state_ === "sit" || root.state_ === "deepsleep") {
                 Plans.clearPlan(root);
                 Memory.thinkAloud(root, "staggered_wake", "Stretched awake as the desktop came back to life", { minGapMs: 60000 });
                 if (root._wakeWarmGreet) root.emitEmote("heart", false);
@@ -610,16 +632,41 @@ Item {
     function onWindowClosed(cls: string, gx: real, gy: real, w: real, h: real, addr: string): void {
         Brain.onEvent(root, "window_closed", { windowClass: cls, gx: gx, gy: gy, w: w, h: h, address: addr }, Nav);
     }
+    function onWindowShifted(cls: string, x: real, y: real, w: real, h: real, addr: string): void {
+        Brain.onEvent(root, "window_shifted", { windowClass: cls, x: x, y: y, w: w, h: h, address: addr }, Nav);
+    }
     function onWindowUrgent(cls: string, gx: real, gy: real): void { Brain.onEvent(root, "window_urgent", { windowClass: cls, gx: gx, gy: gy }, Nav); }
     function onWorkspaceChanged(): void { Brain.onEvent(root, "workspace_changed", null, Nav); }
+    function onWorkspaceCleared(): void { Brain.onEvent(root, "workspace_cleared", null, Nav); }
+    function onMonitorConnected(screenName: string): void { Brain.onEvent(root, "monitor_connected", { screenName: screenName }, Nav); }
+    function onDisplacedMonitor(): void { Brain.onEvent(root, "displaced_monitor", null, Nav); }
     function onIdleBegan(): void { Brain.onEvent(root, "user_idle", null, Nav); }
     function onIdleEnded(idleDurationSec = 0): void { Brain.onEvent(root, "user_active", { idleDurationSec: idleDurationSec }, Nav); }
+    function onCursorParked(gx: real, gy: real): void { Brain.onEvent(root, "cursor_parked", { gx: gx, gy: gy }, Nav); }
+    function onCursorUnparked(gx: real, gy: real, speed: real): void { Brain.onEvent(root, "cursor_unparked", { gx: gx, gy: gy, speed: speed }, Nav); }
     function onMusicStarted(): void { Brain.onEvent(root, "music_started", null, Nav); }
+    function onMusicPaused(): void { Brain.onEvent(root, "music_paused", null, Nav); }
     function onMicStateChanged(active: bool): void { Brain.onEvent(root, "mic_changed", { active: active }, Nav); }
+    function onAudioSpiked(volume: real): void { Brain.onEvent(root, "audio_spiked", { volume: volume }, Nav); }
+    function onAudioMuteChanged(muted: bool): void { Brain.onEvent(root, "audio_muted", { muted: muted }, Nav); }
     function onBuildCompleted(durationSec: real): void { Brain.onEvent(root, "build_completed", { durationSec: durationSec }, Nav); }
+    function onPowerPluggedChanged(pluggedIn: bool, batteryLevel: real): void {
+        Brain.onEvent(root, "power_plugged", { pluggedIn: pluggedIn, batteryLevel: batteryLevel }, Nav);
+    }
+    function onLowBatteryWarn(batteryLevel: real): void { Brain.onEvent(root, "low_battery", { batteryLevel: batteryLevel }, Nav); }
+    function onWeatherChanged(oldKind: string, newKind: string): void {
+        Brain.onEvent(root, "weather_changed", { oldKind: oldKind, newKind: newKind }, Nav);
+    }
+    function onSolarTransitioned(oldPhase: string, newPhase: string): void {
+        Brain.onEvent(root, "solar_changed", { oldPhase: oldPhase, newPhase: newPhase }, Nav);
+    }
+    function onSystemResumed(sleptSec: real): void { Brain.onEvent(root, "system_resumed", { sleptSec: sleptSec }, Nav); }
+    function onToastArrived(appName: string, urgency: string, silent: bool): void {
+        Brain.onEvent(root, "toast_arrived", { appName: appName, urgency: urgency, silent: silent }, Nav);
+    }
 
     function toggleRest(): void {
-        if (state_ === "loaf" || state_ === "sit" || state_ === "deepsleep") {
+        if (state_ === "loaf" || state_ === "laying" || state_ === "sit" || state_ === "deepsleep") {
             Plans.clearPlan(root);
             Memory.thinkAloud(root, "woke_manual", "Stretched awake", { minGapMs: 2000 });
             enterState(SpeciesProfile.wakeStateFor(root));
@@ -672,6 +719,11 @@ Item {
     function greetSanctuaryArrival(arrivingPet: var): void {
         if (!arrivingPet || _retiringToPen || state_ === "drag" || state_ === "airborne") return;
         Plans.startPlan(root, PlanBuildersSocial.buildWelcomeFriendPlan(root, arrivingPet), Nav, Gestures.pickAvailable);
+    }
+
+    function checkOnDisplacedFriend(refugeePet: var): void {
+        if (!refugeePet || _retiringToPen || state_ === "drag" || state_ === "airborne") return;
+        Plans.startPlan(root, PlanBuildersSocial.buildCheckDisplacedFriendPlan(root, refugeePet), Nav, Gestures.pickAvailable);
     }
 
     function playEvolutionCeremony(): void {
