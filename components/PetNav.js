@@ -108,26 +108,56 @@ function randomDir(pet) {
     _setAngle(pet, Math.random() * 2 * Math.PI);
 }
 
-// Parabolic ledge-to-ledge jump landing cleanly at (targetGX, targetGY).
+// Short parametric hop onto or off a nearby ledge with zero landing snap.
 function launchJumpTo(pet, targetGX, targetGY, arcBoost) {
     var loco = SpeciesProfile.locomotionFor(pet);
-    var g = GRAVITY * (loco.gravityMult || 1.0);
-    var curGX = globalX(pet), curGY = globalY(pet);
-    var dx = targetGX - curGX, dy = targetGY - curGY;
+    var pw = pet.width || 64, ph = pet.height || 64;
+    var sx = pet.screenX(), sy = pet.screenY();
+    var startX = pet.worldX;
+    var startY = pet.worldY;
+    var endX = Math.max(0, Math.min(pet.screenW() - pw, targetGX - sx));
+    var endY = Math.max(0, Math.min(pet.screenH() - ph, targetGY - sy));
+    var dx = endX - startX, dy = endY - startY;
     var dist = Math.hypot(dx, dy);
-    var flightT = Math.max(0.32, Math.min(0.74, dist / 285));
-    var z0 = 6;
-    pet.vx = dx / flightT;
-    pet.vy = dy / flightT;
-    pet.altitude = z0;
-    pet.vz = 0.5 * g * flightT - (z0 / flightT) + (arcBoost || 0);
+    if (dist > 185) {
+        var scale = 185 / dist;
+        endX = startX + dx * scale;
+        endY = startY + dy * scale;
+        dx = endX - startX;
+        dy = endY - startY;
+        dist = 185;
+    }
+    var gravScale = Math.sqrt(1 / Math.max(0.68, loco.gravityMult || 1.0));
+    var duration = Math.max(0.22, Math.min(0.40, (0.20 + dist / 520) * gravScale));
+    var arcHeight = Math.max(10, Math.min(28, 10 + dist * 0.14 + (arcBoost || 0) * 0.18));
+    pet.vx = dx / duration;
+    pet.vy = dy / duration;
+    pet.vz = (4 * arcHeight) / duration;
+    pet.altitude = 0;
     pet._tossPeakSpeed = 0;
     pet._bounceCount = 2;
-    pet._jumpLanding = { gx: targetGX, gy: targetGY, softDrop: false, landAddr: "" };
+    pet._jumpLanding = {
+        parametric: true,
+        startX: startX,
+        startY: startY,
+        endX: endX,
+        endY: endY,
+        elapsed: 0,
+        duration: duration,
+        arcHeight: arcHeight,
+        gx: sx + endX,
+        gy: sy + endY,
+        softDrop: false,
+        landAddr: ""
+    };
     pet.onJourney = false;
-    if (Math.abs(dx) > 4) pet.facingRight = dx >= 0;
-    if (pet.sprite && pet.sprite.triggerSquash) pet.sprite.triggerSquash(0.86, 1.16);
+    if (Math.abs(dx) > 3) pet.facingRight = dx >= 0;
+    if (pet.sprite && pet.sprite.triggerSquash) pet.sprite.triggerSquash(0.90, 1.12);
     pet.enterState("airborne");
+    if (pet.sprite) {
+        pet.sprite.setState("leap");
+        if (dist > 4 && pet.sprite.setDirection) pet.sprite.setDirection(Math.atan2(dy, dx));
+    }
 }
 
 // Soft gravity drop when a perched window closes or shifts out from underneath.
@@ -148,6 +178,7 @@ function launchSoftDrop(pet, landGX, landGY, lowerPerchAddr) {
     pet._jumpLanding = { gx: landGX, gy: clampedLY, softDrop: true, landAddr: lowerPerchAddr || "" };
     pet.onJourney = false;
     pet.enterState("airborne");
+    if (pet.sprite) pet.sprite.setState("leap");
 }
 
 // Launch pet after drag-release; gentle drops settle immediately, throws enter ballistic flight.
@@ -181,6 +212,31 @@ function launchFromRelease(pet, vx, vy, initialAltitude) {
 
 function updateAirborne(pet, dt) {
     var loco = SpeciesProfile.locomotionFor(pet);
+    if (pet._jumpLanding && pet._jumpLanding.parametric) {
+        var hop = pet._jumpLanding;
+        hop.elapsed += dt;
+        var u = Math.min(1, hop.elapsed / Math.max(0.05, hop.duration));
+        pet.worldX = hop.startX + (hop.endX - hop.startX) * u;
+        pet.worldY = hop.startY + (hop.endY - hop.startY) * u;
+        pet.altitude = 4 * hop.arcHeight * u * (1 - u);
+        if (u >= 1) {
+            pet._jumpLanding = null;
+            pet.altitude = 0;
+            pet.vx = 0;
+            pet.vy = 0;
+            pet.vz = 0;
+            if (pet.sprite && pet.sprite.triggerSquash) {
+                pet.sprite.triggerSquash(
+                    Math.min(1.16, (loco.landSquashX || 1.14) * 0.96),
+                    Math.max(0.84, (loco.landSquashY || 0.86) * 1.02)
+                );
+            }
+            Brain.onArrived(pet, _navHandle());
+            return true;
+        }
+        return false;
+    }
+
     var g = GRAVITY * (loco.gravityMult || 1.0);
     var targeted = !!pet._jumpLanding;
     pet.worldX += pet.vx * dt;

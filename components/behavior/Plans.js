@@ -178,18 +178,19 @@ function advanceStep(pet, nav, pickFn) {
         }
         if ((pet.state_ === "perch" || pet.perchedWindowAddr) && nav.launchJumpTo) {
             var pCurGX = Util.petGX(pet), pCurGY = Util.petGY(pet);
-            if (Math.abs(target.gy - pCurGY) > 48) {
+            if (Math.abs(target.gy - pCurGY) > 40) {
                 pet.perchedWindowAddr = "";
-                if (Math.hypot(target.gx - pCurGX, target.gy - pCurGY) <= 230) {
-                    nav.launchJumpTo(pet, target.gx, target.gy, 26);
+                if (Math.hypot(target.gx - pCurGX, target.gy - pCurGY) <= 115) {
+                    nav.launchJumpTo(pet, target.gx, target.gy, 16);
                     return;
                 }
                 var signX = (target.gx - pCurGX) >= 0 ? 1 : -1;
-                var hopX = pCurGX + signX * Math.min(96, Math.max(28, Math.abs(target.gx - pCurGX) * 0.35));
-                var hopY = Math.min(target.gy, pCurGY + 185);
-                var hopPt = Util.clampToScreen(pet, hopX, hopY);
+                var signY = (target.gy - pCurGY) >= 0 ? 1 : -1;
+                var hopX = pCurGX + signX * Math.min(42, Math.max(16, Math.abs(target.gx - pCurGX) * 0.22));
+                var hopY = pCurGY + signY * Math.min(78, Math.abs(target.gy - pCurGY));
+                var hopPt = Util.clampToScreen(pet, hopX, hopY, 12, 12);
                 plan.stepIndex--;
-                nav.launchJumpTo(pet, hopPt.gx, hopPt.gy, 28);
+                nav.launchJumpTo(pet, hopPt.gx, hopPt.gy, 16);
                 return;
             }
         }
@@ -202,8 +203,54 @@ function advanceStep(pet, nav, pickFn) {
             advanceStep(pet, nav, pickFn);
             return;
         }
+        var jGoalGX = step.gx, jGoalGY = step.gy;
+        var wAddr = step.windowAddr || "";
+        if (wAddr && pet.windowTracker && pet.windowTracker.visibleWindows) {
+            var wins = pet.windowTracker.visibleWindows;
+            var liveWin = null;
+            for (var wi = 0; wi < wins.length; wi++) {
+                if (wins[wi] && wins[wi].address === wAddr && !wins[wi].fullscreen) {
+                    liveWin = wins[wi];
+                    break;
+                }
+            }
+            if (!liveWin) {
+                clearPlan(pet);
+                pet.enterState("idle");
+                return;
+            }
+            var jpw = pet.width || 64, jph = pet.height || 64;
+            var wSpan = Math.max(1, liveWin.w - jpw);
+            var minLX = liveWin.x + Math.min(12, wSpan * 0.5);
+            var maxLX = Math.max(minLX, liveWin.x + wSpan - 12);
+            jGoalGX = Util.clamp(jGoalGX, minLX, maxLX);
+            jGoalGY = liveWin.y - jph * 0.85;
+        }
+        var jCurGX = Util.petGX(pet), jCurGY = Util.petGY(pet);
+        var jScr = Topology.currentScreen(pet);
+        jGoalGY = Math.max(jScr.y, jGoalGY);
+        var onSameScr = jGoalGX >= jScr.x && jGoalGX < jScr.x + jScr.width
+                     && jGoalGY >= jScr.y && jGoalGY < jScr.y + jScr.height;
+        if (!onSameScr) {
+            pet.perchedWindowAddr = "";
+            pet.gait = "trot";
+            nav.journeyToGlobal(pet, jGoalGX, jGoalGY);
+            return;
+        }
+        if (Math.hypot(jGoalGX - jCurGX, jGoalGY - jCurGY) > 180) {
+            var stageX = Util.clamp(jCurGX, jGoalGX - 28, jGoalGX + 28);
+            var stageY = jCurGY >= jGoalGY ? Math.min(jCurGY, jGoalGY + 92) : Math.max(jCurGY, jGoalGY - 58);
+            var stagePt = Util.clampToScreen(pet, stageX, stageY, 12, 12);
+            if (Math.hypot(stagePt.gx - jCurGX, stagePt.gy - jCurGY) > 20) {
+                pet.perchedWindowAddr = "";
+                plan.stepIndex--;
+                pet.gait = "trot";
+                nav.journeyToGlobal(pet, stagePt.gx, stagePt.gy);
+                return;
+            }
+        }
         pet.perchedWindowAddr = "";
-        nav.launchJumpTo(pet, step.gx, step.gy, step.arcBoost || 0);
+        nav.launchJumpTo(pet, jGoalGX, jGoalGY, step.arcBoost || 0);
         return;
     }
 

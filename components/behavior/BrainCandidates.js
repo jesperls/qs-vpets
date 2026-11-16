@@ -247,12 +247,18 @@ function scoreCandidates(pet, perc, nav, pickFn) {
         });
     }
 
-    if (pet.enablePerching !== false && perc.perches && perc.perches.length > 0
+    var localPerches = [];
+    if (perc.perches) {
+        for (var lp = 0; lp < perc.perches.length; lp++) {
+            if (perc.perches[lp].sameScreen) localPerches.push(perc.perches[lp]);
+        }
+    }
+    if (pet.enablePerching !== false && localPerches.length > 0
             && !perc.fullscreen && pet.alertness > 0.36 && !justWoke
             && !Memory.recent(pet, "perched_window", 135000)) {
-        var bestPerch = perc.perches[0];
-        for (var pi = 1; pi < perc.perches.length; pi++) {
-            if (perc.perches[pi].focused) { bestPerch = perc.perches[pi]; break; }
+        var bestPerch = localPerches[0];
+        for (var pi = 1; pi < localPerches.length; pi++) {
+            if (localPerches[pi].focused) { bestPerch = localPerches[pi]; break; }
         }
         var perchBonus = (Personality.hasQuirk(pet, "window_percher") ? 0.26 : 0) + Abilities.perchBonus(pet);
         if ((perc.thermalWarmth || 0) > 0.48 && Abilities.has(pet, "frost_calm")) {

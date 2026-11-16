@@ -13,6 +13,7 @@ const Perception = loadQmlJs("components/behavior/Perception.js");
 const Social = loadQmlJs("components/behavior/Social.js");
 const Abilities = loadQmlJs("components/behavior/Abilities.js");
 const Plans = loadQmlJs("components/behavior/Plans.js");
+const BrainCandidates = loadQmlJs("components/behavior/BrainCandidates.js");
 const Brain = loadQmlJs("components/behavior/Brain.js");
 const Sanctuary = loadQmlJs("components/behavior/Sanctuary.js");
 const Evolution = loadQmlJs("components/behavior/Evolution.js");
@@ -2066,6 +2067,57 @@ function stepNavigationSim(world, pet, maxSeconds = 120) {
         } finally {
             Math.random = origRandom;
         }
+
+        // Ledge hop guardrails: never cross-monitor jump, never skip horizontal travel when above ledge, and zero landing snap
+        const worldJ = createSimWorld();
+        worldJ.screens = [
+            { x: 0, y: 0, width: 1920, height: 1080, name: "DP-1" },
+            { x: 1920, y: 0, width: 1920, height: 1080, name: "DP-2" }
+        ];
+        worldJ.windowTracker.visibleWindows = [
+            { address: "0xremote", cls: "kitty", x: 2400, y: 260, w: 900, h: 600, focused: true, fullscreen: false }
+        ];
+        const percher = createSimPet(worldJ, "Hop", "curious", 0, "eevee");
+        percher.worldX = 300; percher.worldY = 700;
+        const remoteCands = BrainCandidates.scoreCandidates(percher, Perception.perceive(percher), Nav, Brain._pick);
+        assert.equal(remoteCands.some(c => c.name === "window_perch"), false, "Never attempts to jump-perch onto a window on another monitor");
+
+        worldJ.windowTracker.visibleWindows = [
+            { address: "0xlocal", cls: "firefox", x: 1350, y: 580, w: 480, h: 420, focused: true, fullscreen: false }
+        ];
+        percher.worldX = 120; percher.worldY = 44; // High & far left above lower window
+        const localPerc = Perception.perceive(percher);
+        const perchPlan = Plans.buildWindowPerchPlan(localPerc.perches[0], percher);
+        assert.equal(perchPlan.steps[0].kind, "travel", "Companion above a distant window trots over first instead of leaping across screen");
+
+        // Frame-by-frame 16ms hop & perch continuity check (zero pop on liftoff, zero snap on landing/perch)
+        percher.worldX = 1480;
+        percher.worldY = 580 - percher.height * 0.85 + 70;
+        Plans.startPlan(percher, Plans.buildWindowPerchPlan(Perception.perceive(percher).perches[0], percher), Nav, Brain._pick);
+        if (percher.state_ === "walk") {
+            percher.worldX = percher.targetGX;
+            percher.worldY = percher.targetGY;
+            Nav.walkArrived(percher);
+        }
+        Brain.onActionFinished(percher, Nav); // sizing-up nod -> jump_to!
+        assert.equal(percher.state_, "airborne");
+        assert.equal(percher.sprite.currentState, "leap", "Intentional ledge hop plays upright leap clip rather than Tumble/Hurt");
+        let prevVisX = percher.worldX;
+        let prevVisY = percher.worldY - percher.altitude;
+        let safetyFrames = 0;
+        while (percher.state_ === "airborne" && safetyFrames++ < 60) {
+            Nav.updateAirborne(percher, 0.016);
+            const visX = percher.worldX;
+            const visY = percher.worldY - percher.altitude;
+            const frameStep = Math.hypot(visX - prevVisX, visY - prevVisY);
+            assert.ok(frameStep < 14, `Smooth 60fps hop frame delta (${frameStep.toFixed(2)}px) with zero teleport snap`);
+            prevVisX = visX;
+            prevVisY = visY;
+        }
+        assert.equal(percher.state_, "perch", "Hop lands directly in perch state");
+        Nav.updatePerch(percher, 0.016);
+        const perchSnap = Math.hypot(percher.worldX - prevVisX, (percher.worldY - percher.altitude) - prevVisY);
+        assert.ok(perchSnap < 1.0, `Zero snap when updatePerch engages (${perchSnap.toFixed(3)}px)`);
     }
 }
 

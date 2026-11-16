@@ -65,34 +65,37 @@ function buildInspectWindowPlan(perc, pet) {
 }
 
 function _mountLedgeSteps(pet, perch, landGX, cls) {
-    if (pet && pet.perchedWindowAddr !== perch.address) {
+    if (pet && pet.perchedWindowAddr === perch.address) {
+        return [{ kind: "travel", gait: "amble", label: "Stepping along " + cls, gx: landGX, gy: perch.gy }];
+    }
+    if (pet) {
         var curGX = Util.petGX(pet), curGY = Util.petGY(pet);
-        if (curGY > perch.gy + 48) {
-            var steps = [];
-            var launchY = Math.min(curGY, perch.gy + 190);
-            var launchX = Util.clamp(curGX, landGX - 115, landGX + 115);
-            var launchPt = Util.clampToScreen(pet, launchX, launchY);
-            if (Math.hypot(launchPt.gx - curGX, launchPt.gy - curGY) > 36) {
-                steps.push({ kind: "travel", gait: "trot", label: "Trotting beneath " + cls, gx: launchPt.gx, gy: launchPt.gy });
-            }
-            steps.push({ kind: "act", label: "Sizing up " + cls + " ledge", states: ["lookUp", "nod"], facePoint: { gx: landGX, gy: perch.gy } });
-            steps.push({ kind: "jump_to", gx: landGX, gy: perch.gy, arcBoost: 44, label: "Leaping onto " + cls });
-            return steps;
+        var steps = [];
+        var below = curGY >= perch.gy;
+        var launchX = Util.clamp(curGX, landGX - 28, landGX + 28);
+        var launchY = below ? Math.min(curGY, perch.gy + 92) : Math.max(curGY, perch.gy - 58);
+        var launchPt = Util.clampToScreen(pet, launchX, launchY, 12, 12);
+        var walkDist = Math.hypot(launchPt.gx - curGX, launchPt.gy - curGY);
+        var hopDist = Math.hypot(landGX - launchPt.gx, perch.gy - launchPt.gy);
+        if (hopDist <= 30) {
+            return [{ kind: "travel", gait: "trot", label: "Stepping onto " + cls, gx: landGX, gy: perch.gy }];
         }
-        if (curGY < perch.gy - 48) {
-            return [
-                { kind: "act", label: "Peering down at " + cls, states: ["nod"], facePoint: { gx: landGX, gy: perch.gy } },
-                { kind: "jump_to", gx: landGX, gy: perch.gy, arcBoost: 24, label: "Hopping down onto " + cls }
-            ];
+        if (walkDist > 24) {
+            steps.push({ kind: "travel", gait: "trot", label: "Trotting up to " + cls, gx: launchPt.gx, gy: launchPt.gy });
         }
+        steps.push({ kind: "act", label: "Sizing up " + cls + " ledge", states: ["nod", "pose"], facePoint: { gx: landGX, gy: perch.gy } });
+        steps.push({ kind: "jump_to", gx: landGX, gy: perch.gy, windowAddr: perch.address, arcBoost: below ? 18 : 12, label: "Hopping onto " + cls });
+        return steps;
     }
     return [{ kind: "travel", gait: "trot", label: "Heading to " + cls + " ledge", gx: landGX, gy: perch.gy }];
 }
 
 function buildWindowPerchPlan(perch, pet) {
     var cls = perch.cls || "window";
-    var margin = Math.min(80, perch.w * 0.25);
-    var px = perch.x + margin + Math.random() * Math.max(10, perch.w - margin * 2);
+    var left = perch.leftGX !== undefined ? perch.leftGX : (perch.x + 16);
+    var span = perch.spanW !== undefined ? perch.spanW : Math.max(0, perch.w - ((pet && pet.width) || 64) - 32);
+    var inset = Math.min(48, span * 0.18);
+    var px = left + inset + Math.random() * Math.max(0, span - inset * 2);
     var steps = _mountLedgeSteps(pet, perch, px, cls);
     steps.push({ kind: "perch", windowAddr: perch.address, label: "Perched on " + cls, durationMs: 45000 + Math.random() * 50000 });
     return {
@@ -155,7 +158,7 @@ function buildLedgeParkourPlan(fromPerch, jumpInfo, pet) {
     var steps = _mountLedgeSteps(pet, fromPerch, jumpInfo.fromGX, fromCls).concat([
         { kind: "perch", windowAddr: fromPerch.address, durationMs: 2400, label: "Sizing up the gap" },
         { kind: "act", label: "Coiling to leap", states: ["nod"], facePoint: { gx: jumpInfo.toGX, gy: jumpInfo.toGY } },
-        { kind: "jump_to", gx: jumpInfo.toGX, gy: jumpInfo.toGY, arcBoost: 38, label: "Leaping across ledges!" },
+        { kind: "jump_to", gx: jumpInfo.toGX, gy: jumpInfo.toGY, windowAddr: toPerch.address, arcBoost: 20, label: "Hopping across ledges" },
         { kind: "perch", windowAddr: toPerch.address, durationMs: 36000 + Math.random() * 28000, label: "Perched on " + toCls }
     ]);
     return {

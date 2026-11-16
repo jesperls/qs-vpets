@@ -449,6 +449,13 @@ function stepPetPhysics(world, pet, dtSec) {
     const subDt = dtSec / subSteps;
     for (let s = 0; s < subSteps; s++) {
         if (pet.state_ === "airborne") {
+            if (pet._jumpLanding && pet._jumpLanding.parametric) {
+                const hop = pet._jumpLanding;
+                const hopDist = Math.hypot(hop.endX - hop.startX, hop.endY - hop.startY);
+                assert.ok(hopDist <= 186, `${pet.petData.name} hop distance bounded (${hopDist.toFixed(1)}px)`);
+                assert.ok(hop.duration <= 0.44, `${pet.petData.name} hop duration crisp (${hop.duration.toFixed(2)}s)`);
+                assert.equal(pet.sprite.currentState, "leap", `${pet.petData.name} hop uses upright leap animation`);
+            }
             Nav.updateAirborne(pet, subDt);
             continue;
         }

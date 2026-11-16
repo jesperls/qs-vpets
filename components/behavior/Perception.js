@@ -136,11 +136,11 @@ function perceive(pet) {
             var pB = perches[pb];
             if (!pB.sameScreen) continue;
             if (pA.address && pA.address === pB.address) continue;
-            if (Math.abs(pB.gy - pA.gy) > 220) continue;
+            if (Math.abs(pB.gy - pA.gy) > 90) continue;
             var fromGX = pB.gx >= pA.gx ? pA.rightGX : pA.leftGX;
             var toGX = pB.gx >= pA.gx ? pB.leftGX : pB.rightGX;
             var jDist = Math.hypot(toGX - fromGX, pB.gy - pA.gy);
-            if (jDist >= 56 && jDist <= 320) {
+            if (jDist >= 42 && jDist <= 175) {
                 pA.adjacentLedges.push({
                     perch: pB,
                     fromGX: fromGX,
