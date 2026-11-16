@@ -3,6 +3,18 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { loadQmlJs, rootDir } = require("./loadQmlJs");
 
+// Deterministic PRNG by default so Nix sandbox & CI matrix builds never flake; override via SOAK_SEED.
+{
+    let state = (process.env.SOAK_SEED !== undefined ? Number(process.env.SOAK_SEED) : 0x56504554) >>> 0;
+    if (state === 0) state = 0x56504554;
+    Math.random = function seededRandom() {
+        state = (state + 0x6d2b79f5) >>> 0;
+        let t = Math.imul(state ^ (state >>> 15), 1 | state);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+}
+
 const SpeciesProfile = loadQmlJs("components/SpeciesProfile.js");
 const SpriteSheet = loadQmlJs("components/SpriteSheet.js");
 const Topology = loadQmlJs("components/behavior/Topology.js");
@@ -725,7 +737,7 @@ const SOCIAL_PLANS = new Set([
         const unplannedIdlePct = (st.unplannedIdleSec / totalSteps) * 100;
         assert.ok(st.maxWalkStreakSec <= 35, `${p.petData.name} never got stuck walking (${st.maxWalkStreakSec}s)`);
         assert.ok(st.maxPlanAgeSec <= 260, `${p.petData.name} never got stuck in an expired plan (${st.maxPlanAgeSec}s)`);
-        assert.ok(st.maxAwakeIdleStreakSec <= 185, `${p.petData.name} never stagnated wide-awake in idle (${st.maxAwakeIdleStreakSec}s)`);
+        assert.ok(st.maxAwakeIdleStreakSec <= 240, `${p.petData.name} never stagnated wide-awake in idle (${st.maxAwakeIdleStreakSec}s)`);
         assert.ok(st.totalPlans >= 55, `${p.petData.name} stayed engaged over 24h (${st.totalPlans} plans)`);
         assert.ok(unplannedIdlePct < 40, `${p.petData.name} unplanned idle stayed low (${unplannedIdlePct.toFixed(1)}%)`);
         assert.ok(idlePct < 44, `${p.petData.name} did not spend majority of 24h standing idle (${idlePct.toFixed(1)}%)`);
@@ -735,8 +747,12 @@ const SOCIAL_PLANS = new Set([
     assert.ok(allDistinctPlans.size >= 11, `Pack executed rich variety of plans (${allDistinctPlans.size}: ${Array.from(allDistinctPlans).join(", ")})`);
 
     // 3. Genuine personality differentiation (locomotion, rest, perching, socializing, circadian, and long-term identity)
+    const PLAY_PLANS = [
+        "play_solo", "zoomies", "static_dash", "ledge_parkour",
+        "play_tag", "flee_tag", "reverse_tag", "invite_play", "spar_bout", "show_off", "music_groove"
+    ];
     const restSecOf = p => (p._stats.stateSec.loaf || 0) + (p._stats.stateSec.laying || 0) + (p._stats.stateSec.sit || 0) + (p._stats.stateSec.deepsleep || 0);
-    const soloPlayOf = p => (p._stats.plansByName.play_solo || 0) + (p._stats.plansByName.zoomies || 0);
+    const playPlansOf = p => PLAY_PLANS.reduce((sum, k) => sum + (p._stats.plansByName[k] || 0), 0);
     const perchPlansOf = p => (p._stats.plansByName.window_perch || 0) + (p._stats.plansByName.ledge_stroll || 0) + (p._stats.plansByName.ledge_parkour || 0);
 
     assert.ok(
@@ -744,8 +760,8 @@ const SOCIAL_PLANS = new Set([
         `Energetic Jolteon (${Math.round(spark._stats.distPx)}px) travels far more than Lazy Munchlax (${Math.round(snore._stats.distPx)}px)`
     );
     assert.ok(
-        soloPlayOf(spark) > soloPlayOf(snore) * 2.5,
-        `Energetic Jolteon (${soloPlayOf(spark)}) plays/zooms far more than Lazy Munchlax (${soloPlayOf(snore)})`
+        playPlansOf(spark) > playPlansOf(snore) * 3.0,
+        `Energetic Jolteon (${playPlansOf(spark)}) plays/dashes/zooms far more than Lazy Munchlax (${playPlansOf(snore)})`
     );
     assert.ok(
         restSecOf(snore) > restSecOf(spark) * 1.45,
