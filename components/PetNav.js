@@ -1,5 +1,6 @@
 .pragma library
 
+.import "SpeciesProfile.js" as SpeciesProfile
 .import "behavior/Topology.js" as Topology
 .import "behavior/Brain.js" as Brain
 .import "behavior/Memory.js" as Memory
@@ -75,13 +76,22 @@ function resumeJourney(pet) {
 }
 
 function wanderStart(pet, angle) {
+    if (pet.state_ === "perch" || pet.perchedWindowAddr) {
+        dropFromPerchIfNeeded(pet);
+        return;
+    }
     pet.onJourney = false;
     pet.gait = "amble";
+    if ("_wanderTurnVel" in pet) pet._wanderTurnVel = (Math.random() - 0.5) * 0.9;
     _setAngle(pet, angle !== undefined ? angle : Math.random() * 2 * Math.PI);
     pet.enterState("wander");
 }
 
 function fleeFrom(pet, gx, gy, dist) {
+    if (pet.state_ === "perch" || pet.perchedWindowAddr) {
+        dropFromPerchIfNeeded(pet);
+        return;
+    }
     var away = Math.atan2(globalY(pet) - gy, globalX(pet) - gx) + (Math.random() - 0.5) * 0.55;
     var sx = pet.screenX(), sy = pet.screenY();
     var tx = Math.max(sx, Math.min(sx + pet.screenW() - pet.width, globalX(pet) + Math.cos(away) * dist));
@@ -100,15 +110,17 @@ function randomDir(pet) {
 
 // Parabolic ledge-to-ledge jump landing cleanly at (targetGX, targetGY).
 function launchJumpTo(pet, targetGX, targetGY, arcBoost) {
+    var loco = SpeciesProfile.locomotionFor(pet);
+    var g = GRAVITY * (loco.gravityMult || 1.0);
     var curGX = globalX(pet), curGY = globalY(pet);
     var dx = targetGX - curGX, dy = targetGY - curGY;
     var dist = Math.hypot(dx, dy);
-    var flightT = Math.max(0.32, Math.min(0.72, dist / 285));
+    var flightT = Math.max(0.32, Math.min(0.74, dist / 285));
     var z0 = 6;
     pet.vx = dx / flightT;
     pet.vy = dy / flightT;
     pet.altitude = z0;
-    pet.vz = 0.5 * GRAVITY * flightT - (z0 / flightT) + (arcBoost || 0);
+    pet.vz = 0.5 * g * flightT - (z0 / flightT) + (arcBoost || 0);
     pet._tossPeakSpeed = 0;
     pet._bounceCount = 2;
     pet._jumpLanding = { gx: targetGX, gy: targetGY, softDrop: false, landAddr: "" };
@@ -168,25 +180,31 @@ function launchFromRelease(pet, vx, vy, initialAltitude) {
 }
 
 function updateAirborne(pet, dt) {
+    var loco = SpeciesProfile.locomotionFor(pet);
+    var g = GRAVITY * (loco.gravityMult || 1.0);
     var targeted = !!pet._jumpLanding;
     pet.worldX += pet.vx * dt;
     pet.worldY += pet.vy * dt;
     if (!targeted) {
-        pet.vx *= Math.pow(0.88, dt * 4);
-        pet.vy *= Math.pow(0.88, dt * 4);
+        var airDrag = loco.kind === "hover" ? 0.82 : 0.88;
+        pet.vx *= Math.pow(airDrag, dt * 4);
+        pet.vy *= Math.pow(airDrag, dt * 4);
     }
 
     pet.altitude += pet.vz * dt;
-    pet.vz -= GRAVITY * dt;
+    pet.vz -= g * dt;
 
     if (pet.altitude <= 0) {
         pet.altitude = 0;
-        if (!targeted && Math.abs(pet.vz) > 210 && (pet._bounceCount || 0) < 2) {
-            pet.vz = -pet.vz * 0.42;
+        var minBounceVz = loco.kind === "hover" ? 290 : 210;
+        if (!targeted && Math.abs(pet.vz) > minBounceVz && (pet._bounceCount || 0) < 2) {
+            pet.vz = -pet.vz * (loco.bounceMult || 0.42);
             pet.vx *= 0.65;
             pet.vy *= 0.65;
             pet._bounceCount = (pet._bounceCount || 0) + 1;
-            if (pet.sprite && pet.sprite.triggerSquash) pet.sprite.triggerSquash(1.22, 0.78);
+            if (pet.sprite && pet.sprite.triggerSquash) {
+                pet.sprite.triggerSquash(loco.landSquashX || 1.22, loco.landSquashY || 0.78);
+            }
             return false;
         }
         pet.vz = 0;
@@ -201,7 +219,12 @@ function updateAirborne(pet, dt) {
             var pw = pet.width || 64, ph = pet.height || 64;
             pet.worldX = Math.max(0, Math.min(pet.screenW() - pw, land.gx - pet.screenX()));
             pet.worldY = Math.max(0, Math.min(pet.screenH() - ph, land.gy - pet.screenY()));
-            if (pet.sprite && pet.sprite.triggerSquash) pet.sprite.triggerSquash(1.18, 0.84);
+            if (pet.sprite && pet.sprite.triggerSquash) {
+                pet.sprite.triggerSquash(
+                    Math.min(1.22, (loco.landSquashX || 1.18) * 0.98),
+                    Math.max(0.78, (loco.landSquashY || 0.84) * 1.03)
+                );
+            }
             if (land.softDrop) {
                 Brain.onEvent(pet, "perch_soft_landed", { landAddr: land.landAddr }, _navHandle());
             } else {
@@ -210,7 +233,9 @@ function updateAirborne(pet, dt) {
             return true;
         }
 
-        if (pet.sprite && pet.sprite.triggerSquash) pet.sprite.triggerSquash(1.26, 0.74);
+        if (pet.sprite && pet.sprite.triggerSquash) {
+            pet.sprite.triggerSquash(loco.landSquashX || 1.26, loco.landSquashY || 0.74);
+        }
         Brain.onEvent(pet, "dropped", { speed: impactSpeed }, _navHandle());
         return true;
     }
@@ -279,6 +304,8 @@ function updatePerch(pet, dt) {
     if (pet._perchTrackedAddr !== pet.perchedWindowAddr) {
         pet._perchTrackedAddr = pet.perchedWindowAddr;
         pet._perchRelX = Math.max(0.06, Math.min(0.94, (curGX - match.x) / span));
+        if ("_perchTargetRelX" in pet) pet._perchTargetRelX = pet._perchRelX;
+        if ("_perchStrolling" in pet) pet._perchStrolling = false;
         pet._perchPrevWinX = match.x;
         pet._perchPrevWinY = match.y;
         pet._perchRiding = false;
@@ -291,6 +318,28 @@ function updatePerch(pet, dt) {
     pet._perchPrevWinX = match.x;
     pet._perchPrevWinY = match.y;
     var winSpeed = Math.hypot(winDX, winDY) / stepDt;
+
+    if (winSpeed <= 220 && !pet._perchRiding && "_perchTargetRelX" in pet && span >= 140) {
+        var relDiff = pet._perchTargetRelX - pet._perchRelX;
+        var pxDiff = relDiff * span;
+        if (Math.abs(pxDiff) > 3) {
+            var amblePx = 38 * SpeciesProfile.gaitMultiplier(pet, "amble") * stepDt;
+            pet._perchRelX += Math.sign(relDiff) * Math.min(Math.abs(relDiff), amblePx / span);
+            pet._perchStrolling = true;
+            pet.facingRight = pxDiff >= 0;
+            if (pet.sprite) {
+                if (pet.sprite.currentState !== "walk") pet.sprite.setState("walk");
+                if (pet.sprite.setDirection) pet.sprite.setDirection(pxDiff >= 0 ? 0 : Math.PI);
+            }
+        } else if (pet._perchStrolling) {
+            pet._perchStrolling = false;
+            pet._perchRelX = pet._perchTargetRelX;
+            if (pet.sprite) {
+                pet.sprite.setState("perch");
+                if (pet.sprite.setDirectionRow) pet.sprite.setDirectionRow(pet.facingRight ? 1 : 7, false);
+            }
+        }
+    }
 
     var wantGX = match.x + Math.max(8, Math.min(Math.max(8, span - 8), span * pet._perchRelX));
     var wantGY = Math.max(pet.screenY(), match.y - petH * 0.85);
@@ -380,11 +429,40 @@ function _socialDeflection(pet) {
     return Math.max(-1.2, Math.min(1.2, deflect));
 }
 
+function _bezelSteer(pet) {
+    var sw = pet.screenW ? pet.screenW() : 1920;
+    var sh = pet.screenH ? pet.screenH() : 1080;
+    var pw = pet.width || 64, ph = pet.height || 64;
+    var wx = pet.worldX || 0, wy = pet.worldY || 0;
+    var margin = pet.state_ === "zoomies" ? 78 : 54;
+    var reachable = Topology.reachableScreens(pet);
+    var curScr = Topology.currentScreen(pet);
+
+    var pushX = 0, pushY = 0;
+    if (wx < margin && (reachable.length <= 1 || !Topology.adjacentScreenAt(reachable, curScr, "left", wy, pw))) {
+        pushX += (margin - wx) / margin;
+    } else if (wx > sw - pw - margin && (reachable.length <= 1 || !Topology.adjacentScreenAt(reachable, curScr, "right", wy, pw))) {
+        pushX -= (wx - (sw - pw - margin)) / margin;
+    }
+    if (wy < margin && (reachable.length <= 1 || !Topology.adjacentScreenAt(reachable, curScr, "up", wx, pw))) {
+        pushY += (margin - wy) / margin;
+    } else if (wy > sh - ph - margin && (reachable.length <= 1 || !Topology.adjacentScreenAt(reachable, curScr, "down", wx, pw))) {
+        pushY -= (wy - (sh - ph - margin)) / margin;
+    }
+    if (pushX === 0 && pushY === 0) return 0;
+    var inward = Math.atan2(pushY, pushX);
+    var diff = ((inward - pet.moveAngle + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI;
+    var strength = Math.min(1, Math.hypot(pushX, pushY)) * (pet.state_ === "zoomies" ? 3.8 : 2.5);
+    return Math.max(-3.6, Math.min(3.6, diff * strength));
+}
+
 function updateSteering(pet, dt) {
+    var loco = SpeciesProfile.locomotionFor(pet);
     var deflect = _socialDeflection(pet);
     if (!pet.onJourney) {
-        if (Math.abs(deflect) > 0.04) {
-            _setAngle(pet, pet.moveAngle + deflect * dt * 2.4);
+        var drift = (pet._wanderTurnVel || 0) + _bezelSteer(pet) + deflect * 2.2;
+        if (Math.abs(drift) > 0.01) {
+            _setAngle(pet, pet.moveAngle + drift * dt * (loco.turnMult || 1.0));
         }
         return;
     }
@@ -397,7 +475,7 @@ function updateSteering(pet, dt) {
         return;
     }
     var desired = Math.atan2(wp.gy - globalY(pet), wp.gx - globalX(pet)) + deflect;
-    var turnRate = wp.finalLeg ? (Math.PI * 2.4) : (Math.PI * 3.6);
+    var turnRate = (wp.finalLeg ? (Math.PI * 2.3) : (Math.PI * 3.4)) * (loco.turnMult || 1.0);
     var next = _steerAngle(pet.moveAngle, desired, turnRate * dt);
     if (Math.abs(next - pet.moveAngle) > 0.01) {
         _setAngle(pet, next);
@@ -462,6 +540,29 @@ function reflectOffWall(pet, hitX, hitY) {
             Brain.onBlocked(pet);
             return;
         }
+        _setAngle(pet, a);
+        return;
     }
-    _setAngle(pet, a);
+
+    var sw = pet.screenW ? pet.screenW() : 1920;
+    var sh = pet.screenH ? pet.screenH() : 1080;
+    var toCenter = Math.atan2(sh * 0.5 - (pet.worldY || 0), sw * 0.5 - (pet.worldX || 0));
+    var organicInward = toCenter + (Math.random() - 0.5) * 1.05;
+
+    if (pet.state_ === "wander" && Math.random() < 0.58) {
+        if ("_liveSpeed" in pet) pet._liveSpeed = 0;
+        _setAngle(pet, organicInward);
+        pet.enterState("idle");
+        return;
+    }
+    if ("_liveSpeed" in pet) {
+        pet._liveSpeed *= (pet.state_ === "zoomies" ? 0.72 : 0.42);
+    }
+    if ("_wanderTurnVel" in pet) {
+        pet._wanderTurnVel = (Math.random() - 0.5) * (pet.state_ === "zoomies" ? 2.4 : 0.9);
+    }
+    if (pet.state_ === "zoomies" && pet.sprite && pet.sprite.triggerSquash) {
+        pet.sprite.triggerSquash(1.09, 0.92);
+    }
+    _setAngle(pet, organicInward);
 }

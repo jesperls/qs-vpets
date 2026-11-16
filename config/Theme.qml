@@ -70,17 +70,18 @@ Singleton {
         return 0.2126 * r + 0.7152 * g + 0.0722 * b;
     }
 
-    readonly property string panguPalettePath: {
+    readonly property string _cacheBase: {
         const xdg = Quickshell.env("XDG_CACHE_HOME");
-        const base = xdg && xdg.length > 0 ? xdg : (Quickshell.env("HOME") + "/.cache");
-        return base + "/pangu/colors.json";
+        return xdg && xdg.length > 0 ? xdg : (Quickshell.env("HOME") + "/.cache");
     }
-
-    readonly property string panguThemePath: {
+    readonly property string _configBase: {
         const xdg = Quickshell.env("XDG_CONFIG_HOME");
-        const base = xdg && xdg.length > 0 ? xdg : (Quickshell.env("HOME") + "/.config");
-        return base + "/pangu/config/theme.json";
+        return xdg && xdg.length > 0 ? xdg : (Quickshell.env("HOME") + "/.config");
     }
+    readonly property string customPalettePath: _cacheBase + "/qs-vpets/colors.json"
+    readonly property string panguPalettePath: _cacheBase + "/pangu/colors.json"
+    readonly property string customThemePath: _configBase + "/qs-vpets/theme.json"
+    readonly property string panguThemePath: _configBase + "/pangu/config/theme.json"
 
     function _applyPalette(raw: string): void {
         if (!raw || !raw.trim()) return;
@@ -160,11 +161,31 @@ Singleton {
     }
 
     FileView {
+        id: customPaletteFile
+        path: root.customPalettePath
+        watchChanges: true
+        printErrors: false
+        onLoaded: root._applyPalette(text())
+        onFileChanged: reload()
+    }
+
+    FileView {
         id: paletteFile
         path: root.panguPalettePath
         watchChanges: true
         printErrors: false
-        onLoaded: root._applyPalette(text())
+        onLoaded: {
+            if (!customPaletteFile.text().trim()) root._applyPalette(text());
+        }
+        onFileChanged: reload()
+    }
+
+    FileView {
+        id: customThemeFile
+        path: root.customThemePath
+        watchChanges: true
+        printErrors: false
+        onLoaded: root._applyThemeConfig(text())
         onFileChanged: reload()
     }
 
@@ -173,7 +194,9 @@ Singleton {
         path: root.panguThemePath
         watchChanges: true
         printErrors: false
-        onLoaded: root._applyThemeConfig(text())
+        onLoaded: {
+            if (!customThemeFile.text().trim()) root._applyThemeConfig(text());
+        }
         onFileChanged: reload()
     }
 }

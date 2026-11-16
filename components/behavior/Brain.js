@@ -111,6 +111,7 @@ function checkMidJourneyDistraction(pet, nav) {
         var o = perc.others[i];
         if (!o.sameScreen || o.dist > 250 || o.name === plan.otherName) continue;
         if (!o.playing && !o.grooving) continue;
+        if (!o.inFov && (pet.alertness || 0.5) < 0.72) continue;
         if (Math.random() > 0.55) continue;
         pet._lastDistractedMs = now;
         Memory.recordEpisode(pet, "distracted", { valence: 0.22, withPet: o.name, note: plan.name });
@@ -160,7 +161,14 @@ function restTick(pet) {
         var wantDeep = pet.restDrive > 0.56
                     || (perc.isNight && p.sleepiness > 0.25)
                     || (!deep && pet.restDrive > 0.42 && p.sleepiness > 0.48);
-        var restContinue = wantDeep ? "deepsleep" : (pet.state_ === "laying" ? "laying" : "loaf");
+        var restContinue;
+        if (wantDeep) {
+            restContinue = "deepsleep";
+        } else if (Math.random() < 0.28 && pet.sprite && pet.sprite._animData && pet.sprite._animData.Laying) {
+            restContinue = pet.state_ === "laying" ? "loaf" : "laying";
+        } else {
+            restContinue = pet.state_ === "laying" ? "laying" : "loaf";
+        }
         pet.continueResting(restContinue);
         return;
     }

@@ -176,6 +176,23 @@ function advanceStep(pet, nav, pickFn) {
             pet.enterState("idle");
             return;
         }
+        if ((pet.state_ === "perch" || pet.perchedWindowAddr) && nav.launchJumpTo) {
+            var pCurGX = Util.petGX(pet), pCurGY = Util.petGY(pet);
+            if (Math.abs(target.gy - pCurGY) > 48) {
+                pet.perchedWindowAddr = "";
+                if (Math.hypot(target.gx - pCurGX, target.gy - pCurGY) <= 230) {
+                    nav.launchJumpTo(pet, target.gx, target.gy, 26);
+                    return;
+                }
+                var signX = (target.gx - pCurGX) >= 0 ? 1 : -1;
+                var hopX = pCurGX + signX * Math.min(96, Math.max(28, Math.abs(target.gx - pCurGX) * 0.35));
+                var hopY = Math.min(target.gy, pCurGY + 185);
+                var hopPt = Util.clampToScreen(pet, hopX, hopY);
+                plan.stepIndex--;
+                nav.launchJumpTo(pet, hopPt.gx, hopPt.gy, 28);
+                return;
+            }
+        }
         nav.journeyToGlobal(pet, target.gx, target.gy);
         return;
     }
@@ -387,7 +404,8 @@ function advanceStep(pet, nav, pickFn) {
         if (step.emote && pet.emitEmote) pet.emitEmote(step.emote);
         pet.enterState("perch");
         if (step.dirRow !== undefined && pet.sprite) {
-            pet.sprite._dirRow = step.dirRow;
+            if (pet.sprite.setDirectionRow) pet.sprite.setDirectionRow(step.dirRow, false);
+            else pet.sprite._dirRow = step.dirRow;
             pet.facingRight = step.dirRow >= 1 && step.dirRow <= 3;
         }
         pet.schedulePlanBeat(step.durationMs || 22000);
@@ -769,7 +787,14 @@ function finishPlan(pet, pickFn) {
         break;
     }
 
+    var stayPerchedAddr = pet.state_ === "perch" ? (pet.perchedWindowAddr || "") : "";
     clearPlan(pet);
+    if (stayPerchedAddr) {
+        pet.perchedWindowAddr = stayPerchedAddr;
+        pet.enterState("perch");
+        if (pet.restartIdle) pet.restartIdle(1.0);
+        return;
+    }
     pet.enterState("idle");
 }
 

@@ -1,5 +1,6 @@
 .pragma library
 
+.import "../SpriteSheet.js" as SpriteSheet
 .import "Topology.js" as Topology
 
 function now(pet) {
@@ -50,6 +51,34 @@ function faceGlobal(pet, gx, gy) {
     if (pet.sprite && pet.sprite.setDirection) {
         pet.sprite.setDirection(Math.atan2(dy, dx));
     }
+}
+
+function facingAngle(pet) {
+    if (!pet) return 0;
+    if (pet.state_ === "walk" || pet.state_ === "wander" || pet.state_ === "zoomies") {
+        return Number(pet.moveAngle || 0);
+    }
+    if (pet.sprite && pet.sprite._dirRow !== undefined) {
+        return SpriteSheet.directionRowToAngle(pet.sprite._dirRow);
+    }
+    return pet.facingRight === false ? Math.PI : 0;
+}
+
+// Cosine alignment in [-1, 1]: +1 directly ahead of gaze, -1 directly behind.
+function gazeAlignment(pet, gx, gy) {
+    if (!pet) return 1;
+    var dx = gx - petGX(pet);
+    var dy = gy - petGY(pet);
+    if (Math.hypot(dx, dy) < 8) return 1;
+    var toTarget = Math.atan2(dy, dx);
+    return Math.cos(toTarget - facingAngle(pet));
+}
+
+function inFieldOfView(pet, gx, gy, closeRadius) {
+    if (!pet) return true;
+    var d = Math.hypot(gx - petGX(pet), gy - petGY(pet));
+    if (d <= (closeRadius !== undefined ? closeRadius : 210)) return true;
+    return gazeAlignment(pet, gx, gy) >= -0.35;
 }
 
 function clampToScreen(pet, gx, gy, padX, padY) {

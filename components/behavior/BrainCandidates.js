@@ -261,7 +261,7 @@ function scoreCandidates(pet, perc, nav, pickFn) {
                 name: "ledge_stroll",
                 score: perchScore * 0.96 + p.curiosity * 0.08,
                 exec: function() {
-                    Plans.startPlan(pet, Plans.buildLedgeStrollPlan(bestPerch), nav, pickFn);
+                    Plans.startPlan(pet, Plans.buildLedgeStrollPlan(bestPerch, pet), nav, pickFn);
                 }
             });
         }
@@ -273,7 +273,7 @@ function scoreCandidates(pet, perc, nav, pickFn) {
                 name: "ledge_parkour",
                 score: perchScore * 1.02 + p.boldness * 0.10,
                 exec: function() {
-                    Plans.startPlan(pet, Plans.buildLedgeParkourPlan(bestPerch, nextLedge), nav, pickFn);
+                    Plans.startPlan(pet, Plans.buildLedgeParkourPlan(bestPerch, nextLedge, pet), nav, pickFn);
                 }
             });
         }

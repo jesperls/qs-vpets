@@ -47,9 +47,86 @@ var DEFAULT_PROFILE = {
     pantState: "deepBreath",
     northWatch: false,
     gait: { amble: 0.50, trot: 1.00, scamper: 1.60 },
+    locomotion: {
+        kind: "graceful",
+        accelMult: 1.00,
+        turnMult: 1.00,
+        gravityMult: 1.00,
+        bounceMult: 0.40,
+        landSquashX: 1.20,
+        landSquashY: 0.80,
+        hoverBob: 0,
+        scamperHop: 1.0
+    },
     perchAffinity: 1.00,
     windowWatchAffinity: 1.00
 };
+
+var _HOVER_SPECIES = {
+    altaria: true, celebi: true, cresselia: true, darkrai: true,
+    giratina: true, jirachi: true, latias: true, mew: true,
+    misdreavus: true, phantump: true, whimsicott: true
+};
+
+var _HEAVY_SPECIES = {
+    bulbasaur: true, charizard: true, ferrothorn: true, fuecoco: true,
+    munchlax: true, spheal: true, squirtle: true, toxapex: true, turtwig: true
+};
+
+var _SPRINGER_SPECIES = {
+    emolga: true, grovyle: true, infernape: true, jolteon: true,
+    lucario: true, marshadow: true, meloetta: true, oshawott: true,
+    pikachu: true, piplup: true, riolu: true, rowlet: true,
+    shaymin: true, sneasel: true, totodile: true
+};
+
+function _resolveLocomotion(id, rawLoco) {
+    var base;
+    if (_HOVER_SPECIES[id]) {
+        base = {
+            kind: "hover",
+            accelMult: 0.86,
+            turnMult: 1.24,
+            gravityMult: 0.56,
+            bounceMult: 0.22,
+            landSquashX: 1.08,
+            landSquashY: 0.94,
+            hoverBob: 2.2,
+            scamperHop: 0
+        };
+    } else if (_HEAVY_SPECIES[id]) {
+        base = {
+            kind: "heavy",
+            accelMult: 0.62,
+            turnMult: 0.68,
+            gravityMult: id === "charizard" ? 0.82 : 1.18,
+            bounceMult: 0.34,
+            landSquashX: 1.28,
+            landSquashY: 0.73,
+            hoverBob: 0,
+            scamperHop: 0
+        };
+    } else if (_SPRINGER_SPECIES[id]) {
+        base = {
+            kind: "springer",
+            accelMult: 1.36,
+            turnMult: 1.34,
+            gravityMult: (id === "emolga" || id === "rowlet") ? 0.72 : 0.96,
+            bounceMult: 0.46,
+            landSquashX: 1.16,
+            landSquashY: 0.85,
+            hoverBob: 0,
+            scamperHop: 2.2
+        };
+    } else {
+        base = _cloneClip(DEFAULT_PROFILE.locomotion);
+    }
+    if (rawLoco && typeof rawLoco === "object") {
+        var ks = Object.keys(rawLoco);
+        for (var i = 0; i < ks.length; i++) base[ks[i]] = rawLoco[ks[i]];
+    }
+    return base;
+}
 
 function _cloneClip(c) {
     if (!c) return null;
@@ -142,6 +219,7 @@ function _normalizeSpecies(id, raw, defaultBiome) {
             trot: gaitSrc.trot !== undefined ? gaitSrc.trot : 1.00,
             scamper: gaitSrc.scamper !== undefined ? gaitSrc.scamper : 1.60
         },
+        locomotion: _resolveLocomotion(id, r.locomotion),
         perchAffinity: r.perchAffinity !== undefined ? r.perchAffinity : 1.00,
         windowWatchAffinity: r.windowWatchAffinity !== undefined ? r.windowWatchAffinity : 1.00
     };
@@ -312,4 +390,9 @@ function gaitMultiplier(pet, gaitName) {
     if (gaitName === "amble") return g.amble;
     if (gaitName === "scamper") return g.scamper;
     return g.trot;
+}
+
+function locomotionFor(petOrSpecies) {
+    var sp = typeof petOrSpecies === "string" ? petOrSpecies : speciesOf(petOrSpecies);
+    return profileFor(sp).locomotion || DEFAULT_PROFILE.locomotion;
 }

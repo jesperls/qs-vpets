@@ -110,7 +110,7 @@ PanelWindow {
         interval: {
             const s = petItem.state_;
             if (s === "walk" || s === "wander" || s === "zoomies" || s === "airborne") return 16;
-            if (s === "perch") return petItem._perchRiding ? 32 : 90;
+            if (s === "perch") return (petItem._perchRiding || petItem._perchStrolling) ? 32 : 90;
             return 250;
         }
         running: root.visible && petItem.state_ !== "drag" && root._needsMotionTick

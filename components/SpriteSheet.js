@@ -132,12 +132,12 @@ var STATE_CLIP_DEFAULTS = {
     walk: { anim: "Walk", loop: true, dynamicWalkSpeed: true },
     wander: { anim: "Walk", loop: true, dynamicWalkSpeed: true },
     zoomies: { anim: "Walk", loop: true, dynamicWalkSpeed: true },
-    loaf: { anim: "EventSleep", loop: true, speed: 0.58, lockDirection: true },
-    laying: { anim: "Laying", loop: true, holdAtFrame: "last", speed: 0.56, lockDirection: true },
-    sit: { anim: "EventSleep", loop: true, speed: 0.58, lockDirection: true },
+    loaf: { anim: "EventSleep", loop: true, speed: 0.50, lockDirection: true },
+    laying: { anim: "Laying", loop: true, holdAtFrame: "last", speed: 0.50, lockDirection: true },
+    sit: { anim: "EventSleep", loop: true, speed: 0.50, lockDirection: true },
     sitNorth: { anim: "Sit", loop: true, holdAtFrame: "last", speed: 0.65, fixedDirRow: 4, lockDirection: true }, // PMD Sit/LookUp face North (row 4)
     lookUpNorth: { anim: "LookUp", loop: false, speed: 0.58, endHoldTicks: 34, fixedDirRow: 4, lockDirection: true },
-    deepsleep: { anim: "Sleep", loop: true, speed: 0.58, fixedDirRow: 0, lockDirection: true },
+    deepsleep: { anim: "Sleep", loop: true, speed: 0.38, fixedDirRow: 0, lockDirection: true },
     drag: { anim: "Float", loop: true, speed: 1.0 },
     airborne: { anim: "Tumble", loop: true, speed: 1.0 },
     sitDown: { anim: "Sit", loop: false, speed: 0.58, endHoldTicks: 45, fixedDirRow: 4 },
@@ -368,6 +368,30 @@ function angleToDirectionRow(angle) {
     var a = ((angle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
     var sector = Math.round(a / (Math.PI / 4)) % 8;
     return ANGLE_SECTOR_TO_PMD_ROW[sector];
+}
+
+var PMD_ROW_TO_ANGLE = [
+    Math.PI * 0.5,
+    Math.PI * 0.25,
+    0,
+    -Math.PI * 0.25,
+    -Math.PI * 0.5,
+    -Math.PI * 0.75,
+    Math.PI,
+    Math.PI * 0.75
+];
+
+function directionRowToAngle(row) {
+    var r = ((Math.round(row || 0) % 8) + 8) % 8;
+    return PMD_ROW_TO_ANGLE[r];
+}
+
+function stepDirectionRow(curRow, targetRow) {
+    var c = ((Math.round(curRow || 0) % 8) + 8) % 8;
+    var t = ((Math.round(targetRow || 0) % 8) + 8) % 8;
+    if (c === t) return c;
+    var diff = ((t - c + 12) % 8) - 4;
+    return (c + (diff > 0 ? 1 : 7)) % 8;
 }
 
 // PMD durations are authored at 60Hz (~16.67ms/tick).

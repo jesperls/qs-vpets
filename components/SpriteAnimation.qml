@@ -16,6 +16,7 @@ Item {
     property real moveSpeed: 0
     property real restDrive: 0
     property real altitude: 0
+    property real gaitOffsetY: 0
     property string spriteDir: ""
     property var actionMap: ({})
 
@@ -25,6 +26,7 @@ Item {
     property string _animName: "Idle"
     property int _frame: 0
     property int _dirRow: 0
+    property int _targetDirRow: 0
     property int _repCount: 0
     property real _tickAccum: 0
     property double _lastFrameTickMs: 0
@@ -84,6 +86,7 @@ Item {
         }
         if (nextClip.fixedDirRow >= 0) {
             _dirRow = nextClip.fixedDirRow;
+            _targetDirRow = nextClip.fixedDirRow;
         }
     }
 
@@ -98,10 +101,23 @@ Item {
         if (!_inSetState && _animData) _applyState(currentState);
     }
 
+    function setDirectionRow(row: int, immediate = false): void {
+        const clamped = ((row % 8) + 8) % 8;
+        if (immediate || !root.visible || root.Window.visibility === Window.Hidden) {
+            _dirRow = clamped;
+            _targetDirRow = clamped;
+            return;
+        }
+        _targetDirRow = clamped;
+        if (_dirRow !== clamped) {
+            _dirRow = SpriteSheet.stepDirectionRow(_dirRow, clamped);
+        }
+    }
+
     function setDirection(angle: real): void {
         if (!useSpriteSheet) return;
         if (_clip && _clip.lockDirection) return;
-        _dirRow = SpriteSheet.angleToDirectionRow(angle);
+        setDirectionRow(SpriteSheet.angleToDirectionRow(angle), false);
     }
 
     function currentAnimDurationMs(): int {
@@ -184,6 +200,23 @@ Item {
         }
     }
 
+    Timer {
+        id: dirTurnTimer
+        interval: 52
+        repeat: true
+        running: root.useSpriteSheet
+            && root._dirRow !== root._targetDirRow
+            && root.visible
+            && root.Window.visibility !== Window.Hidden
+        onTriggered: {
+            if (root._clip && root._clip.lockDirection) {
+                root._targetDirRow = root._dirRow;
+                return;
+            }
+            root._dirRow = SpriteSheet.stepDirectionRow(root._dirRow, root._targetDirRow);
+        }
+    }
+
     Item {
         id: viewport
         visible: root.useSpriteSheet && root._currentAnim !== null && sheet.status === Image.Ready
@@ -194,7 +227,7 @@ Item {
         height: fh * px
         x: Math.round((root.width - width) / 2)
         // PMD Collab sprites anchor ground contact at y = fh/2 + 4 across every animation size.
-        y: Math.round(root.height - (fh * 0.5 + 8) * px - root.altitude)
+        y: Math.round(root.height - (fh * 0.5 + 8) * px - root.altitude - root.gaitOffsetY)
         clip: true
 
         transform: Scale {

@@ -16,6 +16,7 @@ import "behavior/PlanBuildersEnv.js" as PlanBuildersEnv
 import "behavior/PlanBuildersSocial.js" as PlanBuildersSocial
 import "behavior/Abilities.js" as Abilities
 import "behavior/Social.js" as Social
+import "behavior/Util.js" as Util
 import "PetNav.js" as Nav
 import "PetPersistence.js" as Persist
 
@@ -58,10 +59,15 @@ Item {
     property var _jumpLanding: null
     property string _perchTrackedAddr: ""
     property real _perchRelX: 0.5
+    property real _perchTargetRelX: 0.5
+    property bool _perchStrolling: false
     property real _perchPrevWinX: 0
     property real _perchPrevWinY: 0
     property bool _perchRiding: false
     property real _perchSteadyTime: 0
+    property real _wanderTurnVel: 0
+    property real _stridePhase: 0
+    property var _pendingReactions: []
     property string _yawnWarmPeerName: ""
     property bool _wakeWarmGreet: false
     property double _restEnteredMs: 0
@@ -212,7 +218,7 @@ Item {
     function _settleFacing(): void {
         if (Date.now() < attentionUntil) return;
         const row = facingRight ? (Math.random() < 0.72 ? 1 : 2) : (Math.random() < 0.72 ? 7 : 6);
-        spriteAnim._dirRow = row;
+        spriteAnim.setDirectionRow(row, false);
     }
 
     function startPotter(angle: real, durationMs: int): void {
@@ -220,12 +226,15 @@ Item {
         onJourney = false;
         gait = "amble";
         moveAngle = angle;
+        _wanderTurnVel = (Math.random() - 0.5) * 0.85;
         facingRight = Math.cos(angle) >= 0;
         _stopAllTimers();
         state_ = "wander";
-        _liveSpeed = targetSpeed * 0.4;
+        _liveSpeed = targetSpeed * 0.35;
         spriteAnim.setState("wander");
         spriteAnim.setDirection(angle);
+        wanderDirTimer.interval = 900 + Math.random() * 900;
+        wanderDirTimer.restart();
         wanderEndTimer.interval = Math.max(650, durationMs);
         wanderEndTimer.restart();
     }
@@ -249,24 +258,26 @@ Item {
         if (s === "drag") {
             onJourney = false;
             _retiringToPen = false;
+            _pendingReactions = [];
             retireSafetyTimer.stop();
             Plans.clearPlan(root);
         } else if (s !== "perch") {
             perchedWindowAddr = "";
             _perchTrackedAddr = "";
             _perchRiding = false;
+            _perchStrolling = false;
         }
         state_ = s;
+        const loco = SpeciesProfile.locomotionFor(root);
         if (s === "walk" || s === "wander" || s === "zoomies") {
-            if (!wasMoving) _liveSpeed = targetSpeed * 0.35;
+            if (!wasMoving) _liveSpeed = targetSpeed * 0.26;
         } else {
             _liveSpeed = 0;
+            spriteAnim.gaitOffsetY = (!nextResting && s !== "drag" && s !== "airborne" && loco.hoverBob > 0) ? 2.0 : 0;
         }
         spriteAnim.setState(s);
         if (s === "walk" || s === "wander" || s === "zoomies") {
             spriteAnim.setDirection(moveAngle);
-        } else if ((s === "idle" || s === "perch") && wasMoving) {
-            _settleFacing();
         }
 
         switch (s) {
@@ -277,6 +288,7 @@ Item {
             idleTimer.restart();
             break;
         case "perch":
+            if (!Plans.hasActivePlan(root)) restartIdle(1.0);
             break;
         case "sitNorth":
             if (!Plans.hasActivePlan(root)) {
@@ -289,7 +301,8 @@ Item {
             walkTimer.restart();
             break;
         case "wander":
-            wanderDirTimer.interval = 2400;
+            _wanderTurnVel = (Math.random() - 0.5) * 0.95;
+            wanderDirTimer.interval = 1200 + Math.random() * 1400;
             wanderDirTimer.restart();
             wanderEndTimer.interval = 4200 + Math.random() * 6800;
             wanderEndTimer.restart();
@@ -307,7 +320,8 @@ Item {
             }
             break;
         case "zoomies":
-            wanderDirTimer.interval = 1100;
+            _wanderTurnVel = (Math.random() - 0.5) * 2.6;
+            wanderDirTimer.interval = 700 + Math.random() * 800;
             wanderDirTimer.restart();
             zoomiesTimer.interval = 3800 + Math.random() * 4400;
             zoomiesTimer.restart();
@@ -415,12 +429,13 @@ Item {
     }
     Timer {
         id: dreamTwitchTimer
-        interval: 22000 + Math.random() * 16000
+        interval: 20000 + Math.random() * 16000
         repeat: true
-        running: !PetManager.hidden && root.state_ === "deepsleep"
+        running: !PetManager.hidden
+            && (root.state_ === "deepsleep" || root.state_ === "loaf" || root.state_ === "laying")
         onTriggered: {
-            interval = 22000 + Math.random() * 16000;
-            if (Math.random() < 0.14) spriteAnim.triggerSquash(1.05, 0.96);
+            interval = 20000 + Math.random() * 16000;
+            if (Math.random() < 0.38) spriteAnim.triggerSquash(1.04, 0.97);
         }
     }
     Timer {
@@ -443,20 +458,25 @@ Item {
 
     Timer {
         id: wanderDirTimer
-        interval: 2000
+        interval: 1400
         repeat: true
         onTriggered: {
-            root.moveAngle += (Math.random() - 0.5) * Math.PI * 0.48;
-            root.facingRight = Math.cos(root.moveAngle) >= 0;
-            spriteAnim.setDirection(root.moveAngle);
+            if (root.state_ === "zoomies") {
+                root._wanderTurnVel = (Math.random() - 0.5) * 2.8;
+                interval = 650 + Math.random() * 850;
+            } else {
+                root._wanderTurnVel = (Math.random() - 0.5) * 1.1;
+                if (Math.random() < 0.22) root._liveSpeed *= 0.32;
+                interval = 1150 + Math.random() * 1550;
+            }
         }
     }
 
     Timer {
         id: idleFidgetTimer
-        interval: 10000 + Math.random() * 11000
+        interval: 7500 + Math.random() * 6500
         running: !PetManager.hidden
-            && (root.state_ === "idle" || (root.state_ === "perch" && !root._perchRiding))
+            && (root.state_ === "idle" || (root.state_ === "perch" && !root._perchRiding && !root._perchStrolling))
             && !fidgetRevert.running
         repeat: true
         onTriggered: {
@@ -466,13 +486,17 @@ Item {
                     root.enterState("loaf");
                 } else if (act.kind === "potter" && !planBeatTimer.running && root.state_ === "idle") {
                     root.startPotter(act.angle, act.durationMs);
+                } else if (act.kind === "ledge_shift" && root.state_ === "perch") {
+                    root._perchTargetRelX = act.targetRelX;
+                    root._perchStrolling = true;
                 } else if (act.kind === "fidget") {
                     spriteAnim.setState(act.state);
                     fidgetRevert.interval = Math.max(700, spriteAnim.currentAnimDurationMs() + 280);
                     fidgetRevert.restart();
                 }
             }
-            interval = 10000 + Math.random() * 11500;
+            const hold0 = SpeciesProfile.standSpec(root.renderedSpecies).mode === "hold0";
+            interval = hold0 ? (6500 + Math.random() * 5200) : (10000 + Math.random() * 11000);
         }
     }
 
@@ -490,7 +514,7 @@ Item {
         interval: 420
         repeat: true
         running: !PetManager.hidden
-            && (root.state_ === "idle" || root.state_ === "perch")
+            && (root.state_ === "idle" || (root.state_ === "perch" && !root._perchStrolling))
             && Date.now() < root.attentionUntil
         onTriggered: {
             if (fidgetRevert.running) return;
@@ -500,7 +524,7 @@ Item {
                 root.facingRight = dx >= 0;
                 if (root.state_ === "perch") {
                     const row = SpriteSheet.angleToDirectionRow(Math.atan2(Math.max(12, dy), dx));
-                    if (row <= 2 || row >= 6) spriteAnim._dirRow = row;
+                    if (row <= 2 || row >= 6) spriteAnim.setDirectionRow(row, false);
                 } else {
                     spriteAnim.setDirection(Math.atan2(dy, dx));
                 }
@@ -510,16 +534,40 @@ Item {
 
     Timer {
         id: ambientGazeTimer
-        interval: 5400 + Math.random() * 6800
+        interval: 4400 + Math.random() * 5400
         repeat: true
-        running: !PetManager.hidden && (root.state_ === "idle" || root.state_ === "perch")
+        running: !PetManager.hidden && (root.state_ === "idle" || (root.state_ === "perch" && !root._perchStrolling))
         onTriggered: {
-            interval = 5400 + Math.random() * 6800;
+            const hold0 = SpeciesProfile.standSpec(root.renderedSpecies).mode === "hold0";
+            interval = hold0 ? (4200 + Math.random() * 4400) : (5400 + Math.random() * 6800);
             if (fidgetRevert.running || Date.now() < root.attentionUntil) return;
             const nextRow = Gestures.ambientGlanceRow(root, spriteAnim._dirRow);
-            spriteAnim._dirRow = nextRow;
+            spriteAnim.setDirectionRow(nextRow, false);
             if (nextRow === 1 || nextRow === 2 || nextRow === 3) root.facingRight = true;
             else if (nextRow === 5 || nextRow === 6 || nextRow === 7) root.facingRight = false;
+        }
+    }
+
+    Timer {
+        id: reactionTimer
+        interval: 55
+        repeat: true
+        running: !PetManager.hidden && root._pendingReactions.length > 0
+        onTriggered: {
+            const now = Date.now();
+            const remaining = [];
+            const ready = [];
+            for (let i = 0; i < root._pendingReactions.length; i++) {
+                const item = root._pendingReactions[i];
+                if (now >= item.dueMs) ready.push(item);
+                else remaining.push(item);
+            }
+            if (ready.length === 0) return;
+            root._pendingReactions = remaining;
+            if (root.state_ === "drag") return;
+            for (let j = 0; j < ready.length; j++) {
+                Brain.onEvent(root, ready[j].eventName, ready[j].payload, Nav);
+            }
         }
     }
 
@@ -564,7 +612,7 @@ Item {
             let spd = Config.walkSpeed * SpeciesProfile.gaitMultiplier(root, gait);
             if (onJourney) {
                 const rem = Math.hypot((screenX() + worldX) - targetGX, (screenY() + worldY) - targetGY);
-                if (rem < 64) spd *= Math.max(0.42, rem / 64);
+                if (rem < 84) spd *= Math.max(0.28, rem / 84);
             }
             return spd;
         }
@@ -577,10 +625,11 @@ Item {
         return 0;
     }
 
-    readonly property real currentSpeed: targetSpeed > 0 ? Math.max(18, _liveSpeed) : 0
+    readonly property real currentSpeed: targetSpeed > 0 ? Math.max(14, _liveSpeed) : 0
 
     function updateMovement(dt: real): void {
         if (state_ === "airborne") {
+            spriteAnim.gaitOffsetY = 0;
             Nav.updateAirborne(root, dt);
             return;
         }
@@ -593,7 +642,17 @@ Item {
             return;
         }
 
-        _liveSpeed += (targetSpeed - _liveSpeed) * Math.min(1, dt * 7.5);
+        const loco = SpeciesProfile.locomotionFor(root);
+        _liveSpeed += (targetSpeed - _liveSpeed) * Math.min(1, dt * 6.8 * (loco.accelMult || 1.0));
+        _stridePhase = (_stridePhase + dt * (4.2 + currentSpeed * 0.045)) % (Math.PI * 4);
+        if (loco.hoverBob > 0) {
+            spriteAnim.gaitOffsetY = 2.0 + Math.sin(_stridePhase * 0.65) * loco.hoverBob;
+        } else if ((state_ === "zoomies" || gait === "scamper") && loco.scamperHop > 0) {
+            spriteAnim.gaitOffsetY = Math.abs(Math.sin(_stridePhase * 1.35)) * loco.scamperHop;
+        } else {
+            spriteAnim.gaitOffsetY = 0;
+        }
+
         Nav.updateSteering(root, dt);
         const step = currentSpeed * dt;
         if (onJourney && Nav.trySnapArrive(root, step)) return;
@@ -605,8 +664,25 @@ Item {
 
     function reflectOffWall(hitX: bool, hitY: bool): void { Nav.reflectOffWall(root, hitX, hitY); }
 
+    function _queueAmbientEvent(eventName: string, payload: var, focusGX: var, focusGY: var): void {
+        if (state_ === "drag") return;
+        const hasFocus = focusGX !== null && focusGX !== undefined && focusGY !== null && focusGY !== undefined;
+        const align = hasFocus ? Util.gazeAlignment(root, Number(focusGX), Number(focusGY)) : 0.25;
+        const delayMs = 110 + (1 - alertness) * 185 + (align < 0 ? (-align) * 145 : 0) + Math.random() * 115;
+        if (hasFocus && (state_ === "idle" || state_ === "perch") && !fidgetRevert.running && alertness > 0.28) {
+            const fgx = Number(focusGX), fgy = Number(focusGY);
+            attentionGX = fgx;
+            attentionGY = fgy;
+            attentionUntil = Math.max(attentionUntil, Date.now() + 1800);
+            if (state_ === "idle") Util.faceGlobal(root, fgx, fgy);
+        }
+        const next = _pendingReactions.filter(r => r.eventName !== eventName);
+        next.push({ dueMs: Date.now() + delayMs, eventName: eventName, payload: payload });
+        _pendingReactions = next;
+    }
+
     function onCursorNear(): void { Brain.onEvent(root, "cursor_near", null, Nav); }
-    function onCursorWiggled(gx: real, gy: real): void { Brain.onEvent(root, "cursor_wiggled", { gx: gx, gy: gy }, Nav); }
+    function onCursorWiggled(gx: real, gy: real): void { _queueAmbientEvent("cursor_wiggled", { gx: gx, gy: gy }, gx, gy); }
     function onPetted(): void {
         spriteAnim.triggerSquash(1.08, 0.93);
         Brain.onEvent(root, "petted", null, Nav);
@@ -627,42 +703,58 @@ Item {
         spriteAnim.triggerSquash(0.92, 1.09);
         Brain.onEvent(root, "play_triggered", null, Nav);
     }
-    function onWindowEvent(cls: string): void { Brain.onEvent(root, "window_focused", { windowClass: cls }, Nav); }
-    function onWindowOpened(cls: string): void { Brain.onEvent(root, "window_opened", { windowClass: cls }, Nav); }
+    function onWindowEvent(cls: string): void {
+        const wp = WindowTracker.activeWindowPos;
+        _queueAmbientEvent("window_focused", { windowClass: cls }, wp ? (wp.x + wp.w * 0.5) : null, wp ? (wp.y + wp.h * 0.5) : null);
+    }
+    function onWindowOpened(cls: string): void {
+        const wp = WindowTracker.activeWindowPos;
+        _queueAmbientEvent("window_opened", { windowClass: cls }, wp ? (wp.x + wp.w * 0.5) : null, wp ? (wp.y + wp.h * 0.5) : null);
+    }
     function onWindowClosed(cls: string, gx: real, gy: real, w: real, h: real, addr: string): void {
-        Brain.onEvent(root, "window_closed", { windowClass: cls, gx: gx, gy: gy, w: w, h: h, address: addr }, Nav);
+        if (state_ === "perch" && perchedWindowAddr !== "" && perchedWindowAddr === addr) {
+            Brain.onEvent(root, "window_closed", { windowClass: cls, gx: gx, gy: gy, w: w, h: h, address: addr }, Nav);
+            return;
+        }
+        _queueAmbientEvent("window_closed", { windowClass: cls, gx: gx, gy: gy, w: w, h: h, address: addr }, gx, gy);
     }
     function onWindowShifted(cls: string, x: real, y: real, w: real, h: real, addr: string): void {
         Brain.onEvent(root, "window_shifted", { windowClass: cls, x: x, y: y, w: w, h: h, address: addr }, Nav);
     }
-    function onWindowUrgent(cls: string, gx: real, gy: real): void { Brain.onEvent(root, "window_urgent", { windowClass: cls, gx: gx, gy: gy }, Nav); }
-    function onWorkspaceChanged(): void { Brain.onEvent(root, "workspace_changed", null, Nav); }
-    function onWorkspaceCleared(): void { Brain.onEvent(root, "workspace_cleared", null, Nav); }
-    function onMonitorConnected(screenName: string): void { Brain.onEvent(root, "monitor_connected", { screenName: screenName }, Nav); }
-    function onDisplacedMonitor(): void { Brain.onEvent(root, "displaced_monitor", null, Nav); }
-    function onIdleBegan(): void { Brain.onEvent(root, "user_idle", null, Nav); }
-    function onIdleEnded(idleDurationSec = 0): void { Brain.onEvent(root, "user_active", { idleDurationSec: idleDurationSec }, Nav); }
-    function onCursorParked(gx: real, gy: real): void { Brain.onEvent(root, "cursor_parked", { gx: gx, gy: gy }, Nav); }
-    function onCursorUnparked(gx: real, gy: real, speed: real): void { Brain.onEvent(root, "cursor_unparked", { gx: gx, gy: gy, speed: speed }, Nav); }
-    function onMusicStarted(): void { Brain.onEvent(root, "music_started", null, Nav); }
-    function onMusicPaused(): void { Brain.onEvent(root, "music_paused", null, Nav); }
-    function onMicStateChanged(active: bool): void { Brain.onEvent(root, "mic_changed", { active: active }, Nav); }
-    function onAudioSpiked(volume: real): void { Brain.onEvent(root, "audio_spiked", { volume: volume }, Nav); }
-    function onAudioMuteChanged(muted: bool): void { Brain.onEvent(root, "audio_muted", { muted: muted }, Nav); }
-    function onBuildCompleted(durationSec: real): void { Brain.onEvent(root, "build_completed", { durationSec: durationSec }, Nav); }
-    function onPowerPluggedChanged(pluggedIn: bool, batteryLevel: real): void {
-        Brain.onEvent(root, "power_plugged", { pluggedIn: pluggedIn, batteryLevel: batteryLevel }, Nav);
+    function onWindowUrgent(cls: string, gx: real, gy: real): void {
+        _queueAmbientEvent("window_urgent", { windowClass: cls, gx: gx, gy: gy }, gx, gy);
     }
-    function onLowBatteryWarn(batteryLevel: real): void { Brain.onEvent(root, "low_battery", { batteryLevel: batteryLevel }, Nav); }
+    function onWorkspaceChanged(): void { Brain.onEvent(root, "workspace_changed", null, Nav); }
+    function onWorkspaceCleared(): void { _queueAmbientEvent("workspace_cleared", null, null, null); }
+    function onMonitorConnected(screenName: string): void { _queueAmbientEvent("monitor_connected", { screenName: screenName }, null, null); }
+    function onDisplacedMonitor(): void { Brain.onEvent(root, "displaced_monitor", null, Nav); }
+    function onIdleBegan(): void { _queueAmbientEvent("user_idle", null, null, null); }
+    function onIdleEnded(idleDurationSec = 0): void { _queueAmbientEvent("user_active", { idleDurationSec: idleDurationSec }, null, null); }
+    function onCursorParked(gx: real, gy: real): void { _queueAmbientEvent("cursor_parked", { gx: gx, gy: gy }, gx, gy); }
+    function onCursorUnparked(gx: real, gy: real, speed: real): void { Brain.onEvent(root, "cursor_unparked", { gx: gx, gy: gy, speed: speed }, Nav); }
+    function onMusicStarted(): void { _queueAmbientEvent("music_started", null, null, null); }
+    function onMusicPaused(): void { _queueAmbientEvent("music_paused", null, null, null); }
+    function onMicStateChanged(active: bool): void { Brain.onEvent(root, "mic_changed", { active: active }, Nav); }
+    function onAudioSpiked(volume: real): void { _queueAmbientEvent("audio_spiked", { volume: volume }, null, null); }
+    function onAudioMuteChanged(muted: bool): void { _queueAmbientEvent("audio_muted", { muted: muted }, null, null); }
+    function onBuildCompleted(durationSec: real): void { _queueAmbientEvent("build_completed", { durationSec: durationSec }, null, null); }
+    function onPowerPluggedChanged(pluggedIn: bool, batteryLevel: real): void {
+        _queueAmbientEvent("power_plugged", { pluggedIn: pluggedIn, batteryLevel: batteryLevel }, null, null);
+    }
+    function onLowBatteryWarn(batteryLevel: real): void {
+        _queueAmbientEvent("low_battery", { batteryLevel: batteryLevel }, screenX() + screenW() * 0.5, screenY());
+    }
     function onWeatherChanged(oldKind: string, newKind: string): void {
-        Brain.onEvent(root, "weather_changed", { oldKind: oldKind, newKind: newKind }, Nav);
+        _queueAmbientEvent("weather_changed", { oldKind: oldKind, newKind: newKind }, null, null);
     }
     function onSolarTransitioned(oldPhase: string, newPhase: string): void {
-        Brain.onEvent(root, "solar_changed", { oldPhase: oldPhase, newPhase: newPhase }, Nav);
+        _queueAmbientEvent("solar_changed", { oldPhase: oldPhase, newPhase: newPhase }, null, null);
     }
-    function onSystemResumed(sleptSec: real): void { Brain.onEvent(root, "system_resumed", { sleptSec: sleptSec }, Nav); }
+    function onSystemResumed(sleptSec: real): void {
+        _queueAmbientEvent("system_resumed", { sleptSec: sleptSec }, null, null);
+    }
     function onToastArrived(appName: string, urgency: string, silent: bool): void {
-        Brain.onEvent(root, "toast_arrived", { appName: appName, urgency: urgency, silent: silent }, Nav);
+        _queueAmbientEvent("toast_arrived", { appName: appName, urgency: urgency, silent: silent }, screenX() + screenW() - 80, screenY() + 24);
     }
 
     function toggleRest(): void {

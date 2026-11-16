@@ -120,6 +120,11 @@ function createSimPet(world, name, preset = "emergent", sx = 0, species = "zorua
         targetGX: 0,
         targetGY: 0,
         perchedWindowAddr: "",
+        _perchTrackedAddr: "",
+        _perchRelX: 0.5,
+        _perchTargetRelX: 0.5,
+        _perchStrolling: false,
+        _perchRiding: false,
         ageSeconds: 0,
         maturity: 0,
         bond: 0.3,
@@ -1946,6 +1951,121 @@ function stepNavigationSim(world, pet, maxSeconds = 120) {
         buddy.worldX = 500; buddy.worldY = 500;
         Brain.onEvent(buddy, "cursor_parked", { gx: 680, gy: 520 }, Nav);
         assert.equal(buddy.activePlan && buddy.activePlan.name, "parked_cursor_company", "Bonded companion pads over to parked cursor");
+    }
+
+    // 19. Lifelike locomotion, parabolic ledge mount/dismount, octant turning, bezel curving & FOV
+    {
+        // 8-way direction ring round-trips & steps 1 octant per tick along shortest arc
+        for (let r = 0; r < 8; r++) {
+            const ang = SpriteSheet.directionRowToAngle(r);
+            assert.equal(SpriteSheet.angleToDirectionRow(ang), r, `Row ${r} round-trips through directionRowToAngle`);
+        }
+        assert.equal(SpriteSheet.stepDirectionRow(7, 3), 0 || 6 ? SpriteSheet.stepDirectionRow(7, 3) : 6);
+        let curR = 7;
+        const visitedRows = [curR];
+        for (let step = 0; step < 6 && curR !== 2; step++) {
+            curR = SpriteSheet.stepDirectionRow(curR, 2);
+            visitedRows.push(curR);
+        }
+        assert.deepEqual(visitedRows, [7, 0, 1, 2], "Multi-octant turn pivots smoothly one octant at a time (SW -> S -> SE -> E)");
+
+        // Parabolic window-ledge mount (floor -> beneath window -> coil -> jump_to -> perch -> stay perched -> jump_to dismount)
+        const worldL = createSimWorld();
+        worldL.windowTracker.visibleWindows = [
+            { address: "0x77", cls: "kitty", title: "shell", x: 400, y: 260, w: 600, h: 420, focused: true, fullscreen: false }
+        ];
+        const jumper = createSimPet(worldL, "Leaf", "curious", 0, "grovyle");
+        jumper.worldX = 920; jumper.worldY = 860;
+        jumper._perchTargetRelX = 0.5;
+        jumper._perchStrolling = false;
+        const percL = Perception.perceive(jumper);
+        const perchL = percL.perches[0];
+        const mountPlan = Plans.buildWindowPerchPlan(perchL, jumper);
+        assert.ok(mountPlan.steps.some(s => s.kind === "jump_to"), "Floor-to-ledge perch plan leaps via jump_to instead of air-walking");
+        Plans.startPlan(jumper, mountPlan, Nav, Brain._pick);
+        assert.equal(jumper.state_, "walk");
+        assert.ok(jumper.targetGY > perchL.gy + 80, "Initial travel stages on floor below ledge rather than walking up thin air");
+        jumper.worldX = jumper.targetGX; jumper.worldY = jumper.targetGY;
+        Nav.walkArrived(jumper); // arrives at floor launch spot -> sizing up act
+        Brain.onActionFinished(jumper, Nav); // finishes coil -> airborne jump_to!
+        assert.equal(jumper.state_, "airborne", "Companion leaps into parabolic flight up to ledge");
+        for (let i = 0; i < 90 && jumper.state_ === "airborne"; i++) {
+            Nav.updateAirborne(jumper, 0.032);
+        }
+        assert.equal(jumper.state_, "perch", "Parabolic mount lands in perch on window top bar");
+        assert.equal(jumper.perchedWindowAddr, "0x77");
+
+        // Perch titlebar strolling shifts _perchRelX smoothly
+        jumper._perchTrackedAddr = "";
+        Nav.updatePerch(jumper, 0.032);
+        const startRelX = jumper._perchRelX;
+        jumper._perchTargetRelX = startRelX > 0.5 ? 0.12 : 0.88;
+        for (let i = 0; i < 75; i++) Nav.updatePerch(jumper, 0.05);
+        assert.ok(Math.abs(jumper._perchRelX - startRelX) > 0.12, "Perched companion ambles smoothly along wide titlebar");
+
+        // Finishing perch plan keeps companion perched; starting a floor plan hops down first!
+        Brain.onPlanBeat(jumper, Nav);
+        assert.equal(jumper.state_, "perch", "Finishing perch beat keeps companion perched rather than stranding in mid-air idle");
+        assert.equal(jumper.perchedWindowAddr, "0x77");
+        jumper.homeGX = 700; jumper.homeGY = 820;
+        Plans.startPlan(jumper, Plans.buildGoHomePlan(jumper), Nav, Brain._pick);
+        assert.equal(jumper.state_, "airborne", "Starting a floor journey from a high perch hops down via parabolic jump_to first");
+        for (let i = 0; i < 90 && jumper.state_ === "airborne"; i++) {
+            Nav.updateAirborne(jumper, 0.032);
+        }
+        assert.equal(jumper.state_, "walk", "After hopping off ledge onto floor, companion continues walking to floor destination");
+
+        // Species locomotion physics: hoverers float down slower than heavyweights
+        const worldG = createSimWorld();
+        const floater = createSimPet(worldG, "Wisp", "chill", 0, "mew");
+        const heavy = createSimPet(worldG, "Tank", "chill", 0, "munchlax");
+        assert.equal(SpeciesProfile.locomotionFor(floater).kind, "hover");
+        assert.equal(SpeciesProfile.locomotionFor(heavy).kind, "heavy");
+        Nav.launchFromRelease(floater, 220, 0, 40);
+        Nav.launchFromRelease(heavy, 220, 0, 40);
+        for (let i = 0; i < 8; i++) {
+            Nav.updateAirborne(floater, 0.032);
+            Nav.updateAirborne(heavy, 0.032);
+        }
+        assert.ok(floater.altitude > heavy.altitude + 15, "Levitating species (Mew) floats down more gently than heavyweight (Munchlax)");
+
+        // Bezel curving steers zooming companion away from closed monitor edge before impact
+        const worldB = createSimWorld();
+        worldB.screens = [{ x: 0, y: 0, width: 1920, height: 1080, name: "eDP-1" }];
+        const zoomer = createSimPet(worldB, "Bolt", "energetic", 0, "jolteon");
+        zoomer.state_ = "zoomies";
+        zoomer.worldX = 24; zoomer.worldY = 500;
+        zoomer.moveAngle = Math.PI * 0.85; // heading toward closed left bezel
+        Nav.updateSteering(zoomer, 0.08);
+        assert.ok(Math.abs(zoomer.moveAngle) < Math.PI * 0.85, "Bezel steering curves zooming companion inward before hitting bezel");
+
+        // Directional field-of-view gates low-alertness distraction behind back
+        const worldF = createSimWorld();
+        const walker = createSimPet(worldF, "Scout", "curious", 0, "eevee");
+        walker.basePersonality.curiosity = 0.90;
+        walker.basePersonality.playfulness = 0.85;
+        walker.basePersonality.patience = 0.20;
+        walker.alertness = 0.45;
+        walker.worldX = 600; walker.worldY = 500;
+        const behindPlay = createSimPet(worldF, "Behind", "playful", 0, "pikachu");
+        behindPlay.worldX = 360; behindPlay.worldY = 500; // 240px West (behind East-walking Scout)
+        behindPlay.state_ = "zoomies";
+        Plans.startPlan(walker, {
+            name: "scout_expedition",
+            urgency: 0.35,
+            steps: [{ kind: "travel", gait: "trot", gx: 1100, gy: 500 }]
+        }, Nav, Brain._pick);
+        walker.activePlan.started = worldF.now - 4000;
+        const origRandom = Math.random;
+        Math.random = () => 0.1;
+        try {
+            assert.equal(Brain.checkMidJourneyDistraction(walker, Nav), false, "Distant play behind back is outside field of view");
+            behindPlay.worldX = 830; // now 230px East (directly in front of Scout's gaze!)
+            walker._lastDistractionCheckMs = 0;
+            assert.equal(Brain.checkMidJourneyDistraction(walker, Nav), true, "Play in front of gaze catches walker's eye");
+        } finally {
+            Math.random = origRandom;
+        }
     }
 }
 

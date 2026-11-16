@@ -2,6 +2,7 @@
 
 .import "../SpeciesProfile.js" as SpeciesProfile
 .import "Topology.js" as Topology
+.import "Util.js" as Util
 
 function buildSupervisePlan(perc, pet) {
     var cls = perc.win ? perc.win.cls : "workspace";
@@ -63,17 +64,37 @@ function buildInspectWindowPlan(perc, pet) {
     };
 }
 
+function _mountLedgeSteps(pet, perch, landGX, cls) {
+    if (pet && pet.perchedWindowAddr !== perch.address) {
+        var curGX = Util.petGX(pet), curGY = Util.petGY(pet);
+        if (curGY > perch.gy + 48) {
+            var steps = [];
+            var launchY = Math.min(curGY, perch.gy + 190);
+            var launchX = Util.clamp(curGX, landGX - 115, landGX + 115);
+            var launchPt = Util.clampToScreen(pet, launchX, launchY);
+            if (Math.hypot(launchPt.gx - curGX, launchPt.gy - curGY) > 36) {
+                steps.push({ kind: "travel", gait: "trot", label: "Trotting beneath " + cls, gx: launchPt.gx, gy: launchPt.gy });
+            }
+            steps.push({ kind: "act", label: "Sizing up " + cls + " ledge", states: ["lookUp", "nod"], facePoint: { gx: landGX, gy: perch.gy } });
+            steps.push({ kind: "jump_to", gx: landGX, gy: perch.gy, arcBoost: 44, label: "Leaping onto " + cls });
+            return steps;
+        }
+        if (curGY < perch.gy - 48) {
+            return [
+                { kind: "act", label: "Peering down at " + cls, states: ["nod"], facePoint: { gx: landGX, gy: perch.gy } },
+                { kind: "jump_to", gx: landGX, gy: perch.gy, arcBoost: 24, label: "Hopping down onto " + cls }
+            ];
+        }
+    }
+    return [{ kind: "travel", gait: "trot", label: "Heading to " + cls + " ledge", gx: landGX, gy: perch.gy }];
+}
+
 function buildWindowPerchPlan(perch, pet) {
     var cls = perch.cls || "window";
     var margin = Math.min(80, perch.w * 0.25);
     var px = perch.x + margin + Math.random() * Math.max(10, perch.w - margin * 2);
-    var steps = [
-        { kind: "travel", gait: "trot", label: "Heading to " + cls + " ledge", gx: px, gy: perch.gy }
-    ];
-    if (pet && SpeciesProfile.profileFor(SpeciesProfile.speciesOf(pet)).perchAffinity >= 1.1) {
-        steps.push({ kind: "act", label: "Hopping onto ledge", states: ["hop"] });
-    }
-    steps.push({ kind: "perch", label: "Perched on " + cls, durationMs: 45000 + Math.random() * 50000 });
+    var steps = _mountLedgeSteps(pet, perch, px, cls);
+    steps.push({ kind: "perch", windowAddr: perch.address, label: "Perched on " + cls, durationMs: 45000 + Math.random() * 50000 });
     return {
         name: "window_perch",
         label: "Perching on " + cls,
@@ -103,12 +124,17 @@ function buildLowerLedgePerchPlan(landAddr) {
     };
 }
 
-function buildLedgeStrollPlan(perch) {
+function buildLedgeStrollPlan(perch, pet) {
     var cls = perch.cls || "window";
     var goRight = Math.random() < 0.5;
     var startGX = goRight ? perch.leftGX : perch.rightGX;
     var cornerGX = goRight ? perch.rightGX : perch.leftGX;
     var cornerDirRow = goRight ? 1 : 7;
+    var steps = _mountLedgeSteps(pet, perch, startGX, cls).concat([
+        { kind: "perch", windowAddr: perch.address, durationMs: 7500, label: "Settling on ledge" },
+        { kind: "travel", gait: "amble", label: "Strolling across titlebar", gx: cornerGX, gy: perch.gy },
+        { kind: "perch", windowAddr: perch.address, dirRow: cornerDirRow, durationMs: 28000 + Math.random() * 24000, label: "Peering over corner" }
+    ]);
     return {
         name: "ledge_stroll",
         label: "Strolling " + cls + " Ledge",
@@ -118,19 +144,20 @@ function buildLedgeStrollPlan(perch) {
         urgency: 0.50,
         durationMs: 180000,
         thought: "Strolled along " + cls + "'s top ledge and peered down over the corner",
-        steps: [
-            { kind: "travel", gait: "trot", label: "Hopping onto " + cls, gx: startGX, gy: perch.gy },
-            { kind: "perch", windowAddr: perch.address, durationMs: 7500, label: "Settling on ledge" },
-            { kind: "travel", gait: "amble", label: "Strolling across titlebar", gx: cornerGX, gy: perch.gy },
-            { kind: "perch", windowAddr: perch.address, dirRow: cornerDirRow, durationMs: 28000 + Math.random() * 24000, label: "Peering over corner" }
-        ]
+        steps: steps
     };
 }
 
-function buildLedgeParkourPlan(fromPerch, jumpInfo) {
+function buildLedgeParkourPlan(fromPerch, jumpInfo, pet) {
     var fromCls = fromPerch.cls || "window";
     var toPerch = jumpInfo.perch;
     var toCls = toPerch.cls || "window";
+    var steps = _mountLedgeSteps(pet, fromPerch, jumpInfo.fromGX, fromCls).concat([
+        { kind: "perch", windowAddr: fromPerch.address, durationMs: 2400, label: "Sizing up the gap" },
+        { kind: "act", label: "Coiling to leap", states: ["nod"], facePoint: { gx: jumpInfo.toGX, gy: jumpInfo.toGY } },
+        { kind: "jump_to", gx: jumpInfo.toGX, gy: jumpInfo.toGY, arcBoost: 38, label: "Leaping across ledges!" },
+        { kind: "perch", windowAddr: toPerch.address, durationMs: 36000 + Math.random() * 28000, label: "Perched on " + toCls }
+    ]);
     return {
         name: "ledge_parkour",
         label: "Ledge Hop to " + toCls,
@@ -140,13 +167,7 @@ function buildLedgeParkourPlan(fromPerch, jumpInfo) {
         urgency: 0.56,
         durationMs: 180000,
         thought: "Leapt cleanly from " + fromCls + " across to " + toCls + "'s top ledge",
-        steps: [
-            { kind: "travel", gait: "trot", label: "Trotting to " + fromCls + " edge", gx: jumpInfo.fromGX, gy: fromPerch.gy },
-            { kind: "perch", windowAddr: fromPerch.address, durationMs: 2400, label: "Sizing up the gap" },
-            { kind: "act", label: "Coiling to leap", states: ["nod"], facePoint: { gx: jumpInfo.toGX, gy: jumpInfo.toGY } },
-            { kind: "jump_to", gx: jumpInfo.toGX, gy: jumpInfo.toGY, arcBoost: 38, label: "Leaping across ledges!" },
-            { kind: "perch", windowAddr: toPerch.address, durationMs: 36000 + Math.random() * 28000, label: "Perched on " + toCls }
-        ]
+        steps: steps
     };
 }
 

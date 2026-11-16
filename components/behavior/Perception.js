@@ -167,6 +167,7 @@ function perceive(pet) {
         onMyScreen: cgx >= sx && cgx < sx + sw && cgy >= sy && cgy < sy + sh,
         reachable: it.cursorKnown !== false && (reachable.length === 0 || cursorScr !== null),
         dist: Math.hypot(cgx - petGX, cgy - petGY),
+        inFov: Util.inFieldOfView(pet, cgx, cgy, 220),
         speed: it.cursorSpeed || 0,
         active: !!it.userActive,
         parked: !!it.cursorParked
@@ -206,6 +207,7 @@ function perceive(pet) {
             gx: ogx,
             gy: ogy,
             dist: dist,
+            inFov: Util.inFieldOfView(pet, ogx, ogy, 220),
             state: o.state_,
             activePlanName: oPlan,
             busySocial: busySocial,

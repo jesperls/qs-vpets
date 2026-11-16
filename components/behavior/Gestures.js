@@ -61,11 +61,15 @@ function ambientGlanceRow(pet, currentRow) {
 
 function fidget(pet) {
     var p = pet.personality;
-    if (Math.random() < 0.38 + p.patience * 0.14 + (1 - pet.alertness) * 0.14) return null;
+    var sp = SpeciesProfile.speciesOf(pet);
+    var hold0 = SpeciesProfile.standSpec(sp).mode === "hold0";
+    var skipChance = hold0
+        ? (0.28 + p.patience * 0.10 + (1 - pet.alertness) * 0.10)
+        : (0.38 + p.patience * 0.14 + (1 - pet.alertness) * 0.14);
+    if (Math.random() < skipChance) return null;
     var animData = pet.sprite ? pet.sprite._animData : null;
     if (!animData) return null;
 
-    var sp = SpeciesProfile.speciesOf(pet);
     var calm = SpeciesProfile.calmGesturesFor(pet);
     var actionMap = pet.sprite.actionMap || {};
     var pool = [];
@@ -85,6 +89,21 @@ function fidget(pet) {
 function idleMicroAction(pet) {
     var p = pet.personality;
     var perc = Perception.perceive(pet);
+    if (pet.state_ === "perch" && !pet._perchRiding && Math.random() < 0.36) {
+        var curRel = pet._perchRelX !== undefined ? pet._perchRelX : 0.5;
+        var nextRel;
+        if (perc.cursor.onMyScreen && perc.cursor.active && perc.win
+                && perc.win.address === pet.perchedWindowAddr && perc.win.w >= 280) {
+            var cRel = Math.max(0.08, Math.min(0.92, (perc.cursor.gx - perc.win.x) / Math.max(1, perc.win.w - (pet.width || 64))));
+            nextRel = curRel + Math.max(-0.34, Math.min(0.34, cRel - curRel));
+        } else {
+            var anchors = [0.10, 0.24, 0.50, 0.76, 0.90];
+            nextRel = anchors[Math.floor(Math.random() * anchors.length)];
+        }
+        if (Math.abs(nextRel - curRel) >= 0.12) {
+            return { kind: "ledge_shift", targetRelX: nextRel };
+        }
+    }
     if (pet.state_ === "idle" && perc.nearest && perc.nearest.sameScreen
             && (perc.nearest.dist < 115 || (perc.nearest.dist < 190 && perc.nearest.affinity < 0.38))
             && Math.random() < 0.58) {
