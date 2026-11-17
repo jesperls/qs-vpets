@@ -1,5 +1,5 @@
 {
-  description = "Interactive desktop virtual pets with emergent personalities for Hyprland/Wayland via Quickshell";
+  description = "Interactive pixel-art Pokémon companions for Wayland desktops via Quickshell";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";

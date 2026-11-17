@@ -58,7 +58,9 @@ shellPid() {
 	uid=$(id -u)
 	pid=$(pgrep -u "$uid" -f "(quickshell|(^|/)qs)( .*)? -p .*qs-vpets" 2>/dev/null | head -n 1 || true)
 	if [ -z "$pid" ]; then
-		pid=$(pgrep -u "$uid" -f "(quickshell|(^|/)qs)( .*)? -p ${shellRoot}" 2>/dev/null | head -n 1 || true)
+		local escapedRoot
+		escapedRoot=$(printf '%s' "$shellRoot" | sed 's/[][\\.^$*+?(){}|]/\\&/g')
+		pid=$(pgrep -u "$uid" -f "(quickshell|(^|/)qs)( .*)? -p ${escapedRoot}" 2>/dev/null | head -n 1 || true)
 	fi
 	if [ -n "$pid" ] && [ "$pid" != "$$" ] && kill -0 "$pid" 2>/dev/null; then
 		printf '%s' "$pid"
@@ -236,7 +238,7 @@ manageAutostart() {
 
 usage() {
 	cat <<-EOF
-		qs-vpets $version — interactive Pokémon companions for Wayland desktops
+		qs-vpets $version - interactive Pokémon companions for Wayland desktops
 
 		Usage: qs-vpets [COMMAND]
 

@@ -13,6 +13,7 @@ const Perception = loadQmlJs("components/behavior/Perception.js");
 const Social = loadQmlJs("components/behavior/Social.js");
 const Abilities = loadQmlJs("components/behavior/Abilities.js");
 const Plans = loadQmlJs("components/behavior/Plans.js");
+const Gestures = loadQmlJs("components/behavior/Gestures.js");
 const BrainCandidates = loadQmlJs("components/behavior/BrainCandidates.js");
 const Brain = loadQmlJs("components/behavior/Brain.js");
 const Sanctuary = loadQmlJs("components/behavior/Sanctuary.js");
@@ -634,7 +635,7 @@ function stepNavigationSim(world, pet, maxSeconds = 120) {
     zorua.alertness = 0.8;
     const forbiddenZoruaIdle = new Set(["idleOnce", "pose", "deepBreath", "sitDown", "lookUp"]);
     for (let i = 0; i < 300; i++) {
-        const f = Brain.fidget(zorua);
+        const f = Gestures.fidget(zorua);
         if (f !== null) {
             assert.ok(!forbiddenZoruaIdle.has(f), `Zorua idle fidget must be silent, got '${f}'`);
             assert.ok(f === "nod" || f === "rotate", `Zorua calm fidget is sniff/turn, got '${f}'`);
@@ -651,13 +652,13 @@ function stepNavigationSim(world, pet, maxSeconds = 120) {
         let activeCount = 0;
         let potterCount = 0;
         for (let i = 0; i < 200; i++) {
-            const f = Brain.fidget(pet);
+            const f = Gestures.fidget(pet);
             if (f !== null) {
                 activeCount++;
                 const resolved = SpriteSheet.resolveAnimName(f, anims, {}, species);
                 assert.ok(anims[resolved] && resolved !== "Hop", `${species} fidget '${f}' -> '${resolved}'`);
             }
-            const micro = Brain.idleMicroAction(pet);
+            const micro = Gestures.idleMicroAction(pet);
             if (micro && micro.kind === "potter") potterCount++;
         }
         assert.ok(activeCount >= 50 && activeCount <= 165, `${species} has calm non-zero fidgets (${activeCount}/200)`);
@@ -705,7 +706,7 @@ function stepNavigationSim(world, pet, maxSeconds = 120) {
     let nonZeroRows = 0;
     let row = 0;
     for (let i = 0; i < 30; i++) {
-        row = Brain.ambientGlanceRow(pik, row);
+        row = Gestures.ambientGlanceRow(pik, row);
         assert.ok(row >= 0 && row <= 7, `Glance row ${row} in 0..7`);
         if (row !== 0) nonZeroRows++;
     }
@@ -1002,7 +1003,7 @@ function stepNavigationSim(world, pet, maxSeconds = 120) {
         for (let round = 0; round < 3; round++) {
             riolu.worldX = 500; riolu.worldY = 500;
             ape.worldX = 610; ape.worldY = 515;
-            Plans.startPlan(riolu, Plans.buildSparBoutPlan(riolu, "Blaze", true, false), Nav, Brain._pick);
+            Plans.startPlan(riolu, Plans.buildSparBoutPlan(riolu, "Blaze", true, false), Nav, Gestures.pickAvailable);
             Brain.onActionFinished(riolu, Nav); // stance finishes -> spar_challenge -> Blaze joins as spar_partner!
             if (round === 0) {
                 assert.equal(ape.activePlan && ape.activePlan.name, "spar_partner", "Brawler companion accepts sparring challenge");
@@ -1039,7 +1040,7 @@ function stepNavigationSim(world, pet, maxSeconds = 120) {
             pup.worldX = 500; pup.worldY = 500;
             aloof.worldX = 585; aloof.worldY = 510;
             const oEntry = Perception.perceive(pup).nearest;
-            Plans.startPlan(pup, Plans.buildInvitePlayPlan(pup, oEntry), Nav, Brain._pick);
+            Plans.startPlan(pup, Plans.buildInvitePlayPlan(pup, oEntry), Nav, Gestures.pickAvailable);
             Brain.onActionFinished(pup, Nav); // finishes play-bow -> triggers play_bid -> Bastion ignores!
             assert.equal(pup.activePlan.bidOutcome, "ignored", "Aloof Ferrothorn gives eager Eevee the cold shoulder");
             assert.equal(aloof.activePlan && aloof.activePlan.name, "cold_shoulder", "Aloof Ferrothorn turns its back");
@@ -1065,7 +1066,7 @@ function stepNavigationSim(world, pet, maxSeconds = 120) {
         Memory.adjustRelation(pika, "Clover", 0.2, 0.2);
         Memory.adjustRelation(cat, "Volt", 0.2, 0.2);
 
-        Plans.startPlan(pika, Plans.buildPlayTagPlan({ name: "Clover" }, true, pika), Nav, Brain._pick);
+        Plans.startPlan(pika, Plans.buildPlayTagPlan({ name: "Clover" }, true, pika), Nav, Gestures.pickAvailable);
         Brain.onActionFinished(pika, Nav); // triggers chase -> Clover enters flee_tag with reverse_chase!
         assert.equal(cat.activePlan.name, "flee_tag");
         // Advance Clover through leg 1 & leg 2 -> whirl around -> reverse_chase!
@@ -1096,7 +1097,7 @@ function stepNavigationSim(world, pet, maxSeconds = 120) {
         charizard.basePersonality.patience = 0.28;
 
         const targetEntry = Perception.perceive(gengar).others.find(o => o.name === "Pyre");
-        Plans.startPlan(gengar, Plans.buildSquabblePlan(gengar, targetEntry), Nav, Brain._pick);
+        Plans.startPlan(gengar, Plans.buildSquabblePlan(gengar, targetEntry), Nav, Gestures.pickAvailable);
         Brain.onActionFinished(gengar, Nav); // bristle finishes -> squabble fires -> Pyre stands ground AND Luna intervenes!
         assert.equal(charizard.activePlan && charizard.activePlan.name, "squabble_reply", "Bold rival stands ground in squabble");
         assert.equal(umbreon.activePlan && umbreon.activePlan.name, "peacekeeper", "Nearby Guardian Umbreon steps in as Peacekeeper");
@@ -1158,10 +1159,10 @@ function stepNavigationSim(world, pet, maxSeconds = 120) {
     latias.playDrive = 0.85;
     latias.alertness = 0.80;
     const lPerc = Perception.perceive(latias);
-    const lCands = Abilities.evaluateCandidates(latias, lPerc, Nav, Brain._pick, { moodMult: 1, active: 1 });
+    const lCands = Abilities.evaluateCandidates(latias, lPerc, Nav, Gestures.pickAvailable, { moodMult: 1, active: 1 });
     const lPrank = lCands.find(c => c.name === "illusion_prank");
     assert.ok(lPrank, "Latias evaluates illusion_prank via pluggable illusion ability");
-    Plans.startPlan(latias, lPrank.plan, Nav, Brain._pick);
+    Plans.startPlan(latias, lPrank.plan, Nav, Gestures.pickAvailable);
     assert.equal(latias.illusionSpecies, "spheal", "Latias refracts into Spheal form during prank");
     Plans.clearPlan(latias);
     assert.equal(latias.illusionSpecies, "", "Clearing Latias plan cleanly restores true form");
@@ -1175,20 +1176,20 @@ function stepNavigationSim(world, pet, maxSeconds = 120) {
     squirtle.worldX = 620; squirtle.worldY = 510; squirtle.mood = 0.45; squirtle.comfortDrive = 0.40;
     espurr.worldX = 300; espurr.worldY = 350; espurr.exploreDrive = 0.80; espurr.playDrive = 0.65;
 
-    const fCands = Abilities.evaluateCandidates(flareon, Perception.perceive(flareon), Nav, Brain._pick, { moodMult: 1, active: 1 });
+    const fCands = Abilities.evaluateCandidates(flareon, Perception.perceive(flareon), Nav, Gestures.pickAvailable, { moodMult: 1, active: 1 });
     const bask = fCands.find(c => c.name === "hearth_bask");
     assert.ok(bask, "Flareon generates hearth_bask ability plan");
-    Plans.startPlan(flareon, bask.plan, Nav, Brain._pick);
+    Plans.startPlan(flareon, bask.plan, Nav, Gestures.pickAvailable);
     Brain.onActionFinished(flareon, Nav); // executes warmth_aura -> loaf_watch
     assert.ok(squirtle.mood > 0.45 && squirtle.comfortDrive < 0.40, "Nearby Squirtle receives cozy warmth_aura boost from Flareon");
     Brain.onPlanBeat(flareon, Nav);
     assert.ok(flareon.episodes.some(e => e.type === "hearth_bask"), "Records hearth_bask episode on completion");
 
-    const eCands = Abilities.evaluateCandidates(espurr, Perception.perceive(espurr), Nav, Brain._pick, { moodMult: 1, active: 1 });
+    const eCands = Abilities.evaluateCandidates(espurr, Perception.perceive(espurr), Nav, Gestures.pickAvailable, { moodMult: 1, active: 1 });
     const blink = eCands.find(c => c.name === "phase_jaunt");
     assert.ok(blink, "Espurr generates phase_jaunt ability plan");
     const oldX = espurr.worldX, oldY = espurr.worldY;
-    Plans.startPlan(espurr, blink.plan, Nav, Brain._pick);
+    Plans.startPlan(espurr, blink.plan, Nav, Gestures.pickAvailable);
     Brain.onActionFinished(espurr, Nav); // executes phase_hop -> arrival gesture
     assert.ok(espurr.worldX !== oldX || espurr.worldY !== oldY, "Psychic Blink relocates Espurr instantaneously");
 
@@ -1227,7 +1228,7 @@ function stepNavigationSim(world, pet, maxSeconds = 120) {
         assert.equal(Social.isPeerLookingAt(pikachu, zorua), false, "Target facing East is not looking at stalker to the West");
 
         const targetEntry = Perception.perceive(zorua).nearest;
-        Plans.startPlan(zorua, Plans.buildSneakBoopPlan(zorua, targetEntry), Nav, Brain._pick);
+        Plans.startPlan(zorua, Plans.buildSneakBoopPlan(zorua, targetEntry), Nav, Gestures.pickAvailable);
         assert.equal(zorua.activePlan.name, "sneak_boop");
         assert.equal(zorua.onJourney, true, "Stalker begins creeping while target looks away");
 
@@ -1261,7 +1262,7 @@ function stepNavigationSim(world, pet, maxSeconds = 120) {
         Memory.relationWith(lucario, "Pip").affinity = 0.62;
         Memory.relationWith(eevee, "Kaze").affinity = 0.65;
 
-        Plans.startPlan(lucario, Plans.buildMentorPatrolPlan(lucario, Perception.perceive(lucario), "Pip"), Nav, Brain._pick);
+        Plans.startPlan(lucario, Plans.buildMentorPatrolPlan(lucario, Perception.perceive(lucario), "Pip"), Nav, Gestures.pickAvailable);
         Brain.onActionFinished(lucario, Nav); // nod -> mentor_invite -> Pip joins copycat_trail!
         assert.equal(eevee.activePlan && eevee.activePlan.name, "copycat_trail", "Nearby hatchling joins Mentor Patrol in copycat_trail");
         lucario.worldX = 820; lucario.worldY = 600;
@@ -1306,9 +1307,9 @@ function stepNavigationSim(world, pet, maxSeconds = 120) {
         const b = createSimPet(world, "Mochi", "playful", 0, "zorua");
         a.worldX = 500; a.worldY = 520;
         b.worldX = 640; b.worldY = 520;
-        Plans.startPlan(a, Plans.buildWelcomeFriendPlan(a, b), Nav, Brain._pick);
+        Plans.startPlan(a, Plans.buildWelcomeFriendPlan(a, b), Nav, Gestures.pickAvailable);
         assert.equal(a.activePlan.name, "welcome_friend");
-        Plans.startPlan(b, Plans.buildJointRetirePlan(b, a, Perception.perceive(b), false), Nav, Brain._pick);
+        Plans.startPlan(b, Plans.buildJointRetirePlan(b, a, Perception.perceive(b), false), Nav, Gestures.pickAvailable);
         assert.equal(b.activePlan.name, "joint_retire");
     }
 
@@ -1344,7 +1345,7 @@ function stepNavigationSim(world, pet, maxSeconds = 120) {
 
         // Ballistic jump_to parkour arc lands cleanly at target ledge
         const p2 = p1.adjacentLedges[0];
-        Plans.startPlan(cat, Plans.buildLedgeParkourPlan(p1, p2, cat), Nav, Brain._pick);
+        Plans.startPlan(cat, Plans.buildLedgeParkourPlan(p1, p2, cat), Nav, Gestures.pickAvailable);
         cat.worldX = cat.targetGX; cat.worldY = cat.targetGY;
         Nav.walkArrived(cat); // arrives at launch corner -> perch (sizing up gap)
         Brain.onPlanBeat(cat, Nav); // finishes sizing up -> act ("nod" coiling to leap)
@@ -1402,7 +1403,7 @@ function stepNavigationSim(world, pet, maxSeconds = 120) {
         vulpix.worldX = 900; vulpix.worldY = 700;
         vulpix.restDrive = 0.45;
         const vPerc = Perception.perceive(vulpix);
-        const vCands = Abilities.evaluateCandidates(vulpix, vPerc, Nav, Brain._pick, { moodMult: 1, active: 1 });
+        const vCands = Abilities.evaluateCandidates(vulpix, vPerc, Nav, Gestures.pickAvailable, { moodMult: 1, active: 1 });
         const bask = vCands.find(c => c.name === "hearth_bask");
         assert.ok(bask && bask.plan.steps[0].kind === "travel", "Thermal warmth draws Hearth companion over to warm active window");
 
@@ -1433,7 +1434,7 @@ function stepNavigationSim(world, pet, maxSeconds = 120) {
             }
         }
         // Starting a mic call mid-zoomies immediately calms down to idle
-        Plans.startPlan(z, { name: "zoomies", steps: [{ kind: "zoomies" }] }, Nav, Brain._pick);
+        Plans.startPlan(z, { name: "zoomies", steps: [{ kind: "zoomies" }] }, Nav, Gestures.pickAvailable);
         Brain.onEvent(z, "mic_changed", { active: true }, Nav);
         assert.equal(z.activePlan, null, "Active zoomies politely abort when microphone goes live");
         assert.equal(z.state_, "idle");
@@ -1458,11 +1459,11 @@ function stepNavigationSim(world, pet, maxSeconds = 120) {
         world.systemMonitor.solarPhase = "dusk";
         const mudkip = createSimPet(world, "Splash", "playful", 0, "mudkip");
         mudkip.playDrive = 0.42;
-        const mCands = Abilities.evaluateCandidates(mudkip, Perception.perceive(mudkip), Nav, Brain._pick, { moodMult: 1, active: 1 });
+        const mCands = Abilities.evaluateCandidates(mudkip, Perception.perceive(mudkip), Nav, Gestures.pickAvailable, { moodMult: 1, active: 1 });
         assert.ok(mCands.some(c => c.name === "puddle_spin"), "Rain unlocks Tide Splash puddle_spin at lower play threshold");
 
         const umbreon = createSimPet(world, "Dusk", "nocturnal", 0, "umbreon");
-        const uCands = Abilities.evaluateCandidates(umbreon, Perception.perceive(umbreon), Nav, Brain._pick, { moodMult: 1, active: 1 });
+        const uCands = Abilities.evaluateCandidates(umbreon, Perception.perceive(umbreon), Nav, Gestures.pickAvailable, { moodMult: 1, active: 1 });
         assert.ok(uCands.some(c => c.name === "lunar_vigil"), "Dusk solar phase activates Lunar Pulse vigil before midnight");
 
         assert.ok(
@@ -1609,7 +1610,7 @@ function stepNavigationSim(world, pet, maxSeconds = 120) {
         sleeper.basePersonality.curiosity = 0.1;
         sleeper.basePersonality.playfulness = 0.1;
         sleeper.basePersonality.sleepiness = 0.9;
-        Plans.startPlan(sleeper, Plans.buildScoutPlan({ gx: 900, gy: 600, otherScreen: false }), Nav, Brain._pick);
+        Plans.startPlan(sleeper, Plans.buildScoutPlan({ gx: 900, gy: 600, otherScreen: false }), Nav, Gestures.pickAvailable);
         assert.equal(Plans.hasActivePlan(sleeper), true);
         for (let i = 0; i < 10; i++) {
             Brain.onEvent(sleeper, "user_idle", null, Nav);
@@ -1622,7 +1623,7 @@ function stepNavigationSim(world, pet, maxSeconds = 120) {
             this._retiringToPen = false;
             retireCancelled = true;
         };
-        Plans.startPlan(sleeper, Plans.buildRetirePlan(sleeper, Perception.perceive(sleeper)), Nav, Brain._pick);
+        Plans.startPlan(sleeper, Plans.buildRetirePlan(sleeper, Perception.perceive(sleeper)), Nav, Gestures.pickAvailable);
         assert.equal(sleeper._retiringToPen, true, "retire_to_pen keeps _retiringToPen armed");
         Brain.onEvent(sleeper, "petted", null, Nav);
         assert.equal(retireCancelled, true, "Petting a retiring companion cancels _retiringToPen");
@@ -1771,7 +1772,7 @@ function stepNavigationSim(world, pet, maxSeconds = 120) {
         world.mediaTracker.isPlaying = true;
         world.mediaTracker.trackTitle = "Lo-Fi Rain";
         const dancer = createSimPet(world, "Tempo", "playful", 0, "meloetta");
-        Plans.startPlan(dancer, Plans.buildMusicGroovePlan(Perception.perceive(dancer), "", dancer), Nav, Brain._pick);
+        Plans.startPlan(dancer, Plans.buildMusicGroovePlan(Perception.perceive(dancer), "", dancer), Nav, Gestures.pickAvailable);
         assert.equal(dancer.activePlan.name, "music_groove");
         world.mediaTracker.isPlaying = false;
         Brain.onEvent(dancer, "music_paused", null, Nav);
@@ -1855,7 +1856,7 @@ function stepNavigationSim(world, pet, maxSeconds = 120) {
         playerA.worldX = 620; playerA.worldY = 520;
         playerA.state_ = "zoomies";
 
-        Plans.startPlan(wanderer, Plans.buildGoHomePlan(wanderer), Nav, Brain._pick);
+        Plans.startPlan(wanderer, Plans.buildGoHomePlan(wanderer), Nav, Gestures.pickAvailable);
         wanderer.activePlan.urgency = 0.35;
         wanderer.activePlan.started = world.now - 4000;
         const origRnd = Math.random;
@@ -1910,7 +1911,7 @@ function stepNavigationSim(world, pet, maxSeconds = 120) {
             sly.restDrive = 0.45;
             const perc = Perception.perceive(sly);
             assert.ok(perc.warmSpot && perc.warmSpot.petName === "Flare", "Perception detects freshly vacated warm spot");
-            Plans.startPlan(sly, Plans.buildStealWarmSpotPlan(perc.warmSpot, sly), Nav, Brain._pick);
+            Plans.startPlan(sly, Plans.buildStealWarmSpotPlan(perc.warmSpot, sly), Nav, Gestures.pickAvailable);
             sly.worldX = sly.targetGX; sly.worldY = sly.targetGY;
             Nav.walkArrived(sly); // head/nod sniff
             Brain.onActionFinished(sly, Nav); // settles into laying!
@@ -1983,7 +1984,7 @@ function stepNavigationSim(world, pet, maxSeconds = 120) {
         const perchL = percL.perches[0];
         const mountPlan = Plans.buildWindowPerchPlan(perchL, jumper);
         assert.ok(mountPlan.steps.some(s => s.kind === "jump_to"), "Floor-to-ledge perch plan leaps via jump_to instead of air-walking");
-        Plans.startPlan(jumper, mountPlan, Nav, Brain._pick);
+        Plans.startPlan(jumper, mountPlan, Nav, Gestures.pickAvailable);
         assert.equal(jumper.state_, "walk");
         assert.ok(jumper.targetGY > perchL.gy + 80, "Initial travel stages on floor below ledge rather than walking up thin air");
         jumper.worldX = jumper.targetGX; jumper.worldY = jumper.targetGY;
@@ -2009,7 +2010,7 @@ function stepNavigationSim(world, pet, maxSeconds = 120) {
         assert.equal(jumper.state_, "perch", "Finishing perch beat keeps companion perched rather than stranding in mid-air idle");
         assert.equal(jumper.perchedWindowAddr, "0x77");
         jumper.homeGX = 700; jumper.homeGY = 820;
-        Plans.startPlan(jumper, Plans.buildGoHomePlan(jumper), Nav, Brain._pick);
+        Plans.startPlan(jumper, Plans.buildGoHomePlan(jumper), Nav, Gestures.pickAvailable);
         assert.equal(jumper.state_, "airborne", "Starting a floor journey from a high perch hops down via parabolic jump_to first");
         for (let i = 0; i < 90 && jumper.state_ === "airborne"; i++) {
             Nav.updateAirborne(jumper, 0.032);
@@ -2055,7 +2056,7 @@ function stepNavigationSim(world, pet, maxSeconds = 120) {
             name: "scout_expedition",
             urgency: 0.35,
             steps: [{ kind: "travel", gait: "trot", gx: 1100, gy: 500 }]
-        }, Nav, Brain._pick);
+        }, Nav, Gestures.pickAvailable);
         walker.activePlan.started = worldF.now - 4000;
         const origRandom = Math.random;
         Math.random = () => 0.1;
@@ -2079,7 +2080,7 @@ function stepNavigationSim(world, pet, maxSeconds = 120) {
         ];
         const percher = createSimPet(worldJ, "Hop", "curious", 0, "eevee");
         percher.worldX = 300; percher.worldY = 700;
-        const remoteCands = BrainCandidates.scoreCandidates(percher, Perception.perceive(percher), Nav, Brain._pick);
+        const remoteCands = BrainCandidates.scoreCandidates(percher, Perception.perceive(percher), Nav, Gestures.pickAvailable);
         assert.equal(remoteCands.some(c => c.name === "window_perch"), false, "Never attempts to jump-perch onto a window on another monitor");
 
         worldJ.windowTracker.visibleWindows = [
@@ -2093,7 +2094,7 @@ function stepNavigationSim(world, pet, maxSeconds = 120) {
         // Frame-by-frame 16ms hop & perch continuity check (zero pop on liftoff, zero snap on landing/perch)
         percher.worldX = 1480;
         percher.worldY = 580 - percher.height * 0.85 + 70;
-        Plans.startPlan(percher, Plans.buildWindowPerchPlan(Perception.perceive(percher).perches[0], percher), Nav, Brain._pick);
+        Plans.startPlan(percher, Plans.buildWindowPerchPlan(Perception.perceive(percher).perches[0], percher), Nav, Gestures.pickAvailable);
         if (percher.state_ === "walk") {
             percher.worldX = percher.targetGX;
             percher.worldY = percher.targetGY;
@@ -2147,6 +2148,134 @@ function stepNavigationSim(world, pet, maxSeconds = 120) {
         Nav.updatePerch(percher, 0.016);
         assert.equal(percher.state_, "airborne", "Companion hops down cleanly when perched window is pushed to top bezel");
     }
+}
+
+// 19. Test Interpreted Pokémon UI Formatting & Narration Layer
+{
+    const Fmt = loadQmlJs("components/ui/CompanionFormat.js");
+    assert.equal(Fmt.friendshipInfo(0.08).title, "Newcomer");
+    assert.equal(Fmt.friendshipInfo(0.62).full, 4);
+    assert.equal(Fmt.friendshipInfo(0.90).title, "Best Friends");
+
+    assert.equal(Fmt.bellyWord({ satiety: 0.25 }).notable, true);
+    assert.equal(Fmt.bellyWord({ satiety: 0.80 }).notable, false);
+    assert.equal(Fmt.energyWord({ restDrive: 0.2 }, "deepsleep").label, "Dreaming");
+
+    const hungryLine = Fmt.dialogueLine("Clover", { satiety: 0.24, penState: "idle" }, false);
+    assert.ok(hungryLine.includes("Clover") && hungryLine.includes("peckish"), "Camp hunger dialogue reads naturally");
+    const perchLine = Fmt.dialogueLine("Lokke", { state_: "perch", satiety: 0.7 }, true);
+    assert.ok(perchLine.includes("ledge"), "Roaming perch dialogue translates state into Pokémon narration");
+
+    const nat = Fmt.natureProfile(
+        { playfulness: 0.82, energy: 0.78, sociability: 0.68 },
+        { playfulness: 0.80, energy: 0.76, sociability: 0.50 },
+        90000
+    );
+    assert.equal(nat.title, "Jolly, Spirited Nature");
+    assert.ok(nat.memo.includes("affectionate"), "Nature memo reflects emergent personality growth without raw numbers");
+    assert.equal(Fmt.friendlyRelationshipPhrase({ affinity: 0.84, familiarity: 0.7, napCount: 3 }), "Favorite nap buddy");
+    assert.ok(Fmt.biomePalette("Moonlit Woods", true).turf.startsWith("#"));
+    assert.ok(Fmt.biomePalette("Moonlit Woods", true).accent.startsWith("#"));
+    assert.equal(Fmt.biomePalette("Moonlit Woods", false).backdrop, "woods.png");
+    assert.equal(Fmt.biomePalette("Tidepool Cove", false).backdrop, "tidepool.png");
+    assert.equal(Fmt.campAreaName("shore"), "Treasure Shore");
+    assert.equal(Fmt.campAreaName("spring"), "Luminous Spring");
+    const campActLine = Fmt.dialogueLine("Zorua", { penState: "idle", sanctuaryActivity: "Tending a warm hearth spot in Moonlit Woods" }, false);
+    assert.equal(campActLine, "Zorua is tending a warm hearth spot in Moonlit Woods.");
+    const emptyActLine = Fmt.dialogueLine("Zorua", { penState: "idle", sanctuaryActivity: "" }, false);
+    assert.ok(emptyActLine.includes("gentle breeze"), "Empty camp activity falls back to clearing breeze narration");
+}
+
+// 20. Test Peer Mutation Helpers, Sanctuary Care Bonding, Tag Bid Drain & Multi-Monitor Sway Workspace Count
+{
+    const Sanctuary = loadQmlJs("components/behavior/Sanctuary.js");
+    const CompositorWindows = loadQmlJs("components/behavior/CompositorWindows.js");
+
+    // Memory peer mutation helpers
+    const peerTarget = {
+        relationships: {
+            Fox: { affinity: 0.72, familiarity: 0.5, species: "eevee", napCount: 2 }
+        },
+        episodes: [
+            { type: "social_nap", withPet: "Fox", time: 1000 },
+            { type: "petted", time: 1200 }
+        ]
+    };
+    assert.equal(Memory.rekeyPeer(peerTarget, "Fox", "Clover"), true);
+    assert.equal(peerTarget.relationships.Fox, undefined);
+    assert.equal(peerTarget.relationships.Clover.affinity, 0.72);
+    assert.equal(peerTarget.episodes[0].withPet, "Clover");
+    assert.equal(Memory.updatePeerSpecies(peerTarget, "Clover", "leafeon"), true);
+    assert.equal(peerTarget.relationships.Clover.species, "leafeon");
+    assert.equal(Memory.removePeer(peerTarget, "Clover"), true);
+    assert.equal(peerTarget.relationships.Clover, undefined);
+
+    // Sanctuary pen care increments bond and leaves resting penState = "idle"
+    const res = Sanctuary.createDefaultResident({ id: "p1", name: "Pip", sprite: "piplup", personality: "playful" }, 10000);
+    const initialBond = res.bond;
+    Sanctuary.feedInPen(res);
+    assert.ok(res.bond > initialBond, "feedInPen strengthens bond");
+    assert.equal(res.penState, "idle", "feedInPen leaves penState in resting idle");
+    const postFeedBond = res.bond;
+    Sanctuary.playInPen(res);
+    assert.ok(res.bond > postFeedBond, "playInPen strengthens bond");
+    assert.equal(res.penState, "idle", "playInPen leaves penState in resting idle");
+
+    // Tag play_bid does not prematurely exhaust playDrive before follow-up pet_chase
+    const worldT = createSimWorld();
+    const tagger = createSimPet(worldT, "Shinx", "playful", 0, "shinx");
+    const runner = createSimPet(worldT, "Eevee", "playful", 0, "eevee");
+    tagger.worldX = 400;
+    tagger.worldY = 500;
+    runner.worldX = 470;
+    runner.worldY = 500;
+    runner.playDrive = 0.22;
+    runner.restDrive = 0.15;
+    Brain.onEvent(runner, "pet_play_bid", { fromPet: tagger, mode: "tag" }, Nav);
+    assert.ok(runner.playDrive > 0.15, "Tag play_bid preserves playDrive for incoming chase");
+    advanceTime(worldT, 2);
+    Brain.onEvent(runner, "pet_chase", { fromPet: tagger }, Nav);
+    assert.equal(runner.activePlan && runner.activePlan.name, "flee_tag", "Runner accepts follow-up tag chase");
+
+    // Multi-monitor Sway tree with empty focused workspace reports windowCount = 0
+    const swayTree = {
+        type: "root",
+        nodes: [
+            {
+                type: "output",
+                name: "DP-1",
+                current_workspace: "1",
+                nodes: [
+                    {
+                        type: "workspace",
+                        name: "1",
+                        focused: false,
+                        nodes: [
+                            { id: 101, type: "con", name: "Firefox", app_id: "firefox", focused: false, rect: { x: 0, y: 0, width: 1920, height: 1080 }, nodes: [], floating_nodes: [] }
+                        ],
+                        floating_nodes: []
+                    }
+                ]
+            },
+            {
+                type: "output",
+                name: "DP-2",
+                current_workspace: "2",
+                nodes: [
+                    {
+                        type: "workspace",
+                        name: "2",
+                        focused: true,
+                        nodes: [],
+                        floating_nodes: []
+                    }
+                ]
+            }
+        ]
+    };
+    const parsedSway = CompositorWindows.parseSwayTree(JSON.stringify(swayTree));
+    assert.equal(parsedSway.wins.length, 1, "Visible window on DP-1 is still tracked");
+    assert.equal(parsedSway.windowCount, 0, "Focused empty workspace on DP-2 reports windowCount = 0");
 }
 
 console.log("All cognitive, developmental, social, Sanctuary rotation, physics, multi-monitor, species ethology, modular ability, and persistence tests passed!");

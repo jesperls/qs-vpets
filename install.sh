@@ -5,7 +5,11 @@ repo="${QS_VPETS_REPO:-jesperls/qs-vpets}"
 branch="${QS_VPETS_BRANCH:-main}"
 prefix="${QS_VPETS_PREFIX:-$HOME/.local}"
 binDir="$prefix/bin"
-dataDir="${XDG_DATA_HOME:-$prefix/share}"
+if [ -n "${QS_VPETS_PREFIX:-}" ]; then
+	dataDir="${QS_VPETS_DATA_DIR:-$prefix/share}"
+else
+	dataDir="${QS_VPETS_DATA_DIR:-${XDG_DATA_HOME:-$prefix/share}}"
+fi
 optDir="${QS_VPETS_OPT_DIR:-$prefix/opt/qs-vpets}"
 
 mode="auto"
@@ -271,7 +275,7 @@ if hasQuickshell; then
 fi
 
 if isImmutableOs; then
-	log "Detected immutable OS (SteamOS / Atomic) — using self-contained user-space portable bundle..."
+	log "Detected immutable OS (SteamOS / Atomic): using self-contained user-space portable bundle..."
 	tryInstallPortable || die "portable release bundle not yet published at https://github.com/${repo}/releases (or build locally with 'nix build .#portable')"
 	exit 0
 fi

@@ -32,10 +32,6 @@ function distToGlobal(pet, gx, gy) {
     return Math.hypot(globalX(pet) - gx, globalY(pet) - gy);
 }
 
-function inHomeArea(pet) {
-    return distToGlobal(pet, pet.homeGX, pet.homeGY) < pet.homeRadius;
-}
-
 function _setAngle(pet, a) {
     pet.moveAngle = a;
     pet.facingRight = Math.cos(a) >= 0;
@@ -205,9 +201,6 @@ function launchFromRelease(pet, vx, vy, initialAltitude) {
     pet.onJourney = false;
     if (Math.abs(pet.vx) > 10) pet.facingRight = pet.vx >= 0;
     pet.enterState("airborne");
-    if (capped >= 360 && pet.petManager && pet.petManager.notifyPetTossed) {
-        pet.petManager.notifyPetTossed(pet, capped);
-    }
 }
 
 function updateAirborne(pet, dt) {

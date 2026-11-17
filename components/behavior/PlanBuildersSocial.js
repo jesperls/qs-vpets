@@ -16,25 +16,6 @@ function _naturalOffsetFrom(pet, other, radius) {
     };
 }
 
-function buildShareStoryPlan(other, topic, pet) {
-    var off = (pet && other && other.pet) ? _naturalOffsetFrom(pet, other.pet, 78) : { offsetX: 68, offsetY: 18 };
-    return {
-        name: "share_story",
-        label: "Checking In with " + other.name,
-        reason: "Sharing excitement with " + other.name,
-        otherName: other.name,
-        urgency: 0.55,
-        durationMs: 55000,
-        thought: "Trotted over to share news with " + other.name,
-        steps: [
-            { kind: "travel", gait: "trot", label: "Trotting near " + other.name, dynamic: "other_pet", offsetX: off.offsetX, offsetY: off.offsetY },
-            { kind: "social", label: "Greeting", interaction: "story", topic: topic },
-            { kind: "act", label: "Excited gesture", states: SpeciesProfile.showOffMovesFor(pet), faceOther: true },
-            { kind: "wander_apart", dist: 135, gait: "amble", label: "Strolling onward" }
-        ]
-    };
-}
-
 function buildInvitePlayPlan(pet, other) {
     var steps = [];
     if (other.dist > 115) {
@@ -211,7 +192,7 @@ function buildReverseFleePlan(pet, counterChaser) {
         otherName: counterChaser.petData.name,
         urgency: 0.82,
         durationMs: 42000,
-        thought: counterChaser.petData.name + " tagged back — darting away!",
+        thought: counterChaser.petData.name + " tagged back, darting away!",
         steps: [
             { kind: "travel", gait: "scamper", label: "Darting away!", gx: tx, gy: ty },
             { kind: "act", label: "Playful spin", states: SpeciesProfile.dodgeMovesFor(pet), faceOther: true },
@@ -553,7 +534,7 @@ function buildTimidHideBehindPlan(pet, guardian, threatGX, threatGY) {
     return {
         name: "timid_hide",
         label: "Tucking Behind " + gName,
-        reason: "Startled — scooting behind " + gName + " for reassurance",
+        reason: "Startled, scooting behind " + gName + " for reassurance",
         otherName: gName,
         urgency: 0.76,
         durationMs: 26000,

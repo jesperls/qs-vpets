@@ -1,0 +1,11 @@
+Sanctuary Friend Area Tilesets, Skies, Overworld Objects & Item Sprites
+=======================================================================
+
+Sources:
+- PMDCollab RawAsset (https://github.com/PMDCollab/RawAsset)
+- Pokémon Mystery Dungeon: Origins / DumpAsset by Audino (https://github.com/audinowho/DumpAsset)
+  Permission granted to copy, redistribute, and modify with attribution.
+
+Original pixel art & tilesets:
+- Chunsoft / Spike Chunsoft (Pokémon Mystery Dungeon: Explorers of Time, Darkness & Sky; Red & Blue Rescue Team)
+- Audino & PMDCollab contributors (BaseCamp, ForestCamp, CliffCamp, LuminousSpring, overworld camp objects, items, and shadow sheets)

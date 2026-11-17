@@ -72,6 +72,7 @@ function createSoakWorld() {
                     petName: pet.petData.name,
                     gx,
                     gy,
+                    time: world.now,
                     until: world.now + 75000
                 });
             },

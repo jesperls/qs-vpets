@@ -11,6 +11,54 @@
 var BIOME_LIST = Biomes.BIOME_LIST;
 var BIOME_MAP = Biomes.BIOME_MAP;
 var KIN_GROUPS = Biomes.KIN_GROUPS;
+var DEFAULT_SPECIES = "zorua";
+
+var LOCOMOTION_KINDS = {
+    graceful: {
+        kind: "graceful",
+        accelMult: 1.00,
+        turnMult: 1.00,
+        gravityMult: 1.00,
+        bounceMult: 0.40,
+        landSquashX: 1.20,
+        landSquashY: 0.80,
+        hoverBob: 0,
+        scamperHop: 1.0
+    },
+    hover: {
+        kind: "hover",
+        accelMult: 0.86,
+        turnMult: 1.24,
+        gravityMult: 0.56,
+        bounceMult: 0.22,
+        landSquashX: 1.08,
+        landSquashY: 0.94,
+        hoverBob: 2.2,
+        scamperHop: 0
+    },
+    heavy: {
+        kind: "heavy",
+        accelMult: 0.62,
+        turnMult: 0.68,
+        gravityMult: 1.18,
+        bounceMult: 0.34,
+        landSquashX: 1.28,
+        landSquashY: 0.73,
+        hoverBob: 0,
+        scamperHop: 0
+    },
+    springer: {
+        kind: "springer",
+        accelMult: 1.36,
+        turnMult: 1.34,
+        gravityMult: 0.96,
+        bounceMult: 0.46,
+        landSquashX: 1.16,
+        landSquashY: 0.85,
+        hoverBob: 0,
+        scamperHop: 2.2
+    }
+};
 
 var DEFAULT_PROFILE = {
     id: "companion",
@@ -19,9 +67,12 @@ var DEFAULT_PROFILE = {
     biome: "Sunlit Meadow",
     kinGroup: "",
     abilities: [],
+    evolutions: [],
     blurb: "Quiet desktop companion.",
     nocturnalAffinity: false,
+    electricAffinity: false,
     illusionCapable: false,
+    bunkerState: "hide",
     socialStyle: "parallel",
     standMode: "hold0",
     idleSpeed: 0.55,
@@ -47,93 +98,32 @@ var DEFAULT_PROFILE = {
     pantState: "deepBreath",
     northWatch: false,
     gait: { amble: 0.50, trot: 1.00, scamper: 1.60 },
-    locomotion: {
-        kind: "graceful",
-        accelMult: 1.00,
-        turnMult: 1.00,
-        gravityMult: 1.00,
-        bounceMult: 0.40,
-        landSquashX: 1.20,
-        landSquashY: 0.80,
-        hoverBob: 0,
-        scamperHop: 1.0
-    },
+    locomotion: LOCOMOTION_KINDS.graceful,
     perchAffinity: 1.00,
     windowWatchAffinity: 1.00
 };
 
-var _HOVER_SPECIES = {
-    altaria: true, celebi: true, cresselia: true, darkrai: true,
-    giratina: true, jirachi: true, latias: true, mew: true,
-    misdreavus: true, phantump: true, whimsicott: true
-};
-
-var _HEAVY_SPECIES = {
-    bulbasaur: true, charizard: true, ferrothorn: true, fuecoco: true,
-    munchlax: true, spheal: true, squirtle: true, toxapex: true, turtwig: true
-};
-
-var _SPRINGER_SPECIES = {
-    emolga: true, grovyle: true, infernape: true, jolteon: true,
-    lucario: true, marshadow: true, meloetta: true, oshawott: true,
-    pikachu: true, piplup: true, riolu: true, rowlet: true,
-    shaymin: true, sneasel: true, totodile: true
-};
-
-function _resolveLocomotion(id, rawLoco) {
-    var base;
-    if (_HOVER_SPECIES[id]) {
-        base = {
-            kind: "hover",
-            accelMult: 0.86,
-            turnMult: 1.24,
-            gravityMult: 0.56,
-            bounceMult: 0.22,
-            landSquashX: 1.08,
-            landSquashY: 0.94,
-            hoverBob: 2.2,
-            scamperHop: 0
-        };
-    } else if (_HEAVY_SPECIES[id]) {
-        base = {
-            kind: "heavy",
-            accelMult: 0.62,
-            turnMult: 0.68,
-            gravityMult: id === "charizard" ? 0.82 : 1.18,
-            bounceMult: 0.34,
-            landSquashX: 1.28,
-            landSquashY: 0.73,
-            hoverBob: 0,
-            scamperHop: 0
-        };
-    } else if (_SPRINGER_SPECIES[id]) {
-        base = {
-            kind: "springer",
-            accelMult: 1.36,
-            turnMult: 1.34,
-            gravityMult: (id === "emolga" || id === "rowlet") ? 0.72 : 0.96,
-            bounceMult: 0.46,
-            landSquashX: 1.16,
-            landSquashY: 0.85,
-            hoverBob: 0,
-            scamperHop: 2.2
-        };
-    } else {
-        base = _cloneClip(DEFAULT_PROFILE.locomotion);
-    }
-    if (rawLoco && typeof rawLoco === "object") {
-        var ks = Object.keys(rawLoco);
-        for (var i = 0; i < ks.length; i++) base[ks[i]] = rawLoco[ks[i]];
-    }
-    return base;
-}
-
-function _cloneClip(c) {
+function _cloneObj(c) {
     if (!c) return null;
     var out = {};
     var ks = Object.keys(c);
     for (var i = 0; i < ks.length; i++) out[ks[i]] = c[ks[i]];
     return out;
+}
+
+function _resolveLocomotion(rawLoco) {
+    if (typeof rawLoco === "string") {
+        return _cloneObj(LOCOMOTION_KINDS[rawLoco] || LOCOMOTION_KINDS.graceful);
+    }
+    var kindKey = (rawLoco && typeof rawLoco.kind === "string" && LOCOMOTION_KINDS[rawLoco.kind])
+        ? rawLoco.kind
+        : "graceful";
+    var base = _cloneObj(LOCOMOTION_KINDS[kindKey]);
+    if (rawLoco && typeof rawLoco === "object") {
+        var ks = Object.keys(rawLoco);
+        for (var i = 0; i < ks.length; i++) base[ks[i]] = rawLoco[ks[i]];
+    }
+    return base;
 }
 
 function _normalizeSpecies(id, raw, defaultBiome) {
@@ -142,7 +132,7 @@ function _normalizeSpecies(id, raw, defaultBiome) {
     var clips = {};
     var cKeys = Object.keys(rawClips);
     for (var i = 0; i < cKeys.length; i++) {
-        clips[cKeys[i]] = _cloneClip(rawClips[cKeys[i]]);
+        clips[cKeys[i]] = _cloneObj(rawClips[cKeys[i]]);
     }
 
     if (!clips.idle) {
@@ -155,13 +145,13 @@ function _normalizeSpecies(id, raw, defaultBiome) {
     }
 
     if (!clips.perch) {
-        clips.perch = _cloneClip(clips.idle);
+        clips.perch = _cloneObj(clips.idle);
     }
     if (!clips.loaf && r.loafAnim) {
         clips.loaf = { anim: r.loafAnim };
     }
     if (clips.loaf && !clips.sit) {
-        clips.sit = _cloneClip(clips.loaf);
+        clips.sit = _cloneObj(clips.loaf);
     }
     if (!clips.deepsleep && r.sleepAnim && r.sleepAnim !== "Sleep") {
         clips.deepsleep = { anim: r.sleepAnim };
@@ -178,6 +168,7 @@ function _normalizeSpecies(id, raw, defaultBiome) {
 
     var gaitSrc = r.gait || DEFAULT_PROFILE.gait;
     var sigSrc = r.signature || DEFAULT_PROFILE.signature;
+    var isElectric = !!r.electricAffinity || r.altVocalState === "shock" || sigSrc.state === "shock";
 
     return {
         id: id,
@@ -186,9 +177,12 @@ function _normalizeSpecies(id, raw, defaultBiome) {
         biome: r.biome || defaultBiome || DEFAULT_PROFILE.biome,
         kinGroup: r.kinGroup || "",
         abilities: abilities,
+        evolutions: Array.isArray(r.evolutions) ? r.evolutions.slice() : [],
         blurb: r.blurb || DEFAULT_PROFILE.blurb,
         nocturnalAffinity: !!r.nocturnalAffinity,
+        electricAffinity: isElectric,
         illusionCapable: abilities.indexOf("illusion") !== -1,
+        bunkerState: r.bunkerState || DEFAULT_PROFILE.bunkerState,
         socialStyle: r.socialStyle || DEFAULT_PROFILE.socialStyle,
         standMode: standMode,
         idleSpeed: clips.idle.speed,
@@ -219,7 +213,7 @@ function _normalizeSpecies(id, raw, defaultBiome) {
             trot: gaitSrc.trot !== undefined ? gaitSrc.trot : 1.00,
             scamper: gaitSrc.scamper !== undefined ? gaitSrc.scamper : 1.60
         },
-        locomotion: _resolveLocomotion(id, r.locomotion),
+        locomotion: _resolveLocomotion(r.locomotion),
         perchAffinity: r.perchAffinity !== undefined ? r.perchAffinity : 1.00,
         windowWatchAffinity: r.windowWatchAffinity !== undefined ? r.windowWatchAffinity : 1.00
     };
@@ -243,6 +237,10 @@ var SPECIES_TEMPERAMENT = {};
 for (var ti = 0; ti < SPECIES_LIST.length; ti++) {
     var spKey = SPECIES_LIST[ti];
     SPECIES_TEMPERAMENT[spKey] = PROFILES[spKey].temperament;
+}
+
+function biomeFor(biomeId, isNight) {
+    return Biomes.biomeFor(biomeId, isNight);
 }
 
 function profileFor(species) {
@@ -277,6 +275,25 @@ function hasAbility(petOrSpecies, abilityId) {
     return profileFor(sp).abilities.indexOf(abilityId) !== -1;
 }
 
+function hasThermalAffinity(petOrSpecies) {
+    var sp = typeof petOrSpecies === "string" ? petOrSpecies : trueSpeciesOf(petOrSpecies);
+    var p = profileFor(sp);
+    if (p.abilities.indexOf("hearth_warmth") !== -1 || p.abilities.indexOf("solar_bask") !== -1) return true;
+    return !!Biomes.biomeFor(p.biome, false).thermalAffinity;
+}
+
+function hasRainAffinity(petOrSpecies) {
+    var sp = typeof petOrSpecies === "string" ? petOrSpecies : trueSpeciesOf(petOrSpecies);
+    var p = profileFor(sp);
+    if (p.abilities.indexOf("tide_splash") !== -1) return true;
+    return !!(p.kinGroup && KIN_GROUPS[p.kinGroup] && KIN_GROUPS[p.kinGroup].rainAffinity);
+}
+
+function hasElectricAffinity(petOrSpecies) {
+    var sp = typeof petOrSpecies === "string" ? petOrSpecies : speciesOf(petOrSpecies);
+    return !!profileFor(sp).electricAffinity;
+}
+
 function kinChemistry(spA, spB) {
     if (!spA || !spB) return { affinityDelta: 0, respectDelta: 0, sameKin: false };
     var pA = profileFor(spA);
@@ -308,14 +325,6 @@ function clipOverrideFor(species, state) {
 function standSpec(species) {
     var p = profileFor(species);
     return { mode: p.standMode, speed: p.idleSpeed };
-}
-
-function loafAnimName(species, anims) {
-    var p = profileFor(species);
-    if (anims && anims[p.loafAnim]) return p.loafAnim;
-    if (anims && anims.EventSleep) return "EventSleep";
-    if (anims && anims.Sleep) return "Sleep";
-    return "Idle";
 }
 
 function canWatchNorth(pet) {
@@ -394,5 +403,5 @@ function gaitMultiplier(pet, gaitName) {
 
 function locomotionFor(petOrSpecies) {
     var sp = typeof petOrSpecies === "string" ? petOrSpecies : speciesOf(petOrSpecies);
-    return profileFor(sp).locomotion || DEFAULT_PROFILE.locomotion;
+    return profileFor(sp).locomotion || LOCOMOTION_KINDS.graceful;
 }

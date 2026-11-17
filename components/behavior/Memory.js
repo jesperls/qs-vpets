@@ -86,10 +86,6 @@ function recordEpisode(pet, type, opts) {
     return ep;
 }
 
-function remember(pet, type, data) {
-    return recordEpisode(pet, type, data || {});
-}
-
 function recent(pet, type, withinMs) {
     if (!pet.episodes) return null;
     var cutoff = _now(pet) - (withinMs || 30000);
@@ -101,19 +97,6 @@ function recent(pet, type, withinMs) {
     return null;
 }
 
-function countRecent(pet, types, withinMs) {
-    if (!pet.episodes) return 0;
-    var cutoff = _now(pet) - withinMs;
-    var set = Array.isArray(types) ? types : [types];
-    var n = 0;
-    for (var i = pet.episodes.length - 1; i >= 0; i--) {
-        if (pet.episodes[i].time < cutoff) break;
-        if (set.indexOf(pet.episodes[i].type) !== -1) n++;
-    }
-    return n;
-}
-
-function wasRecentlyPetted(pet) { return !!recent(pet, "petted", 35000); }
 function justWokeUp(pet) { return !!recent(pet, "well_rested", 22000); }
 
 function addJournalEntry(pet, text, kind) {
@@ -404,7 +387,7 @@ function consolidateSleep(pet) {
             dreamLine = "Practicing sparring footwork in sleep";
             break;
         case "mediated":
-            dreamLine = "Sleeping with quiet guardian poise";
+            dreamLine = "Sleeping calmly on guard";
             break;
         case "startled":
         case "tossed_rough":
@@ -457,19 +440,6 @@ function recordWindowPref(pet, cls, delta) {
 function getWindowPref(pet, cls) {
     if (!cls || !pet.windowPrefs) return 0.5;
     return pet.windowPrefs[cls] !== undefined ? pet.windowPrefs[cls] : 0.5;
-}
-
-function favoriteWindowClass(pet) {
-    if (!pet.windowPrefs) return "";
-    var best = "", bestVal = 0.56;
-    var keys = Object.keys(pet.windowPrefs);
-    for (var i = 0; i < keys.length; i++) {
-        if (pet.windowPrefs[keys[i]] > bestVal) {
-            bestVal = pet.windowPrefs[keys[i]];
-            best = keys[i];
-        }
-    }
-    return best;
 }
 
 function trackPosition(pet) {
@@ -737,4 +707,57 @@ function adjustRelation(pet, name, affinityDelta, familiarityDelta, kind, extra)
     }
     Util.bumpMemoryRev(pet);
     return r;
+}
+
+function rekeyPeer(target, oldName, newName) {
+    if (!target || !oldName || !newName || oldName === newName) return false;
+    var changed = false;
+    if (target.relationships && target.relationships[oldName]) {
+        var nextRels = Object.assign({}, target.relationships);
+        nextRels[newName] = nextRels[oldName];
+        delete nextRels[oldName];
+        target.relationships = nextRels;
+        changed = true;
+    }
+    if (Array.isArray(target.episodes)) {
+        for (var i = 0; i < target.episodes.length; i++) {
+            if (target.episodes[i] && target.episodes[i].withPet === oldName) {
+                target.episodes[i].withPet = newName;
+                changed = true;
+            }
+        }
+    }
+    if (changed) Util.bumpMemoryRev(target);
+    return changed;
+}
+
+function removePeer(target, removedName) {
+    if (!target || !removedName) return false;
+    var changed = false;
+    if (target.relationships && target.relationships[removedName]) {
+        var nextRels = Object.assign({}, target.relationships);
+        delete nextRels[removedName];
+        target.relationships = nextRels;
+        changed = true;
+    }
+    if (Array.isArray(target.episodes)) {
+        for (var i = 0; i < target.episodes.length; i++) {
+            if (target.episodes[i] && target.episodes[i].withPet === removedName) {
+                target.episodes[i].withPet = "";
+                changed = true;
+            }
+        }
+    }
+    if (changed) Util.bumpMemoryRev(target);
+    return changed;
+}
+
+function updatePeerSpecies(target, peerName, species) {
+    if (!target || !peerName || !species || !target.relationships || !target.relationships[peerName]) return false;
+    if (target.relationships[peerName].species === species) return false;
+    var nextRels = Object.assign({}, target.relationships);
+    nextRels[peerName] = Object.assign({}, nextRels[peerName], { species: species });
+    target.relationships = nextRels;
+    Util.bumpMemoryRev(target);
+    return true;
 }

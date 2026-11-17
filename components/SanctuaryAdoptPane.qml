@@ -13,20 +13,23 @@ Rectangle {
 
     property string catalogSearch: ""
     property string catalogBiome: ""
+    property string selectedSpecies: SpeciesProfile.DEFAULT_SPECIES
     property string adoptName: ""
-    property string adoptNature: "emergent"
-    property string adoptRoamMode: "auto"
+    property int natureIndex: 0
+    property bool isNight: false
+
+    readonly property var naturesList: [
+        "emergent", "playful", "curious", "chill", "lazy",
+        "energetic", "brave", "shy", "nocturnal"
+    ]
+    readonly property string adoptNature: naturesList[natureIndex % naturesList.length]
 
     readonly property bool searchActiveFocus: catalogSearchInput.activeFocus
     readonly property bool nameActiveFocus: adoptNameField.activeFocus
     readonly property bool hasSearchText: catalogSearchInput.text.length > 0
 
     signal companionAdopted(petId: string)
-
-    readonly property var naturesList: [
-        "emergent", "playful", "curious", "chill", "lazy",
-        "energetic", "brave", "shy", "nocturnal", "grumpy"
-    ]
+    signal closeGuideRequested()
 
     readonly property var filteredCatalog: {
         const q = root.catalogSearch.trim().toLowerCase();
@@ -46,6 +49,18 @@ Rectangle {
         });
     }
 
+    onFilteredCatalogChanged: {
+        if (filteredCatalog.length > 0 && filteredCatalog.indexOf(selectedSpecies) === -1) {
+            selectedSpecies = filteredCatalog[0];
+        }
+    }
+
+    readonly property var selectedProfile: SpeciesProfile.profileFor(root.selectedSpecies)
+    readonly property var activeBiomeTheme: Fmt.biomePalette(
+        root.catalogBiome || root.selectedProfile.biome,
+        root.isNight
+    )
+
     function focusSearch(): void {
         catalogSearchInput.forceActiveFocus();
     }
@@ -55,126 +70,108 @@ Rectangle {
         catalogSearchInput.focus = false;
     }
 
-    radius: Theme.radius(0)
-    color: Theme.surface
+    function blurInputs(): void {
+        catalogSearchInput.focus = false;
+        adoptNameField.focus = false;
+    }
+
+    function _welcomeSelected(sp: string): void {
+        if (!sp || filteredCatalog.length === 0) return;
+        const created = Config.addPet(sp, root.adoptName, root.adoptNature, "auto");
+        adoptNameField.text = "";
+        root.companionAdopted(created.id);
+    }
+
+    radius: Theme.radius(3)
+    color: Theme.alpha(Theme.panel, 0.97)
     border.width: 1
-    border.color: Theme.borderSubtle
+    border.color: Theme.border
+
+    Rectangle {
+        visible: Theme.specularRim
+        anchors.fill: parent
+        anchors.margins: 3
+        radius: Math.max(4, root.radius - 3)
+        color: "transparent"
+        border.width: 1
+        border.color: Theme.alpha(Theme.rimHighlight, 0.5)
+    }
+
+    MouseArea {
+        anchors.fill: parent
+        acceptedButtons: Qt.LeftButton | Qt.RightButton
+    }
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: 16
-        spacing: 10
+        anchors.margins: 18
+        spacing: 12
 
+        // Field Guide Header
         RowLayout {
             Layout.fillWidth: true
-            spacing: 10
+            spacing: 12
+
+            Rectangle {
+                implicitWidth: 38
+                implicitHeight: 38
+                radius: 19
+                color: Theme.warmSoft
+                border.width: 1
+                border.color: Theme.alpha(Theme.warm, 0.6)
+
+                Image {
+                    anchors.centerIn: parent
+                    width: 24
+                    height: 24
+                    smooth: false
+                    source: Qt.resolvedUrl("../assets/sanctuary/items/diary_open.png")
+                }
+            }
 
             ColumnLayout {
                 Layout.fillWidth: true
-                spacing: 2
+                spacing: 1
 
                 Text {
-                    text: "Adopt a New Companion"
+                    text: "Habitat Field Guide"
                     color: Theme.text
                     font.family: Theme.uiFont
-                    font.pixelSize: 16
+                    font.pixelSize: 17
                     font.weight: Font.Bold
                 }
 
                 Text {
                     Layout.fillWidth: true
                     elide: Text.ElideRight
-                    text: SpeciesProfile.SPECIES_LIST.length + " species with distinct gaits, abilities, and social dynamics — hover a card to preview"
+                    text: root.catalogBiome
+                        ? (root.catalogBiome + "  ·  " + root.activeBiomeTheme.tagline)
+                        : "Choose a habitat or browse Pokémon looking for a cozy home."
                     color: Theme.subtext
                     font.family: Theme.uiFont
-                    font.pixelSize: 11
+                    font.pixelSize: 12
                 }
             }
 
+            // Search box
             Rectangle {
-                implicitWidth: 168
-                implicitHeight: 32
-                radius: Theme.radius(-6)
-                color: Theme.bg
+                implicitWidth: 210
+                implicitHeight: 34
+                radius: 17
+                color: Theme.parchment
                 border.width: 1
-                border.color: adoptNameField.activeFocus ? Theme.accent : Theme.borderSubtle
+                border.color: catalogSearchInput.activeFocus ? Theme.warm : Theme.borderSubtle
 
                 RowLayout {
                     anchors.fill: parent
-                    anchors.leftMargin: 9
-                    anchors.rightMargin: 8
-                    spacing: 5
-
-                    TextInput {
-                        id: adoptNameField
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        verticalAlignment: TextInput.AlignVCenter
-                        selectByMouse: true
-                        maximumLength: 28
-                        color: Theme.text
-                        font.family: Theme.uiFont
-                        font.pixelSize: 11
-                        clip: true
-                        onTextChanged: root.adoptName = text
-
-                        HoverHandler {
-                            cursorShape: Qt.IBeamCursor
-                        }
-
-                        Text {
-                            visible: adoptNameField.text.length === 0
-                            anchors.verticalCenter: parent.verticalCenter
-                            text: "Custom name (optional)"
-                            color: Theme.muted
-                            font.family: Theme.uiFont
-                            font.pixelSize: 11
-                        }
-                    }
-
-                    Rectangle {
-                        visible: adoptNameField.text.length > 0
-                        implicitWidth: 16
-                        implicitHeight: 16
-                        radius: 8
-                        color: clearAdoptName.containsMouse ? Theme.surfaceAlt : "transparent"
-
-                        UiIcon {
-                            anchors.centerIn: parent
-                            name: "close"
-                            size: 9
-                            color: Theme.subtext
-                        }
-
-                        MouseArea {
-                            id: clearAdoptName
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: adoptNameField.text = ""
-                        }
-                    }
-                }
-            }
-
-            Rectangle {
-                implicitWidth: 188
-                implicitHeight: 32
-                radius: Theme.radius(-6)
-                color: Theme.bg
-                border.width: 1
-                border.color: catalogSearchInput.activeFocus ? Theme.accent : Theme.borderSubtle
-
-                RowLayout {
-                    anchors.fill: parent
-                    anchors.leftMargin: 9
-                    anchors.rightMargin: 8
-                    spacing: 6
+                    anchors.leftMargin: 11
+                    anchors.rightMargin: 9
+                    spacing: 7
 
                     UiIcon {
                         name: "search"
                         size: 13
-                        color: catalogSearchInput.activeFocus ? Theme.accent : Theme.muted
+                        color: catalogSearchInput.activeFocus ? Theme.warm : Theme.muted
                     }
 
                     TextInput {
@@ -185,7 +182,7 @@ Rectangle {
                         selectByMouse: true
                         color: Theme.text
                         font.family: Theme.uiFont
-                        font.pixelSize: 11
+                        font.pixelSize: 12
                         clip: true
                         onTextChanged: root.catalogSearch = text
 
@@ -196,19 +193,19 @@ Rectangle {
                         Text {
                             visible: catalogSearchInput.text.length === 0
                             anchors.verticalCenter: parent.verticalCenter
-                            text: "Filter species or biome..."
+                            text: "Find a Pokémon..."
                             color: Theme.muted
                             font.family: Theme.uiFont
-                            font.pixelSize: 11
+                            font.pixelSize: 12
                         }
                     }
 
                     Rectangle {
                         visible: catalogSearchInput.text.length > 0
-                        implicitWidth: 16
-                        implicitHeight: 16
-                        radius: 8
-                        color: clearCatalogSearch.containsMouse ? Theme.surfaceAlt : "transparent"
+                        implicitWidth: 18
+                        implicitHeight: 18
+                        radius: 9
+                        color: clearSearchMouse.containsMouse ? Theme.surfaceAlt : "transparent"
 
                         UiIcon {
                             anchors.centerIn: parent
@@ -218,7 +215,7 @@ Rectangle {
                         }
 
                         MouseArea {
-                            id: clearCatalogSearch
+                            id: clearSearchMouse
                             anchors.fill: parent
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
@@ -227,374 +224,444 @@ Rectangle {
                     }
                 }
             }
-        }
-
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: 8
-
-            Flow {
-                Layout.fillWidth: true
-                spacing: 5
-
-                Item {
-                    width: seedNatLabel.implicitWidth
-                    height: 24
-
-                    Text {
-                        id: seedNatLabel
-                        anchors.verticalCenter: parent.verticalCenter
-                        text: "Seed Nature"
-                        color: Theme.subtext
-                        font.family: Theme.uiFont
-                        font.pixelSize: 11
-                    }
-                }
-
-                Repeater {
-                    model: root.naturesList
-
-                    Rectangle {
-                        id: natChip
-                        required property string modelData
-                        readonly property bool cur: root.adoptNature === natChip.modelData
-                        height: 24
-                        radius: Theme.radius(-8)
-                        implicitWidth: natTxt.implicitWidth + 12
-                        color: cur
-                            ? Theme.accentSoft
-                            : (natMouse.containsMouse ? Theme.surfaceAlt : Theme.bg)
-                        border.width: 1
-                        border.color: cur ? Theme.accent : Theme.borderSubtle
-
-                        Text {
-                            id: natTxt
-                            anchors.centerIn: parent
-                            text: Fmt.capitalize(natChip.modelData)
-                            color: natChip.cur ? Theme.accent : Theme.text
-                            font.family: Theme.uiFont
-                            font.pixelSize: 10
-                            font.weight: natChip.cur ? Font.DemiBold : Font.Normal
-                        }
-
-                        MouseArea {
-                            id: natMouse
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: root.adoptNature = natChip.modelData
-                        }
-                    }
-                }
-            }
 
             Rectangle {
-                Layout.alignment: Qt.AlignTop
-                implicitHeight: 26
-                implicitWidth: initRoamRow.implicitWidth + 4
-                radius: Theme.radius(-7)
-                color: Theme.bg
+                implicitWidth: 34
+                implicitHeight: 34
+                radius: 17
+                color: closeGuideMouse.containsMouse ? Theme.surfaceAlt : Theme.parchment
                 border.width: 1
                 border.color: Theme.borderSubtle
 
-                RowLayout {
-                    id: initRoamRow
+                UiIcon {
                     anchors.centerIn: parent
-                    spacing: 2
+                    name: "close"
+                    size: 12
+                    color: closeGuideMouse.containsMouse ? Theme.text : Theme.subtext
+                }
 
-                    Repeater {
-                        model: [
-                            { k: "auto", l: "Auto" },
-                            { k: "always", l: "Always Out" },
-                            { k: "penned", l: "Sanctuary" }
-                        ]
-
-                        Rectangle {
-                            id: initRoamChip
-                            required property var modelData
-                            readonly property bool cur: root.adoptRoamMode === initRoamChip.modelData.k
-                            implicitHeight: 22
-                            radius: Theme.radius(-8)
-                            implicitWidth: initRoamTxt.implicitWidth + 12
-                            color: cur
-                                ? Theme.accentSoft
-                                : (initRoamMouse.containsMouse ? Theme.surfaceAlt : "transparent")
-                            border.width: cur ? 1 : 0
-                            border.color: Theme.accent
-
-                            Text {
-                                id: initRoamTxt
-                                anchors.centerIn: parent
-                                text: initRoamChip.modelData.l
-                                color: initRoamChip.cur ? Theme.accent : Theme.subtext
-                                font.family: Theme.uiFont
-                                font.pixelSize: 10
-                                font.weight: initRoamChip.cur ? Font.DemiBold : Font.Normal
-                            }
-
-                            MouseArea {
-                                id: initRoamMouse
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: root.adoptRoamMode = initRoamChip.modelData.k
-                            }
-                        }
-                    }
+                MouseArea {
+                    id: closeGuideMouse
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.closeGuideRequested()
                 }
             }
         }
 
-        RowLayout {
+        // Habitat Bookmarks Row
+        Flow {
             Layout.fillWidth: true
-            spacing: 5
+            spacing: 7
 
-            Flow {
-                Layout.fillWidth: true
-                spacing: 5
-
-                Item {
-                    width: habLabel.implicitWidth
-                    height: 24
-
-                    Text {
-                        id: habLabel
-                        anchors.verticalCenter: parent.verticalCenter
-                        text: "Habitat"
-                        color: Theme.subtext
-                        font.family: Theme.uiFont
-                        font.pixelSize: 11
-                    }
-                }
-
-                Repeater {
-                    model: [{ id: "", shortLabel: "All", icon: "" }].concat(SpeciesProfile.BIOME_LIST)
-
-                    Rectangle {
-                        id: biomeChip
-                        required property var modelData
-                        readonly property bool cur: root.catalogBiome === biomeChip.modelData.id
-                        height: 24
-                        radius: Theme.radius(-8)
-                        implicitWidth: biomeChipRow.implicitWidth + 12
-                        color: cur
-                            ? Theme.accentSoft
-                            : (biomeMouse.containsMouse ? Theme.surfaceAlt : Theme.bg)
-                        border.width: 1
-                        border.color: cur ? Theme.accent : Theme.borderSubtle
-
-                        RowLayout {
-                            id: biomeChipRow
-                            anchors.centerIn: parent
-                            spacing: 4
-
-                            UiIcon {
-                                visible: biomeChip.modelData.icon !== ""
-                                name: biomeChip.modelData.icon
-                                size: 10
-                                color: biomeChip.cur ? Theme.accent : Theme.subtext
-                            }
-
-                            Text {
-                                text: biomeChip.modelData.shortLabel
-                                color: biomeChip.cur ? Theme.accent : Theme.text
-                                font.family: Theme.uiFont
-                                font.pixelSize: 10
-                                font.weight: biomeChip.cur ? Font.DemiBold : Font.Normal
-                            }
-                        }
-
-                        MouseArea {
-                            id: biomeMouse
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: root.catalogBiome = biomeChip.modelData.id
-                        }
-                    }
-                }
-            }
-
-            Text {
-                text: root.filteredCatalog.length + " species"
-                color: Theme.muted
-                font.family: Theme.monoFont
-                font.pixelSize: 10
-            }
-        }
-
-        GridView {
-            id: catalogGrid
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            readonly property int cols: Math.max(2, Math.floor(width / 240))
-            cellWidth: Math.floor(width / cols)
-            cellHeight: 122
-            clip: true
-            boundsBehavior: Flickable.StopAtBounds
-            interactive: contentHeight > height
-            model: root.filteredCatalog
-
-            delegate: Item {
-                id: cellWrap
-                required property string modelData
-                width: GridView.view ? GridView.view.cellWidth : 240
-                height: GridView.view ? GridView.view.cellHeight : 122
+            Repeater {
+                model: [{ id: "", shortLabel: "All Habitats", icon: "compass" }].concat(SpeciesProfile.BIOME_LIST)
 
                 Rectangle {
-                    id: catCard
-                    readonly property var prof: SpeciesProfile.profileFor(cellWrap.modelData)
-                    readonly property var abilities: Abilities.abilitiesFor(cellWrap.modelData)
-                    readonly property string abilitySummary: abilities.length > 0
-                        ? abilities.map(a => a.label + " — " + a.summary).join("\n")
-                        : ""
-                    readonly property bool cardHovered: catHover.hovered || adoptClick.containsMouse
-
-                    anchors.fill: parent
-                    anchors.rightMargin: 8
-                    anchors.bottomMargin: 8
-                    radius: Theme.radius(-3)
-                    color: cardHovered ? Theme.alpha(Theme.surfaceAlt, 0.65) : Theme.bg
+                    id: biomeTab
+                    required property var modelData
+                    readonly property bool cur: root.catalogBiome === biomeTab.modelData.id
+                    readonly property var pal: Fmt.biomePalette(biomeTab.modelData.id || "Sunlit Meadow", root.isNight)
+                    implicitHeight: 30
+                    implicitWidth: biomeTabRow.implicitWidth + 18
+                    radius: 15
+                    color: cur
+                        ? Theme.warmSoft
+                        : (biomeTabMouse.containsMouse ? Theme.surfaceAlt : Theme.parchment)
                     border.width: 1
-                    border.color: cardHovered ? Theme.accent : Theme.borderSubtle
-                    Behavior on color { ColorAnimation { duration: 120 } }
+                    border.color: cur ? Theme.warm : Theme.borderSubtle
 
-                    HoverHandler {
-                        id: catHover
-                    }
-
-                    ColumnLayout {
-                        anchors.fill: parent
-                        anchors.margins: 10
+                    RowLayout {
+                        id: biomeTabRow
+                        anchors.centerIn: parent
                         spacing: 6
 
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 9
+                        UiIcon {
+                            name: biomeTab.modelData.id === "" ? "compass" : biomeTab.pal.icon
+                            size: 12
+                            color: biomeTab.cur ? Theme.warm : biomeTab.pal.accent
+                        }
 
-                            SpriteAnimation {
-                                Layout.preferredWidth: 46
-                                Layout.preferredHeight: 46
-                                speciesName: cellWrap.modelData
-                                currentState: catCard.cardHovered && catCard.prof.signature
-                                    ? catCard.prof.signature.state
-                                    : "idle"
-                                spriteDir: Qt.resolvedUrl("../assets/sprites/" + cellWrap.modelData)
+                        Text {
+                            text: biomeTab.modelData.shortLabel
+                            color: biomeTab.cur ? Theme.warm : Theme.text
+                            font.family: Theme.uiFont
+                            font.pixelSize: 12
+                            font.weight: biomeTab.cur ? Font.Bold : Font.Medium
+                        }
+                    }
+
+                    MouseArea {
+                        id: biomeTabMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: root.catalogBiome = biomeTab.modelData.id
+                    }
+                }
+            }
+        }
+
+        // Spacious Pokédex / Field Guide Grid
+        Item {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+
+            Text {
+                visible: root.filteredCatalog.length === 0
+                anchors.centerIn: parent
+                text: "No Pokémon found in this habitat."
+                color: Theme.muted
+                font.family: Theme.uiFont
+                font.pixelSize: 13
+            }
+
+            GridView {
+                id: guideGrid
+                anchors.fill: parent
+                readonly property int cols: Math.max(2, Math.floor(width / 270))
+                cellWidth: Math.floor(width / cols)
+                cellHeight: 116
+                clip: true
+                boundsBehavior: Flickable.StopAtBounds
+                interactive: contentHeight > height
+                model: root.filteredCatalog
+
+                WheelHandler {
+                    onWheel: event => {
+                        if (guideGrid.contentHeight <= guideGrid.height) return;
+                        const maxY = Math.max(0, guideGrid.contentHeight - guideGrid.height);
+                        guideGrid.contentY = Math.max(0, Math.min(maxY, guideGrid.contentY - event.angleDelta.y * 0.7));
+                    }
+                }
+
+                delegate: Item {
+                    id: cellWrap
+                    required property string modelData
+                    width: GridView.view ? GridView.view.cellWidth : 270
+                    height: GridView.view ? GridView.view.cellHeight : 116
+
+                    Rectangle {
+                        id: spCard
+                        readonly property var prof: SpeciesProfile.profileFor(cellWrap.modelData)
+                        readonly property var pal: Fmt.biomePalette(prof.biome, root.isNight)
+                        readonly property var abilities: Abilities.abilitiesFor(cellWrap.modelData)
+                        readonly property bool isChosen: root.selectedSpecies === cellWrap.modelData
+                        readonly property bool hovered: cardMouse.containsMouse
+
+                        anchors.fill: parent
+                        anchors.rightMargin: 9
+                        anchors.bottomMargin: 9
+                        radius: Theme.radius(-1)
+                        color: isChosen
+                            ? Theme.surfaceAlt
+                            : (hovered ? Theme.alpha(Theme.surfaceAlt, 0.72) : Theme.parchment)
+                        border.width: isChosen ? 2 : 1
+                        border.color: isChosen ? Theme.warm : (hovered ? Theme.border : Theme.borderSubtle)
+                        Behavior on color { ColorAnimation { duration: 110 } }
+
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.margins: 10
+                            spacing: 11
+
+                            Rectangle {
+                                Layout.preferredWidth: 76
+                                Layout.preferredHeight: 84
+                                radius: Theme.radius(-4)
+                                clip: true
+                                color: spCard.pal.turf
+                                border.width: 1
+                                border.color: Theme.alpha(spCard.pal.turfRim, 0.75)
+
+                                Image {
+                                    anchors.fill: parent
+                                    smooth: false
+                                    fillMode: Image.PreserveAspectCrop
+                                    source: Qt.resolvedUrl("../assets/sanctuary/biomes/" + spCard.pal.backdrop)
+                                }
+
+                                Rectangle {
+                                    visible: root.isNight
+                                    anchors.fill: parent
+                                    color: "#2b12182c"
+                                }
+
+                                Image {
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    anchors.bottom: parent.bottom
+                                    anchors.bottomMargin: 2
+                                    width: 64
+                                    height: 32
+                                    smooth: false
+                                    source: Qt.resolvedUrl("../assets/sanctuary/props/shadow.png")
+                                }
+
+                                SpriteAnimation {
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    anchors.bottom: parent.bottom
+                                    anchors.bottomMargin: 1
+                                    width: 64
+                                    height: 64
+                                    speciesName: cellWrap.modelData
+                                    currentState: (spCard.hovered || spCard.isChosen) && spCard.prof.signature
+                                        ? spCard.prof.signature.state
+                                        : "idle"
+                                    spriteDir: Qt.resolvedUrl("../assets/sprites/" + cellWrap.modelData)
+                                }
                             }
 
                             ColumnLayout {
                                 Layout.fillWidth: true
-                                spacing: 2
+                                Layout.fillHeight: true
+                                spacing: 3
 
                                 RowLayout {
+                                    Layout.fillWidth: true
                                     spacing: 5
+
                                     Text {
-                                        text: catCard.prof.displayName
-                                        color: Theme.text
+                                        text: spCard.prof.displayName
+                                        color: spCard.isChosen ? Theme.warm : Theme.text
                                         font.family: Theme.uiFont
-                                        font.pixelSize: 13
+                                        font.pixelSize: 14
                                         font.weight: Font.Bold
                                     }
 
                                     UiIcon {
-                                        visible: !!catCard.prof.nocturnalAffinity
+                                        visible: !!spCard.prof.nocturnalAffinity
                                         name: "moon"
                                         size: 11
                                         color: Theme.warm
                                     }
+
+                                    Item { Layout.fillWidth: true }
                                 }
 
-                                Item {
+                                Text {
                                     Layout.fillWidth: true
-                                    implicitHeight: abTextItem.implicitHeight
+                                    elide: Text.ElideRight
+                                    text: spCard.abilities.length > 0
+                                        ? (spCard.abilities[0].label + "  ·  " + spCard.prof.biome)
+                                        : spCard.prof.biome
+                                    color: spCard.pal.accent
+                                    font.family: Theme.uiFont
+                                    font.pixelSize: 11
+                                    font.weight: Font.DemiBold
+                                }
 
-                                    Text {
-                                        id: abTextItem
-                                        width: parent.width
-                                        elide: Text.ElideRight
-                                        text: catCard.abilities.length > 0
-                                            ? (catCard.prof.biome + "  ·  " + catCard.abilities[0].label)
-                                            : catCard.prof.biome
-                                        color: Theme.accent
-                                        font.family: Theme.uiFont
-                                        font.pixelSize: 10
-                                        font.weight: Font.Medium
-                                    }
-
-                                    MouseArea {
-                                        id: abLineHover
-                                        anchors.fill: parent
-                                        hoverEnabled: true
-                                    }
-
-                                    UiTooltip {
-                                        active: abLineHover.containsMouse
-                                        text: catCard.abilitySummary
-                                    }
+                                Text {
+                                    Layout.fillWidth: true
+                                    Layout.fillHeight: true
+                                    wrapMode: Text.WordWrap
+                                    maximumLineCount: 2
+                                    elide: Text.ElideRight
+                                    text: spCard.prof.blurb
+                                    color: Theme.subtext
+                                    font.family: Theme.uiFont
+                                    font.pixelSize: 11
+                                    lineHeight: 1.18
                                 }
                             }
+                        }
 
-                            Rectangle {
-                                implicitHeight: 26
-                                radius: Theme.radius(-7)
-                                implicitWidth: adoptBtnRow.implicitWidth + 14
-                                color: adoptClick.containsMouse
-                                    ? Theme.positive
-                                    : Theme.alpha(Theme.positive, 0.14)
-                                border.width: 1
-                                border.color: Theme.positive
-                                Behavior on color { ColorAnimation { duration: 120 } }
+                        MouseArea {
+                            id: cardMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: root.selectedSpecies = cellWrap.modelData
+                            onDoubleClicked: root._welcomeSelected(cellWrap.modelData)
+                        }
+                    }
+                }
+            }
+        }
 
-                                RowLayout {
-                                    id: adoptBtnRow
-                                    anchors.centerIn: parent
-                                    spacing: 4
+        // Bottom Welcome Pedestal Bar
+        Rectangle {
+            Layout.fillWidth: true
+            implicitHeight: 62
+            radius: Theme.radius(1)
+            color: Theme.parchment
+            border.width: 1
+            border.color: Theme.border
 
-                                    UiIcon {
-                                        name: "plus"
-                                        size: 10
-                                        color: adoptClick.containsMouse ? Theme.overAccent : Theme.positive
-                                    }
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: 12
+                anchors.rightMargin: 12
+                spacing: 12
 
-                                    Text {
-                                        text: "Adopt"
-                                        color: adoptClick.containsMouse ? Theme.overAccent : Theme.positive
-                                        font.family: Theme.uiFont
-                                        font.pixelSize: 10
-                                        font.weight: Font.DemiBold
-                                    }
-                                }
+                SpriteAnimation {
+                    Layout.preferredWidth: 32
+                    Layout.preferredHeight: 32
+                    speciesName: root.selectedSpecies
+                    currentState: "idle"
+                    spriteDir: Qt.resolvedUrl("../assets/sprites/" + root.selectedSpecies)
+                }
 
-                                MouseArea {
-                                    id: adoptClick
-                                    anchors.fill: parent
-                                    hoverEnabled: true
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: {
-                                        const created = Config.addPet(
-                                            cellWrap.modelData,
-                                            root.adoptName,
-                                            root.adoptNature,
-                                            root.adoptRoamMode
-                                        );
-                                        adoptNameField.text = "";
-                                        root.companionAdopted(created.id);
-                                    }
-                                }
-                            }
+                ColumnLayout {
+                    Layout.maximumWidth: 164
+                    spacing: 0
+
+                    Text {
+                        Layout.fillWidth: true
+                        elide: Text.ElideRight
+                        text: root.selectedProfile.displayName
+                        color: Theme.text
+                        font.family: Theme.uiFont
+                        font.pixelSize: 13
+                        font.weight: Font.Bold
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        elide: Text.ElideRight
+                        text: root.selectedProfile.biome
+                        color: Theme.subtext
+                        font.family: Theme.uiFont
+                        font.pixelSize: 11
+                    }
+                }
+
+                Item { Layout.fillWidth: true }
+
+                Rectangle {
+                    implicitWidth: 164
+                    implicitHeight: 34
+                    radius: Theme.radius(-5)
+                    color: Theme.panel
+                    border.width: 1
+                    border.color: adoptNameField.activeFocus ? Theme.warm : Theme.borderSubtle
+
+                    TextInput {
+                        id: adoptNameField
+                        anchors.fill: parent
+                        anchors.leftMargin: 10
+                        anchors.rightMargin: 10
+                        verticalAlignment: TextInput.AlignVCenter
+                        selectByMouse: true
+                        maximumLength: 24
+                        color: Theme.text
+                        font.family: Theme.uiFont
+                        font.pixelSize: 12
+                        clip: true
+                        onTextChanged: root.adoptName = text
+                        onAccepted: root._welcomeSelected(root.selectedSpecies)
+
+                        HoverHandler {
+                            cursorShape: Qt.IBeamCursor
                         }
 
                         Text {
-                            Layout.fillWidth: true
-                            Layout.fillHeight: true
-                            wrapMode: Text.WordWrap
-                            maximumLineCount: 2
-                            elide: Text.ElideRight
-                            text: catCard.prof.blurb
-                            color: Theme.subtext
+                            visible: adoptNameField.text.length === 0
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: "Nickname (optional)"
+                            color: Theme.muted
                             font.family: Theme.uiFont
-                            font.pixelSize: 10
+                            font.pixelSize: 12
                         }
+                    }
+                }
+
+                Rectangle {
+                    implicitHeight: 34
+                    implicitWidth: natCycleRow.implicitWidth + 20
+                    radius: Theme.radius(-5)
+                    color: natCycleMouse.containsMouse ? Theme.surfaceAlt : Theme.panel
+                    border.width: 1
+                    border.color: Theme.borderSubtle
+
+                    RowLayout {
+                        id: natCycleRow
+                        anchors.centerIn: parent
+                        spacing: 6
+
+                        UiIcon {
+                            name: "spark"
+                            size: 12
+                            color: Theme.warm
+                        }
+
+                        Text {
+                            text: "Nature: " + Fmt.natureLabel(root.adoptNature)
+                            color: Theme.text
+                            font.family: Theme.uiFont
+                            font.pixelSize: 12
+                            font.weight: Font.Medium
+                        }
+                    }
+
+                    MouseArea {
+                        id: natCycleMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: root.natureIndex = (root.natureIndex + 1) % root.naturesList.length
+                    }
+
+                    UiTooltip {
+                        active: natCycleMouse.containsMouse
+                        text: "Click to choose initial nature (or leave on Surprise Me)"
+                    }
+                }
+
+                Item {
+                    id: welcomeCtaWrap
+                    readonly property bool canWelcome: root.filteredCatalog.length > 0
+                    opacity: canWelcome ? 1.0 : 0.5
+                    implicitHeight: 38
+                    implicitWidth: welcomeCtaRow.implicitWidth + 26
+
+                    Rectangle {
+                        anchors.fill: parent
+                        anchors.topMargin: 2
+                        radius: Theme.radius(-4)
+                        color: "#1e3824"
+                    }
+
+                    Rectangle {
+                        anchors.fill: parent
+                        anchors.bottomMargin: welcomeCtaMouse.pressed && welcomeCtaWrap.canWelcome ? 0 : 2
+                        anchors.topMargin: welcomeCtaMouse.pressed && welcomeCtaWrap.canWelcome ? 2 : 0
+                        radius: Theme.radius(-4)
+                        color: welcomeCtaMouse.containsMouse && welcomeCtaWrap.canWelcome ? Theme.positive : Theme.positiveSoft
+                        border.width: 1
+                        border.color: Theme.positive
+                        Behavior on color { ColorAnimation { duration: 110 } }
+
+                        RowLayout {
+                            id: welcomeCtaRow
+                            anchors.centerIn: parent
+                            spacing: 7
+
+                            UiIcon {
+                                name: "pokeball"
+                                filled: true
+                                size: 15
+                                color: Theme.border
+                                accentColor: Theme.pokeball
+                            }
+
+                            Text {
+                                text: "Welcome " + root.selectedProfile.displayName + "!"
+                                color: welcomeCtaMouse.containsMouse && welcomeCtaWrap.canWelcome ? Theme.overPositive : Theme.text
+                                font.family: Theme.uiFont
+                                font.pixelSize: 12
+                                font.weight: Font.Bold
+                            }
+                        }
+                    }
+
+                    MouseArea {
+                        id: welcomeCtaMouse
+                        anchors.fill: parent
+                        enabled: welcomeCtaWrap.canWelcome
+                        hoverEnabled: welcomeCtaWrap.canWelcome
+                        cursorShape: welcomeCtaWrap.canWelcome ? Qt.PointingHandCursor : Qt.ArrowCursor
+                        onClicked: root._welcomeSelected(root.selectedSpecies)
                     }
                 }
             }

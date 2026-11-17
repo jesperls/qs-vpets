@@ -1,45 +1,39 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
   <defs>
     <linearGradient id="bgGrad" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#142233"/>
-      <stop offset="100%" stop-color="#0b131d"/>
+      <stop offset="0%" stop-color="#332820"/>
+      <stop offset="100%" stop-color="#201813"/>
     </linearGradient>
-    <linearGradient id="topHalf" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#53bdfa"/>
-      <stop offset="100%" stop-color="#3692d6"/>
+    <linearGradient id="topCap" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f0786a"/>
+      <stop offset="100%" stop-color="#d95749"/>
     </linearGradient>
-    <linearGradient id="coreGlow" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#9cf2cf"/>
-      <stop offset="100%" stop-color="#54d49e"/>
+    <linearGradient id="bottomCap" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#fbf4e8"/>
+      <stop offset="100%" stop-color="#e5d7c1"/>
     </linearGradient>
-    <radialGradient id="halo" cx="50%" cy="46%" r="48%">
-      <stop offset="0%" stop-color="#53bdfa" stop-opacity="0.24"/>
-      <stop offset="100%" stop-color="#53bdfa" stop-opacity="0"/>
+    <radialGradient id="lanternHalo" cx="50%" cy="48%" r="50%">
+      <stop offset="0%" stop-color="#f3c66f" stop-opacity="0.26"/>
+      <stop offset="100%" stop-color="#f3c66f" stop-opacity="0"/>
     </radialGradient>
   </defs>
 
-  <!-- Obsidian squircle container -->
-  <rect x="8" y="8" width="112" height="112" rx="28" fill="url(#bgGrad)" stroke="#263a4f" stroke-width="2"/>
-  <path d="M36 10 H92 A26 26 0 0 1 116 28 A28 28 0 0 0 92 12 H36 A28 28 0 0 0 12 28 A26 26 0 0 1 36 10 Z" fill="#ffffff" fill-opacity="0.09"/>
-  <circle cx="64" cy="64" r="50" fill="url(#halo)"/>
+  <rect x="8" y="8" width="112" height="112" rx="28" fill="url(#bgGrad)" stroke="#5c4738" stroke-width="2.5"/>
+  <rect x="12" y="12" width="104" height="104" rx="24" fill="none" stroke="#f7efe2" stroke-opacity="0.12" stroke-width="1.5"/>
+  <circle cx="64" cy="64" r="52" fill="url(#lanternHalo)"/>
 
-  <!-- Sanctuary outer ring / arch -->
-  <circle cx="64" cy="66" r="38" fill="#0f1a27" stroke="#2f4b68" stroke-width="3"/>
+  <path d="M46 42 L39 24 L56 35 Z" fill="#261d17" stroke="#5c4738" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M82 42 L89 24 L72 35 Z" fill="#261d17" stroke="#5c4738" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M47.5 40 L42.5 28 L54.5 35.5 Z" fill="#f3c66f" fill-opacity="0.9"/>
+  <path d="M80.5 40 L85.5 28 L73.5 35.5 Z" fill="#f3c66f" fill-opacity="0.9"/>
 
-  <!-- Stylized Poké-Sanctuary upper dome -->
-  <path d="M27.5 61 A36.5 36.5 0 0 1 100.5 61 L79 61 A15 15 0 0 0 49 61 Z" fill="url(#topHalf)"/>
+  <circle cx="64" cy="68" r="37" fill="#231a14" stroke="#4f3c2f" stroke-width="3.5"/>
+  <path d="M29 64 A35 35 0 0 1 99 64 L78.5 64 A14.5 14.5 0 0 0 49.5 64 Z" fill="url(#topCap)"/>
+  <path d="M29 72 A35 35 0 0 0 99 72 L78.5 72 A14.5 14.5 0 0 1 49.5 72 Z" fill="url(#bottomCap)"/>
 
-  <!-- Lower pasture hemisphere -->
-  <path d="M27.5 71 A36.5 36.5 0 0 0 100.5 71 L79 71 A15 15 0 0 1 49 71 Z" fill="#18283b"/>
+  <path d="M38 50 A28 28 0 0 1 60 36" fill="none" stroke="#ffffff" stroke-opacity="0.34" stroke-width="3.5" stroke-linecap="round"/>
 
-  <!-- Subtle companion silhouette ears above the core -->
-  <path d="M47 45 L41 27 L56 38 Z" fill="#101c2a"/>
-  <path d="M81 45 L87 27 L72 38 Z" fill="#101c2a"/>
-  <path d="M48.5 43 L44 30.5 L54.5 38.5 Z" fill="#6ce5b1" fill-opacity="0.88"/>
-  <path d="M79.5 43 L84 30.5 L73.5 38.5 Z" fill="#6ce5b1" fill-opacity="0.88"/>
-
-  <!-- Center Sanctuary core -->
-  <circle cx="64" cy="66" r="14.5" fill="#0b131d" stroke="#2f4b68" stroke-width="3"/>
-  <circle cx="64" cy="66" r="8" fill="url(#coreGlow)"/>
-  <circle cx="61.5" cy="63.5" r="2.2" fill="#ffffff" fill-opacity="0.75"/>
+  <circle cx="64" cy="68" r="14" fill="#231a14" stroke="#4f3c2f" stroke-width="3"/>
+  <circle cx="64" cy="68" r="8.2" fill="#f7efe2"/>
+  <circle cx="64" cy="68" r="4.8" fill="#f3c66f"/>
 </svg>

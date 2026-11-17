@@ -53,6 +53,7 @@ let
           walkSpeed = 75;
           showEmotes = true;
           enablePerching = true;
+          sanctuaryCamp = "forest";
         };
       };
     }).config;
@@ -209,6 +210,7 @@ in
       assert data["pets"][1]["sprite"] == "grovyle"
       assert data["behavior"]["idleTimeout"] == 420
       assert data["behavior"]["walkSpeed"] == 75
+      assert data["behavior"]["sanctuaryCamp"] == "forest"
       PY
       touch "$out"
     '';

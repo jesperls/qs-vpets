@@ -60,7 +60,6 @@ Singleton {
     signal workspaceChanged
     signal workspaceCleared
     signal monitorConnected(screenName: string)
-    signal monitorDisconnected(screenName: string)
 
     readonly property var _ignoredEvents: ({
         activelayout: true,
@@ -120,10 +119,6 @@ Singleton {
             if (n.length > 0) next[n] = true;
         }
         if (root._screensBooted) {
-            const prevKeys = Object.keys(root._knownScreenNames);
-            for (let i = 0; i < prevKeys.length; i++) {
-                if (!next[prevKeys[i]]) root.monitorDisconnected(prevKeys[i]);
-            }
             const nextKeys = Object.keys(next);
             for (let j = 0; j < nextKeys.length; j++) {
                 if (!root._knownScreenNames[nextKeys[j]]) root.monitorConnected(nextKeys[j]);
@@ -148,24 +143,27 @@ Singleton {
 
         const quietWs = (now - root._lastWorkspaceChangeMs) > 900;
         if (root._hasWindowBaseline && quietWs) {
+            const canEmitShift = (now - root._lastShiftEmitMs) > 1400;
+            let didEmitShift = false;
             const prevKeys = Object.keys(root._prevWindowMap);
             for (let i = 0; i < prevKeys.length; i++) {
                 const k = prevKeys[i];
                 const prev = root._prevWindowMap[k];
                 if (!allMappedAddrs[k]) {
                     root.windowClosed(prev.cls, prev.x + prev.w * 0.5, prev.y + prev.h * 0.5, prev.w, prev.h, k);
-                } else if (nextMap[k] && (now - root._lastShiftEmitMs) > 1400) {
+                } else if (nextMap[k] && canEmitShift) {
                     const cur = nextMap[k];
                     if (!cur.fullscreen && !prev.fullscreen
                             && (Math.abs(cur.x - prev.x) >= 36
                                 || Math.abs(cur.y - prev.y) >= 36
                                 || Math.abs(cur.w - prev.w) >= 36
                                 || Math.abs(cur.h - prev.h) >= 36)) {
-                        root._lastShiftEmitMs = now;
+                        didEmitShift = true;
                         root.windowShifted(cur.cls, cur.x, cur.y, cur.w, cur.h, k);
                     }
                 }
             }
+            if (didEmitShift) root._lastShiftEmitMs = now;
             if (root._prevWindowCount > 0 && Number(snap.windowCount || 0) === 0) {
                 root.workspaceCleared();
             }

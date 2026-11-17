@@ -503,9 +503,7 @@ function advanceStep(pet, nav, pickFn) {
                 var second = Util.findPet(pet, plan.secondOtherName);
                 if (second) Social.mediate(pet, friend, second);
             } else if (step.interaction === "groove") Social.syncGroove(pet, friend);
-            else if (step.interaction === "story") Social.shareDiscovery(pet, friend, step.topic);
             else if (step.interaction === "rest") Social.restBeside(pet, friend);
-            else if (step.interaction === "pounce") Social.pounce(pet, friend);
             else if (step.interaction === "illusion") Social.illusionSurprise(pet, friend);
             else if (step.interaction === "sneak_boop") Social.sneakBoop(pet, friend);
             else if (step.interaction === "mentor_invite") Social.inviteCopycat(pet, friend);
@@ -711,8 +709,6 @@ function finishPlan(pet, pickFn) {
         });
         pet.recentDrift = Personality.shiftRecent(pet.recentDrift, "curiosity", 0.008);
         if (plan.otherScreen) pet.recentDrift = Personality.shiftRecent(pet.recentDrift, "boldness", 0.008);
-        pet.lastDiscovery = plan.otherScreen ? "another monitor" : "a quiet corner";
-        pet.lastDiscoveryTime = now;
         break;
 
     case "supervise_work":
@@ -926,7 +922,6 @@ var buildParkedCursorCompanyPlan = PlanBuildersEnv.buildParkedCursorCompanyPlan;
 var buildCalmCompanyPlan = PlanBuildersEnv.buildCalmCompanyPlan;
 var buildWindowShiftInspectPlan = PlanBuildersEnv.buildWindowShiftInspectPlan;
 
-var buildShareStoryPlan = PlanBuildersSocial.buildShareStoryPlan;
 var buildInvitePlayPlan = PlanBuildersSocial.buildInvitePlayPlan;
 var buildSparBoutPlan = PlanBuildersSocial.buildSparBoutPlan;
 var buildSparPartnerPlan = PlanBuildersSocial.buildSparPartnerPlan;

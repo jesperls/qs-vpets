@@ -230,8 +230,7 @@ pkgs.runCommand archiveBase
       "$stage/.ns-root" \
       "$stage/share/applications" \
       "$stage/share/icons/hicolor/scalable/apps" \
-      "$stage/share/metainfo" \
-      "$stage/systemd"
+      "$stage/share/metainfo"
 
     while IFS= read -r storePath; do
       [ -n "$storePath" ] || continue
@@ -328,8 +327,6 @@ pkgs.runCommand archiveBase
       "$stage/share/icons/hicolor/scalable/apps/qs-vpets.svg"
     install -m 0644 "${qs-vpets.src}/packaging/desktop/io.github.jesperls.qs_vpets.metainfo.xml" \
       "$stage/share/metainfo/io.github.jesperls.qs_vpets.metainfo.xml"
-    install -m 0644 "${qs-vpets.src}/packaging/systemd/qs-vpets.service.in" \
-      "$stage/systemd/qs-vpets.service.in"
 
     cat > "$stage/install" <<'INSTALLER'
     #!/bin/sh
@@ -340,7 +337,11 @@ pkgs.runCommand archiveBase
     prefix="''${QS_VPETS_PREFIX:-$HOME/.local}"
     optDir="''${QS_VPETS_OPT_DIR:-$prefix/opt/qs-vpets}"
     binDir="$prefix/bin"
-    dataDir="''${XDG_DATA_HOME:-$prefix/share}"
+    if [ -n "''${QS_VPETS_PREFIX:-}" ]; then
+      dataDir="''${QS_VPETS_DATA_DIR:-$prefix/share}"
+    else
+      dataDir="''${QS_VPETS_DATA_DIR:-''${XDG_DATA_HOME:-$prefix/share}}"
+    fi
     autostart="1"
 
     for arg in "$@"; do
@@ -410,7 +411,11 @@ pkgs.runCommand archiveBase
     prefix="''${QS_VPETS_PREFIX:-$HOME/.local}"
     optDir="''${QS_VPETS_OPT_DIR:-$prefix/opt/qs-vpets}"
     binDir="$prefix/bin"
-    dataDir="''${XDG_DATA_HOME:-$prefix/share}"
+    if [ -n "''${QS_VPETS_PREFIX:-}" ]; then
+      dataDir="''${QS_VPETS_DATA_DIR:-$prefix/share}"
+    else
+      dataDir="''${QS_VPETS_DATA_DIR:-''${XDG_DATA_HOME:-$prefix/share}}"
+    fi
 
     if [ -x "$binDir/qs-vpets" ]; then
       "$binDir/qs-vpets" stop >/dev/null 2>&1 || true

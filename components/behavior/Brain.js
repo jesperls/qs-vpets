@@ -227,7 +227,3 @@ function onBlocked(pet) {
 function onEvent(pet, type, data, nav) {
     BrainEvents.handleEvent(pet, type, data, nav, _pick);
 }
-
-var ambientGlanceRow = Gestures.ambientGlanceRow;
-var fidget = Gestures.fidget;
-var idleMicroAction = Gestures.idleMicroAction;

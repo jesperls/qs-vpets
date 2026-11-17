@@ -233,7 +233,8 @@ Singleton {
             for (let i = Math.max(0, list.length - 12); i < list.length; i++) {
                 const item = list[i];
                 if (!item || typeof item !== "object") continue;
-                const t = Number(item.time ?? 0);
+                const rawT = Number(item.time ?? item.ts ?? item.timestamp ?? item.updatedAt ?? 0);
+                const t = rawT > 0 && rawT < 1e11 ? rawT * 1000 : rawT;
                 if (t > newestTs) {
                     newestTs = t;
                     newest = item;

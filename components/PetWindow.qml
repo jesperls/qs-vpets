@@ -6,6 +6,7 @@ import Quickshell.Wayland
 import "../config"
 import "../services"
 import "PetNav.js" as Nav
+import "SpeciesProfile.js" as SpeciesProfile
 import "behavior/Topology.js" as Topology
 
 PanelWindow {
@@ -18,7 +19,7 @@ PanelWindow {
         return Config.petById(root.petId) ?? {
             id: root.petId,
             name: root.petId,
-            sprite: "zorua",
+            sprite: SpeciesProfile.DEFAULT_SPECIES,
             personality: "emergent",
             scale: 2,
             monitor: "",
@@ -40,7 +41,7 @@ PanelWindow {
     }
 
     readonly property bool inspectorOpen: PetManager.inspectedPet === petItem
-    visible: !PetManager.hidden
+    visible: !PetManager.hidden && !PetManager.penVisible
 
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.namespace: "qs-vpets"
@@ -469,14 +470,14 @@ PanelWindow {
         height: active ? implicitHeight : 0
         x: {
             const rightX = petItem.worldX + root.petSize + 14;
-            const w = implicitWidth > 0 ? implicitWidth : 324;
+            const w = implicitWidth > 0 ? implicitWidth : 268;
             if (rightX + w + 12 <= root.width) return rightX;
             const leftX = petItem.worldX - w - 14;
             if (leftX >= 12) return leftX;
             return Math.max(12, Math.min(root.width - w - 12, (root.width - w) * 0.5));
         }
         y: {
-            const h = implicitHeight > 0 ? implicitHeight : 300;
+            const h = implicitHeight > 0 ? implicitHeight : 230;
             const minY = root.topInset + 10;
             const maxY = Math.max(minY, root.height - root.bottomInset - h - 10);
             const ideal = petItem.worldY + root.petSize / 2 - h / 2;
@@ -484,8 +485,8 @@ PanelWindow {
         }
         sourceComponent: PetInspector {
             pet: petItem
-            cardWidth: Math.max(248, Math.min(324, root.width - 24))
-            maxHeight: Math.max(220, root.height - root.topInset - root.bottomInset - 24)
+            cardWidth: Math.max(236, Math.min(268, root.width - 24))
+            maxHeight: Math.max(200, root.height - root.topInset - root.bottomInset - 24)
         }
     }
 
@@ -549,8 +550,10 @@ PanelWindow {
             if (!root.screen) root.screen = screens[0];
         }
         Qt.callLater(() => {
-            const maxX = Math.max(0, root.width - root.petSize);
-            const maxY = Math.max(0, root.height - root.petSize);
+            const effW = root.width > 100 ? root.width : (root.screen ? root.screen.width : 1920);
+            const effH = root.height > 100 ? root.height : (root.screen ? root.screen.height : 1080);
+            const maxX = Math.max(0, effW - root.petSize);
+            const maxY = Math.max(0, effH - root.petSize);
             const minSpawnY = Math.min(maxY, root.topInset + 48);
             const maxSpawnY = Math.max(minSpawnY, maxY - root.bottomInset - 48);
             if (!petItem._loadedState && petItem.worldX === 0 && petItem.worldY === 0) {

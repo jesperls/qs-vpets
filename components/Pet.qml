@@ -95,8 +95,6 @@ Item {
     property var journal: []
     property string lastThoughtText: "Observing the desktop"
     property double lastThoughtTime: 0
-    property string lastDiscovery: ""
-    property double lastDiscoveryTime: 0
     property double _lastDirectEmoteMs: 0
     property double _lastAmbientEmoteMs: 0
     property double _lastPassGreetMs: 0
@@ -138,6 +136,8 @@ Item {
     property double nextPeerSocialAt: Date.now() + 90000 + Math.random() * 120000
     property double roamStartedAt: Date.now()
     property bool _retiringToPen: false
+    property bool _pendingPenArrival: false
+    readonly property bool activeOnDesktop: !PetManager.hidden && !PetManager.penVisible
     property bool _loadedState: false
     property bool _stateReady: false
 
@@ -379,9 +379,64 @@ Item {
         if (!_retiringToPen) return;
         _retiringToPen = false;
         retireSafetyTimer.stop();
-        if (activePlan && (activePlan.name === "retire_to_pen" || activePlan.name === "joint_retire_to_pen")) {
+        if (activePlan && (activePlan.name === "retire_to_pen" || activePlan.name === "joint_retire")) {
             Plans.clearPlan(root);
             enterState("idle");
+        }
+    }
+
+    function _playArrivalFromPen(): void {
+        const fromLeft = Math.random() < 0.5;
+        if (root.petWindow) {
+            const entryX = fromLeft
+                ? (root.screenX() + 6)
+                : Math.max(root.screenX() + 6, root.screenX() + root.screenW() - root.width - 6);
+            const entryY = Math.max(
+                root.screenY() + 60,
+                Math.min(root.screenY() + root.screenH() - root.height - 80, root.screenY() + root.worldY)
+            );
+            root.petWindow.moveToGlobal(entryX, entryY);
+            root.facingRight = fromLeft;
+        }
+        const perc = Perception.perceive(root);
+        Plans.startPlan(root, PlanBuildersEnv.buildArrivePlan(root, perc, fromLeft), Nav, Gestures.pickAvailable);
+        PetManager.notifySanctuaryArrival(root);
+    }
+
+    onActiveOnDesktopChanged: {
+        if (!activeOnDesktop) {
+            if (_retiringToPen && petData && PetManager.penVisible) {
+                const retiringId = petData.id;
+                Qt.callLater(() => {
+                    if (root._retiringToPen) PetManager.completeRetire(retiringId);
+                });
+                return;
+            }
+            _stopAllTimers();
+            wakeDelayTimer.stop();
+            yawnCatchTimer.stop();
+            _pendingReactions = [];
+            if (activePlan) Plans.clearPlan(root);
+            if (state_ === "walk" || state_ === "wander" || state_ === "zoomies" || state_ === "airborne") {
+                onJourney = false;
+                enterState("idle");
+            }
+        } else {
+            _lastMetabolism = Date.now();
+            if (_pendingPenArrival) {
+                _pendingPenArrival = false;
+                Qt.callLater(() => {
+                    if (root.activeOnDesktop) root._playArrivalFromPen();
+                });
+                return;
+            }
+            if (state_ === "loaf" || state_ === "laying" || state_ === "sit" || state_ === "deepsleep") {
+                sitTimer.interval = 45000 + Math.random() * 55000;
+                sitTimer.restart();
+            } else {
+                if (state_ !== "idle" && state_ !== "perch") enterState("idle");
+                restartIdle(0.45);
+            }
         }
     }
 
@@ -431,7 +486,7 @@ Item {
         id: dreamTwitchTimer
         interval: 20000 + Math.random() * 16000
         repeat: true
-        running: !PetManager.hidden
+        running: root.activeOnDesktop
             && (root.state_ === "deepsleep" || root.state_ === "loaf" || root.state_ === "laying")
         onTriggered: {
             interval = 20000 + Math.random() * 16000;
@@ -478,7 +533,7 @@ Item {
     Timer {
         id: idleFidgetTimer
         interval: 7500 + Math.random() * 6500
-        running: !PetManager.hidden
+        running: root.activeOnDesktop
             && (root.state_ === "idle" || (root.state_ === "perch" && !root._perchRiding && !root._perchStrolling))
             && !fidgetRevert.running
         repeat: true
@@ -516,7 +571,7 @@ Item {
         id: faceAttentionTimer
         interval: 420
         repeat: true
-        running: !PetManager.hidden
+        running: root.activeOnDesktop
             && (root.state_ === "idle" || (root.state_ === "perch" && !root._perchStrolling))
             && Date.now() < root.attentionUntil
         onTriggered: {
@@ -539,7 +594,7 @@ Item {
         id: ambientGazeTimer
         interval: 8200 + Math.random() * 7200
         repeat: true
-        running: !PetManager.hidden && (root.state_ === "idle" || (root.state_ === "perch" && !root._perchStrolling))
+        running: root.activeOnDesktop && (root.state_ === "idle" || (root.state_ === "perch" && !root._perchStrolling))
         onTriggered: {
             interval = 8200 + Math.random() * 7600;
             if (fidgetRevert.running || Date.now() < root.attentionUntil) return;
@@ -554,7 +609,7 @@ Item {
         id: reactionTimer
         interval: 55
         repeat: true
-        running: !PetManager.hidden && root._pendingReactions.length > 0
+        running: root.activeOnDesktop && root._pendingReactions.length > 0
         onTriggered: {
             const now = Date.now();
             const remaining = [];
@@ -577,7 +632,7 @@ Item {
     property int _metabolismTicks: 0
     Timer {
         interval: 5000
-        running: !PetManager.hidden
+        running: root.activeOnDesktop
         repeat: true
         onRunningChanged: {
             if (running) root._lastMetabolism = Date.now();
@@ -611,7 +666,7 @@ Item {
 
     Timer {
         interval: 15 * 60000
-        running: !PetManager.hidden
+        running: root.activeOnDesktop
         repeat: true
         onTriggered: Brain.reflect(root)
     }
@@ -674,7 +729,7 @@ Item {
     function reflectOffWall(hitX: bool, hitY: bool): void { Nav.reflectOffWall(root, hitX, hitY); }
 
     function _queueAmbientEvent(eventName: string, payload: var, focusGX: var, focusGY: var): void {
-        if (state_ === "drag") return;
+        if (state_ === "drag" || !activeOnDesktop) return;
         const hasFocus = focusGX !== null && focusGX !== undefined && focusGY !== null && focusGY !== undefined;
         const align = hasFocus ? Util.gazeAlignment(root, Number(focusGX), Number(focusGY)) : 0.25;
         const delayMs = 110 + (1 - alertness) * 185 + (align < 0 ? (-align) * 145 : 0) + Math.random() * 115;
@@ -865,10 +920,8 @@ Item {
         speciesName: root.renderedSpecies
         petColor: root.petData.color ?? "#cba6f7"
         mirror: !root.facingRight
-        happiness: root.happiness
         actionMap: root.petData.actions ?? ({})
         moveSpeed: root.currentSpeed
-        restDrive: root.restDrive
         altitude: root.altitude
         spriteDir: root.renderedSpecies ? Qt.resolvedUrl("../assets/sprites/" + root.renderedSpecies) : ""
         onOneShotFinished: {
@@ -909,27 +962,16 @@ Item {
         facingRight = Math.random() < 0.5;
         enterState("idle");
         _settleFacing();
-        idleTimer.interval = 5000 + Math.random() * 7000;
-        idleTimer.restart();
-
-        if (arrivedFromPen) {
-            Qt.callLater(() => {
-                const fromLeft = Math.random() < 0.5;
-                if (root.petWindow) {
-                    const entryX = fromLeft
-                        ? (root.screenX() + 6)
-                        : Math.max(root.screenX() + 6, root.screenX() + root.screenW() - root.width - 6);
-                    const entryY = Math.max(
-                        root.screenY() + 60,
-                        Math.min(root.screenY() + root.screenH() - root.height - 80, root.screenY() + root.worldY)
-                    );
-                    root.petWindow.moveToGlobal(entryX, entryY);
-                    root.facingRight = fromLeft;
-                }
-                const perc = Perception.perceive(root);
-                Plans.startPlan(root, PlanBuildersEnv.buildArrivePlan(root, perc, fromLeft), Nav, Gestures.pickAvailable);
-                PetManager.notifySanctuaryArrival(root);
-            });
+        if (activeOnDesktop) {
+            idleTimer.interval = 5000 + Math.random() * 7000;
+            idleTimer.restart();
+            if (arrivedFromPen) {
+                Qt.callLater(() => {
+                    if (root.activeOnDesktop) root._playArrivalFromPen();
+                });
+            }
+        } else if (arrivedFromPen) {
+            _pendingPenArrival = true;
         }
     }
 

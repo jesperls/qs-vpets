@@ -4,7 +4,9 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import "../components/SpeciesProfile.js" as SpeciesProfile
 import "../components/SpriteSheet.js" as SpriteSheet
+import "../components/ui/FriendAreas.js" as FriendAreas
 
 Singleton {
     id: root
@@ -38,9 +40,8 @@ Singleton {
     property bool enablePerching: true
     property bool enableMusicReact: true
     property int maxActiveRoaming: 3
+    property string sanctuaryCamp: FriendAreas.DEFAULT_AREA
     property bool ready: false
-
-    readonly property var speciesList: SpriteSheet.SPECIES_LIST
 
     readonly property string configDir: {
         const envDir = Quickshell.env("QS_VPETS_CONFIG_DIR");
@@ -84,7 +85,9 @@ Singleton {
                 id = _slug(name) + "-" + suffix++;
             }
             usedIds[id] = true;
-            const sprite = SpriteSheet.SPECIES_LIST.indexOf(p.sprite) !== -1 ? p.sprite : "zorua";
+            const sprite = SpriteSheet.SPECIES_LIST.indexOf(p.sprite) !== -1
+                ? p.sprite
+                : SpeciesProfile.DEFAULT_SPECIES;
             const rawRoam = String(p.roamMode || "auto");
             const roamMode = (rawRoam === "always" || rawRoam === "penned") ? rawRoam : "auto";
             out.push({
@@ -135,7 +138,8 @@ Singleton {
                 showEmotes: root.showEmotes,
                 enablePerching: root.enablePerching,
                 enableMusicReact: root.enableMusicReact,
-                maxActiveRoaming: root.maxActiveRoaming
+                maxActiveRoaming: root.maxActiveRoaming,
+                sanctuaryCamp: root.sanctuaryCamp
             }
         }, null, 2);
     }
@@ -172,6 +176,9 @@ Singleton {
                 if (b.maxActiveRoaming !== undefined) {
                     root.maxActiveRoaming = Math.max(1, Math.min(10, Math.round(Number(b.maxActiveRoaming) || 3)));
                 }
+                if (typeof b.sanctuaryCamp === "string" && FriendAreas.isValidArea(b.sanctuaryCamp)) {
+                    root.sanctuaryCamp = b.sanctuaryCamp;
+                }
             }
             root._lastSavedJson = raw;
             return true;
@@ -182,7 +189,9 @@ Singleton {
     }
 
     function addPet(species: string, customName: string, preset = "", roamMode = "auto"): var {
-        const sp = SpriteSheet.SPECIES_LIST.indexOf(species) !== -1 ? species : "zorua";
+        const sp = SpriteSheet.SPECIES_LIST.indexOf(species) !== -1
+            ? species
+            : SpeciesProfile.DEFAULT_SPECIES;
         const defaultName = customName && customName.trim().length > 0
             ? customName.trim()
             : (sp.charAt(0).toUpperCase() + sp.slice(1));
@@ -285,6 +294,13 @@ Singleton {
         const next = Math.max(1, Math.min(10, count));
         if (root.maxActiveRoaming === next) return;
         root.maxActiveRoaming = next;
+        root.save();
+        root.configReady();
+    }
+
+    function updateSanctuaryCamp(camp: string): void {
+        if (!FriendAreas.isValidArea(camp) || root.sanctuaryCamp === camp) return;
+        root.sanctuaryCamp = camp;
         root.save();
         root.configReady();
     }

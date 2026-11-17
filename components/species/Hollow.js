@@ -28,6 +28,7 @@ var SPECIES = {
         signature: { state: "sink", minPlay: 0.36, label: "Drifting calmly into floor shadow" },
         northWatch: true,
         gait: { amble: 0.48, trot: 0.94, scamper: 1.56 },
+        locomotion: "hover",
         perchAffinity: 0.85,
         windowWatchAffinity: 1.32
     },
@@ -115,6 +116,7 @@ var SPECIES = {
         pantState: "",
         northWatch: false,
         gait: { amble: 0.46, trot: 0.90, scamper: 1.46 },
+        locomotion: "hover",
         perchAffinity: 0.35,
         windowWatchAffinity: 1.10
     },
@@ -171,6 +173,7 @@ var SPECIES = {
         signature: { state: "dance", minPlay: 0.34, label: "Shadow-boxing with fluid martial rhythm" },
         northWatch: true,
         gait: { amble: 0.54, trot: 1.04, scamper: 1.72 },
+        locomotion: "springer",
         perchAffinity: 1.10,
         windowWatchAffinity: 1.30
     },
@@ -199,6 +202,7 @@ var SPECIES = {
         signature: { state: "spAttack", minPlay: 0.34, label: "Shimmering its red-gemmed necklace" },
         northWatch: true,
         gait: { amble: 0.50, trot: 0.96, scamper: 1.58 },
+        locomotion: "hover",
         perchAffinity: 1.45,
         windowWatchAffinity: 1.25
     },
@@ -227,6 +231,7 @@ var SPECIES = {
         signature: { state: "twirl", minPlay: 0.34, label: "Spinning smoothly with a sly grin" },
         northWatch: true,
         gait: { amble: 0.58, trot: 1.14, scamper: 1.84 },
+        locomotion: "springer",
         perchAffinity: 1.60,
         windowWatchAffinity: 1.20
     }

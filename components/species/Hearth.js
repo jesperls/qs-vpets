@@ -30,6 +30,7 @@ var SPECIES = {
         pantState: "",
         northWatch: false,
         gait: { amble: 0.50, trot: 0.96, scamper: 1.56 },
+        locomotion: { kind: "heavy", gravityMult: 0.82 },
         perchAffinity: 0.80,
         windowWatchAffinity: 1.00
     },
@@ -165,6 +166,7 @@ var SPECIES = {
         signature: { state: "rearUp", minPlay: 0.30, label: "Belting out a cheerful hearth tune" },
         northWatch: true,
         gait: { amble: 0.42, trot: 0.82, scamper: 1.38 },
+        locomotion: "heavy",
         perchAffinity: 0.40,
         windowWatchAffinity: 1.18
     },
@@ -194,6 +196,7 @@ var SPECIES = {
         wakeState: "nod",
         northWatch: false,
         gait: { amble: 0.60, trot: 1.14, scamper: 1.82 },
+        locomotion: "springer",
         perchAffinity: 1.25,
         windowWatchAffinity: 1.00
     },
@@ -202,7 +205,7 @@ var SPECIES = {
         temperament: "chill",
         kinGroup: "hearth_kin",
         abilities: ["hearth_warmth", "lunar_pulse"],
-        blurb: "Regal nine-tailed guardian that keeps poised, serene watch into late hours.",
+        blurb: "Regal nine-tailed guardian that keeps steady, quiet watch into late hours.",
         nocturnalAffinity: true,
         socialStyle: "guardian",
         clips: {

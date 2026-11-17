@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Layouts
+import QtQuick.Window
 import "../config"
 import "../services"
 import "SpeciesProfile.js" as SpeciesProfile
@@ -16,32 +17,70 @@ Rectangle {
     required property var selectedLivePet
     required property var selectedResident
     required property bool selectedIsRoaming
+    property bool isNight: false
 
     property string stageOverrideState: ""
     property bool editingName: false
-    property bool morphExpanded: false
-    property alias confirmRelease: releaseBtn.armed
+    property int activePage: 0
+    property double nowMs: Date.now()
+    property alias confirmRelease: memoTab.confirmRelease
     readonly property bool renameActiveFocus: renameInput.activeFocus
 
     signal companionSelected(petId: string)
+    signal closeCardRequested()
+    signal careTriggered(petId: string, animState: string, emoteKind: string)
+    signal interacted()
 
-    readonly property var connectedMonitors: {
-        const screens = WindowTracker.realScreens;
-        const out = [""];
-        for (let i = 0; i < screens.length; i++) out.push(screens[i].name);
-        return out;
+    readonly property var stateSource: {
+        void (root.selectedResident ? root.selectedResident.revision : 0);
+        void (root.selectedLivePet ? root.selectedLivePet.memoryRevision : 0);
+        return root.selectedIsRoaming && root.selectedLivePet
+            ? root.selectedLivePet
+            : root.selectedResident;
     }
 
-    readonly property string abilityTooltip: {
-        if (!root.selectedConfig) return "";
-        const abs = Abilities.abilitiesFor(root.selectedConfig.sprite);
-        if (abs.length === 0) return "";
-        return abs.map(a => a.label + " — " + a.summary).join("\n");
+    readonly property var speciesProf: root.selectedConfig
+        ? SpeciesProfile.profileFor(root.selectedConfig.sprite)
+        : SpeciesProfile.profileFor(SpeciesProfile.DEFAULT_SPECIES)
+
+    readonly property var biomeTheme: Fmt.biomePalette(root.speciesProf.biome, root.isNight)
+
+    readonly property var speciesAbilities: root.selectedConfig
+        ? Abilities.abilitiesFor(root.selectedConfig.sprite)
+        : []
+
+    readonly property real currentBond: {
+        const src = root.stateSource;
+        return src && src.bond !== undefined ? src.bond : 0.30;
+    }
+
+    readonly property real currentAgeSec: {
+        const src = root.stateSource;
+        return src && src.ageSeconds !== undefined ? src.ageSeconds : 0;
+    }
+
+    readonly property string rawActivityState: {
+        if (root.stageOverrideState.length > 0) return root.stageOverrideState;
+        const src = root.stateSource;
+        if (!src) return "idle";
+        if (root.selectedIsRoaming && root.selectedLivePet) {
+            return src.state_ || "idle";
+        }
+        return src.penState || "idle";
+    }
+
+    readonly property string portraitAnimState: {
+        if (root.stageOverrideState.length > 0) return root.stageOverrideState;
+        const s = root.rawActivityState;
+        if (s === "walk" || s === "wander" || s === "zoomies" || s === "airborne" || s === "drag" || s === "perch") {
+            return "idle";
+        }
+        return s;
     }
 
     onSelectedPetIdChanged: {
-        morphExpanded = false;
         editingName = false;
+        memoTab.optionsExpanded = false;
         stageOverrideState = "";
         stageOverrideTimer.stop();
         if (selectedConfig) renameInput.text = selectedConfig.name;
@@ -57,6 +96,13 @@ Rectangle {
         id: stageOverrideTimer
         interval: 1650
         onTriggered: root.stageOverrideState = ""
+    }
+
+    Timer {
+        interval: 30000
+        running: root.visible && root.Window.visibility !== Window.Hidden
+        repeat: true
+        onTriggered: root.nowMs = Date.now()
     }
 
     function startRename(): void {
@@ -88,7 +134,7 @@ Rectangle {
 
     function triggerCareAction(act: string): void {
         if (!root.selectedConfig) return;
-        const prof = SpeciesProfile.profileFor(root.selectedConfig.sprite);
+        const prof = root.speciesProf;
         if (root.selectedIsRoaming && root.selectedLivePet) {
             if (act === "pat") root.selectedLivePet.onStroked();
             else if (act === "feed") root.selectedLivePet.onFed();
@@ -100,101 +146,164 @@ Rectangle {
             else if (act === "play") root.selectedResident.playInPen();
         }
 
+        let anim = "nod";
+        let emote = "heart";
         if (act === "pat") {
-            const gest = (prof.affectionGestures && prof.affectionGestures.length > 0)
+            anim = (prof.affectionGestures && prof.affectionGestures.length > 0)
                 ? prof.affectionGestures[0]
                 : "nod";
-            root.stageOverrideState = gest;
+            emote = "heart";
             stageSprite.triggerSquash(1.15, 0.86);
-            stageBubble.showEmote("heart");
-            stageOverrideTimer.restart();
         } else if (act === "feed") {
-            root.stageOverrideState = "eat";
+            anim = "eat";
+            emote = "berry";
             stageSprite.triggerSquash(1.12, 0.88);
-            stageBubble.showEmote("berry");
-            stageOverrideTimer.restart();
         } else if (act === "play") {
-            root.stageOverrideState = (prof.signature && prof.signature.state) ? prof.signature.state : "hop";
+            anim = (prof.signature && prof.signature.state) ? prof.signature.state : "hop";
+            emote = "note";
             stageSprite.triggerSquash(0.88, 1.16);
-            stageBubble.showEmote("note");
-            stageOverrideTimer.restart();
         } else if (act === "summon") {
+            anim = "hop";
+            emote = "exclaim";
             stageSprite.triggerSquash(0.90, 1.12);
-            stageBubble.showEmote("exclaim");
+        }
+        root.stageOverrideState = anim;
+        stageBubble.showEmote(emote);
+        stageOverrideTimer.restart();
+        root.careTriggered(root.selectedConfig.id, anim, emote);
+    }
+
+    function _playEvolutionCeremony(): void {
+        root.stageOverrideState = "emit";
+        stageSprite.triggerSquash(1.18, 0.84);
+        stageBubble.showEmote("heart");
+        stageOverrideTimer.restart();
+        if (root.selectedConfig) {
+            root.careTriggered(root.selectedConfig.id, "emit", "heart");
         }
     }
 
-    Layout.fillWidth: true
-    Layout.fillHeight: true
-    radius: Theme.radius(0)
-    color: Theme.surface
+    width: 358
+    implicitWidth: 358
+    radius: Theme.radius(3)
+    color: Theme.alpha(Theme.panel, 0.96)
     border.width: 1
-    border.color: Theme.borderSubtle
+    border.color: Theme.border
 
-    Flickable {
-        id: detailFlick
+    Rectangle {
+        visible: Theme.specularRim
         anchors.fill: parent
-        anchors.margins: 16
-        clip: true
-        contentWidth: width
-        contentHeight: detailCol.implicitHeight
-        boundsBehavior: Flickable.StopAtBounds
-        interactive: contentHeight > height
+        anchors.margins: 3
+        radius: Math.max(4, root.radius - 3)
+        color: "transparent"
+        border.width: 1
+        border.color: Theme.alpha(Theme.rimHighlight, 0.5)
+    }
 
-        ColumnLayout {
-            id: detailCol
-            width: detailFlick.width
-            spacing: 12
+    MouseArea {
+        anchors.fill: parent
+        acceptedButtons: Qt.LeftButton | Qt.RightButton
+    }
+
+    TapHandler {
+        onPressedChanged: {
+            if (pressed) root.interacted();
+        }
+    }
+
+    ColumnLayout {
+        anchors.fill: parent
+        anchors.margins: 12
+        spacing: 8
+
+        Rectangle {
+            id: habitatStage
+            Layout.fillWidth: true
+            implicitHeight: 96
+            radius: Theme.radius(0)
+            clip: true
+            color: root.biomeTheme.turf
+            border.width: 1
+            border.color: root.biomeTheme.turfRim
+
+            Image {
+                anchors.fill: parent
+                smooth: false
+                fillMode: Image.PreserveAspectCrop
+                source: Qt.resolvedUrl("../assets/sanctuary/biomes/" + root.biomeTheme.backdrop)
+            }
+
+            Rectangle {
+                anchors.fill: parent
+                gradient: Gradient {
+                    orientation: Gradient.Horizontal
+                    GradientStop { position: 0.0; color: root.isNight ? "#38101628" : "#12140f0c" }
+                    GradientStop { position: 0.34; color: root.isNight ? "#66121624" : "#521a1410" }
+                    GradientStop { position: 1.0; color: root.isNight ? "#80121624" : "#701a1410" }
+                }
+            }
+
+            Rectangle {
+                z: 5
+                anchors.top: parent.top
+                anchors.right: parent.right
+                anchors.margins: 8
+                width: 24
+                height: 24
+                radius: 12
+                color: closeCardMouse.containsMouse
+                    ? Theme.alpha(Theme.panel, 0.92)
+                    : Theme.alpha(Theme.panel, 0.62)
+                border.width: 1
+                border.color: Theme.alpha(Theme.border, 0.7)
+
+                UiIcon {
+                    anchors.centerIn: parent
+                    name: "close"
+                    size: 10
+                    color: Theme.text
+                }
+
+                MouseArea {
+                    id: closeCardMouse
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.closeCardRequested()
+                }
+            }
 
             RowLayout {
-                Layout.fillWidth: true
-                spacing: 14
+                anchors.fill: parent
+                anchors.leftMargin: 14
+                anchors.rightMargin: 36
+                anchors.topMargin: 10
+                anchors.bottomMargin: 8
+                spacing: 12
 
-                Rectangle {
-                    id: heroStage
-                    implicitWidth: 92
-                    implicitHeight: 92
-                    radius: Theme.radius(-2)
-                    color: Theme.bg
-                    border.width: 1
-                    border.color: stageMouse.containsMouse
-                        ? Theme.accent
-                        : (root.selectedIsRoaming ? Theme.alpha(Theme.positive, 0.55) : Theme.alpha(Theme.warm, 0.5))
+                Item {
+                    Layout.preferredWidth: 72
+                    Layout.preferredHeight: 86
 
-                    Rectangle {
-                        anchors.centerIn: parent
-                        width: 58
-                        height: 58
-                        radius: 29
-                        color: root.selectedIsRoaming
-                            ? Theme.alpha(Theme.positive, 0.08)
-                            : Theme.alpha(Theme.warm, 0.08)
-                    }
-
-                    Rectangle {
+                    Image {
                         anchors.horizontalCenter: parent.horizontalCenter
                         anchors.bottom: parent.bottom
-                        anchors.bottomMargin: 15
-                        width: 56
-                        height: 1
-                        color: Theme.borderSubtle
+                        anchors.bottomMargin: 2
+                        width: 64
+                        height: 32
+                        smooth: false
+                        source: Qt.resolvedUrl("../assets/sanctuary/props/shadow.png")
                     }
 
                     SpriteAnimation {
                         id: stageSprite
-                        anchors.centerIn: parent
-                        anchors.verticalCenterOffset: 4
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        anchors.bottom: parent.bottom
+                        anchors.bottomMargin: 2
                         width: 64
                         height: 64
-                        speciesName: root.selectedConfig ? root.selectedConfig.sprite : "zorua"
-                        currentState: {
-                            void (root.selectedResident ? root.selectedResident.revision : 0);
-                            if (root.stageOverrideState.length > 0) return root.stageOverrideState;
-                            if (root.selectedIsRoaming && root.selectedLivePet) {
-                                return root.selectedLivePet.state_ === "drag" ? "idle" : root.selectedLivePet.state_;
-                            }
-                            return root.selectedResident ? root.selectedResident.penState : "idle";
-                        }
+                        speciesName: root.selectedConfig ? root.selectedConfig.sprite : SpeciesProfile.DEFAULT_SPECIES
+                        currentState: root.portraitAnimState
                         spriteDir: root.selectedConfig
                             ? Qt.resolvedUrl("../assets/sprites/" + root.selectedConfig.sprite)
                             : ""
@@ -203,8 +312,9 @@ Rectangle {
                     EmoteBubble {
                         id: stageBubble
                         anchors.horizontalCenter: parent.horizontalCenter
-                        y: -4
+                        y: -2
                         z: 10
+                        sleeping: root.rawActivityState === "deepsleep"
                         forceEnabled: true
                     }
 
@@ -218,803 +328,363 @@ Rectangle {
 
                     UiTooltip {
                         active: stageMouse.containsMouse
-                        text: "Click to pat"
+                        text: "Click to pet!"
                     }
                 }
 
                 ColumnLayout {
                     Layout.fillWidth: true
-                    spacing: 6
+                    spacing: 4
 
-                    Flow {
+                    RowLayout {
+                        visible: !root.editingName
                         Layout.fillWidth: true
-                        spacing: 8
+                        spacing: 5
 
-                        RowLayout {
-                            visible: !root.editingName
-                            spacing: 6
-
-                            Text {
-                                text: root.selectedConfig ? root.selectedConfig.name : ""
-                                color: Theme.text
-                                font.family: Theme.uiFont
-                                font.pixelSize: 18
-                                font.weight: Font.Bold
-                            }
-
-                            Rectangle {
-                                implicitWidth: 24
-                                implicitHeight: 24
-                                radius: Theme.radius(-8)
-                                color: editNameMouse.containsMouse ? Theme.surfaceAlt : "transparent"
-
-                                UiIcon {
-                                    anchors.centerIn: parent
-                                    name: "edit"
-                                    size: 12
-                                    color: editNameMouse.containsMouse ? Theme.accent : Theme.muted
-                                }
-
-                                MouseArea {
-                                    id: editNameMouse
-                                    anchors.fill: parent
-                                    hoverEnabled: true
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: root.startRename()
-                                }
-
-                                UiTooltip {
-                                    active: editNameMouse.containsMouse
-                                    text: "Rename companion"
-                                }
-                            }
-                        }
-
-                        RowLayout {
-                            visible: root.editingName
-                            spacing: 6
-
-                            Rectangle {
-                                implicitWidth: 180
-                                implicitHeight: 28
-                                radius: Theme.radius(-7)
-                                color: Theme.bg
-                                border.width: 1
-                                border.color: Theme.accent
-
-                                TextInput {
-                                    id: renameInput
-                                    anchors.fill: parent
-                                    anchors.leftMargin: 9
-                                    anchors.rightMargin: 9
-                                    verticalAlignment: TextInput.AlignVCenter
-                                    selectByMouse: true
-                                    maximumLength: 28
-                                    text: root.selectedConfig ? root.selectedConfig.name : ""
-                                    color: Theme.text
-                                    font.family: Theme.uiFont
-                                    font.pixelSize: 13
-                                    font.weight: Font.DemiBold
-                                    clip: true
-                                    onAccepted: root.commitRename()
-                                    onActiveFocusChanged: {
-                                        if (!activeFocus && root.editingName) {
-                                            Qt.callLater(() => {
-                                                if (!renameInput.activeFocus && root.editingName) {
-                                                    root.cancelRename();
-                                                }
-                                            });
-                                        }
-                                    }
-
-                                    HoverHandler {
-                                        cursorShape: Qt.IBeamCursor
-                                    }
-                                }
-                            }
-
-                            Rectangle {
-                                implicitWidth: 28
-                                implicitHeight: 28
-                                radius: Theme.radius(-7)
-                                color: saveRenameMouse.containsMouse ? Theme.accent : Theme.accentSoft
-                                border.width: 1
-                                border.color: Theme.accent
-
-                                UiIcon {
-                                    anchors.centerIn: parent
-                                    name: "check"
-                                    size: 12
-                                    color: saveRenameMouse.containsMouse ? Theme.overAccent : Theme.accent
-                                }
-
-                                MouseArea {
-                                    id: saveRenameMouse
-                                    anchors.fill: parent
-                                    hoverEnabled: true
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: root.commitRename()
-                                }
-                            }
-
-                            Rectangle {
-                                implicitWidth: 28
-                                implicitHeight: 28
-                                radius: Theme.radius(-7)
-                                color: cancelRenameMouse.containsMouse ? Theme.surfaceAlt : Theme.bg
-                                border.width: 1
-                                border.color: Theme.borderSubtle
-
-                                UiIcon {
-                                    anchors.centerIn: parent
-                                    name: "close"
-                                    size: 11
-                                    color: Theme.subtext
-                                }
-
-                                MouseArea {
-                                    id: cancelRenameMouse
-                                    anchors.fill: parent
-                                    hoverEnabled: true
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: root.cancelRename()
-                                }
-                            }
+                        Text {
+                            Layout.maximumWidth: 168
+                            elide: Text.ElideRight
+                            text: root.selectedConfig ? root.selectedConfig.name : ""
+                            color: "#fff9ee"
+                            font.family: Theme.uiFont
+                            font.pixelSize: 18
+                            font.weight: Font.Bold
                         }
 
                         Rectangle {
+                            implicitWidth: 22
                             implicitHeight: 22
-                            radius: Theme.radius(-8)
-                            color: Theme.alpha(Theme.accent, 0.14)
-                            border.width: 1
-                            border.color: spBadgeHover.containsMouse && root.abilityTooltip.length > 0
-                                ? Theme.accent
-                                : Theme.alpha(Theme.accent, 0.28)
-                            implicitWidth: spTagRow.implicitWidth + 14
+                            radius: 11
+                            color: editMouse.containsMouse
+                                ? Theme.alpha(Theme.panel, 0.72)
+                                : Theme.alpha(Theme.panel, 0.35)
 
-                            RowLayout {
-                                id: spTagRow
+                            UiIcon {
                                 anchors.centerIn: parent
-                                spacing: 6
-
-                                Text {
-                                    text: {
-                                        if (!root.selectedConfig) return "";
-                                        const prof = SpeciesProfile.profileFor(root.selectedConfig.sprite);
-                                        const abs = Abilities.abilitiesFor(root.selectedConfig.sprite);
-                                        const abLabel = abs.length > 0 ? ("  ·  " + abs[0].label) : "";
-                                        return prof.displayName + "  ·  " + prof.biome + abLabel;
-                                    }
-                                    color: Theme.accent
-                                    font.family: Theme.uiFont
-                                    font.pixelSize: 10
-                                    font.weight: Font.DemiBold
-                                }
-
-                                Text {
-                                    text: {
-                                        void (root.selectedResident ? root.selectedResident.revision : 0);
-                                        const age = root.selectedIsRoaming && root.selectedLivePet
-                                            ? root.selectedLivePet.ageSeconds
-                                            : (root.selectedResident ? root.selectedResident.ageSeconds : 0);
-                                        return Fmt.formatAge(age);
-                                    }
-                                    color: Theme.subtext
-                                    font.family: Theme.monoFont
-                                    font.pixelSize: 10
-                                }
+                                name: "edit"
+                                size: 11
+                                color: "#fff9ee"
                             }
 
                             MouseArea {
-                                id: spBadgeHover
+                                id: editMouse
                                 anchors.fill: parent
                                 hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: root.startRename()
                             }
 
                             UiTooltip {
-                                active: spBadgeHover.containsMouse
-                                text: root.abilityTooltip
+                                active: editMouse.containsMouse
+                                text: "Give nickname"
                             }
                         }
-                    }
-
-                    Text {
-                        Layout.fillWidth: true
-                        wrapMode: Text.WordWrap
-                        text: {
-                            void (root.selectedResident ? root.selectedResident.revision : 0);
-                            const arch = root.selectedIsRoaming && root.selectedLivePet
-                                ? root.selectedLivePet.archetype
-                                : (root.selectedResident ? root.selectedResident.archetype : "Curious Hatchling");
-                            const blurb = root.selectedConfig
-                                ? SpeciesProfile.profileFor(root.selectedConfig.sprite).blurb
-                                : "";
-                            return arch + "  —  " + blurb;
-                        }
-                        color: Theme.warm
-                        font.family: Theme.uiFont
-                        font.pixelSize: 11
-                        font.weight: Font.Medium
                     }
 
                     RowLayout {
+                        visible: root.editingName
                         Layout.fillWidth: true
-                        spacing: 6
+                        spacing: 4
 
                         Rectangle {
-                            implicitWidth: 6
-                            implicitHeight: 6
-                            radius: 3
-                            color: root.selectedIsRoaming ? Theme.positive : Theme.warm
+                            Layout.fillWidth: true
+                            implicitHeight: 28
+                            radius: Theme.radius(-7)
+                            color: Theme.panel
+                            border.width: 1
+                            border.color: Theme.warm
+
+                            TextInput {
+                                id: renameInput
+                                anchors.fill: parent
+                                anchors.leftMargin: 8
+                                anchors.rightMargin: 8
+                                verticalAlignment: TextInput.AlignVCenter
+                                selectByMouse: true
+                                maximumLength: 24
+                                text: root.selectedConfig ? root.selectedConfig.name : ""
+                                color: Theme.text
+                                font.family: Theme.uiFont
+                                font.pixelSize: 13
+                                font.weight: Font.DemiBold
+                                clip: true
+                                onAccepted: root.commitRename()
+
+                                HoverHandler {
+                                    cursorShape: Qt.IBeamCursor
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            implicitWidth: 26
+                            implicitHeight: 26
+                            radius: 13
+                            color: Theme.warm
+
+                            UiIcon {
+                                anchors.centerIn: parent
+                                name: "check"
+                                size: 11
+                                color: Theme.overWarm
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: root.commitRename()
+                            }
+                        }
+
+                        Rectangle {
+                            implicitWidth: 26
+                            implicitHeight: 26
+                            radius: 13
+                            color: Theme.alpha(Theme.panel, 0.85)
+
+                            UiIcon {
+                                anchors.centerIn: parent
+                                name: "close"
+                                size: 10
+                                color: Theme.subtext
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: root.cancelRename()
+                            }
+                        }
+                    }
+
+                    RowLayout {
+                        spacing: 5
+
+                        UiIcon {
+                            name: root.biomeTheme.icon
+                            size: 11
+                            color: root.biomeTheme.accent
                         }
 
                         Text {
-                            Layout.fillWidth: true
-                            elide: Text.ElideRight
-                            text: {
-                                void (root.selectedResident ? root.selectedResident.revision : 0);
-                                if (root.selectedIsRoaming && root.selectedLivePet) {
-                                    const p = root.selectedLivePet;
-                                    const lbl = p.activePlan ? p.activePlan.label : "Observing desktop";
-                                    const note = p.lastThoughtText || "";
-                                    return "Roaming  ·  " + lbl + (note ? ("  —  " + note) : "");
-                                }
-                                const act = root.selectedResident
-                                    ? root.selectedResident.sanctuaryActivity
-                                    : "Resting quietly in the Sanctuary";
-                                return "Sanctuary  ·  " + act;
-                            }
-                            color: Theme.subtext
+                            text: root.speciesProf.displayName + "  ·  " + root.speciesProf.biome
+                            color: "#ece2d0"
                             font.family: Theme.uiFont
                             font.pixelSize: 11
+                            font.weight: Font.Medium
                         }
                     }
+
+                    PokemonHearts {
+                        bond: root.currentBond
+                        heartSize: 13
+                        showLabel: true
+                    }
+                }
+            }
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 7
+
+            Item {
+                Layout.fillWidth: true
+                implicitHeight: 38
+
+                Rectangle {
+                    anchors.fill: parent
+                    anchors.topMargin: 2
+                    radius: Theme.radius(-4)
+                    color: root.selectedIsRoaming ? "#3b2320" : "#1f3825"
+                }
+
+                Rectangle {
+                    anchors.fill: parent
+                    anchors.bottomMargin: pokeballCallMouse.pressed ? 0 : 2
+                    anchors.topMargin: pokeballCallMouse.pressed ? 2 : 0
+                    radius: Theme.radius(-4)
+                    color: root.selectedIsRoaming
+                        ? (pokeballCallMouse.containsMouse ? Theme.pokeball : Theme.pokeballSoft)
+                        : (pokeballCallMouse.containsMouse ? Theme.positive : Theme.positiveSoft)
+                    border.width: 1
+                    border.color: root.selectedIsRoaming ? Theme.pokeball : Theme.positive
+                    Behavior on color { ColorAnimation { duration: 110 } }
+
+                    RowLayout {
+                        anchors.centerIn: parent
+                        spacing: 7
+
+                        UiIcon {
+                            name: "pokeball"
+                            filled: true
+                            size: 15
+                            color: Theme.border
+                            accentColor: Theme.pokeball
+                        }
+
+                        Text {
+                            text: {
+                                const nm = root.selectedConfig ? root.selectedConfig.name : "Partner";
+                                return root.selectedIsRoaming
+                                    ? ("Come back, " + nm + "!")
+                                    : ("Go, " + nm + "!");
+                            }
+                            color: pokeballCallMouse.containsMouse
+                                ? (root.selectedIsRoaming ? Theme.overPokeball : Theme.overPositive)
+                                : Theme.text
+                            font.family: Theme.uiFont
+                            font.pixelSize: 12
+                            font.weight: Font.Bold
+                        }
+                    }
+                }
+
+                MouseArea {
+                    id: pokeballCallMouse
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: {
+                        if (!root.selectedConfig) return;
+                        if (root.selectedIsRoaming) {
+                            PetManager.sendToPenNow(root.selectedConfig.id, false);
+                        } else {
+                            PetManager.callOutNow(root.selectedConfig.id);
+                        }
+                    }
+                }
+            }
+        }
+
+        Rectangle {
+            Layout.fillWidth: true
+            implicitHeight: 32
+            radius: Theme.radius(-5)
+            color: Theme.parchment
+            border.width: 1
+            border.color: Theme.borderSubtle
+
+            RowLayout {
+                anchors.fill: parent
+                anchors.margins: 3
+                spacing: 3
+
+                Repeater {
+                    model: [
+                        { label: "Care & Treats", icon: "paw" },
+                        { label: "Trainer's Memo", icon: "ribbon" }
+                    ]
+
+                    Rectangle {
+                        id: pgTab
+                        required property var modelData
+                        required property int index
+                        readonly property bool active: root.activePage === pgTab.index
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        radius: Theme.radius(-7)
+                        color: active
+                            ? Theme.surfaceAlt
+                            : (pgTabMouse.containsMouse ? Theme.alpha(Theme.surfaceAlt, 0.5) : "transparent")
+                        border.width: active ? 1 : 0
+                        border.color: Theme.alpha(Theme.warm, 0.5)
+
+                        RowLayout {
+                            anchors.centerIn: parent
+                            spacing: 6
+
+                            UiIcon {
+                                name: pgTab.modelData.icon
+                                size: 12
+                                color: pgTab.active ? Theme.warm : Theme.muted
+                            }
+
+                            Text {
+                                text: pgTab.modelData.label
+                                color: pgTab.active ? Theme.text : Theme.subtext
+                                font.family: Theme.uiFont
+                                font.pixelSize: 11
+                                font.weight: pgTab.active ? Font.DemiBold : Font.Normal
+                            }
+                        }
+
+                        MouseArea {
+                            id: pgTabMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                root.activePage = pgTab.index;
+                                cardFlick.contentY = 0;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Item {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+
+            Flickable {
+                id: cardFlick
+                anchors.fill: parent
+                clip: true
+                contentWidth: width
+                contentHeight: root.activePage === 0 ? careTab.implicitHeight : memoTab.implicitHeight
+                boundsBehavior: Flickable.StopAtBounds
+                interactive: contentHeight > height
+
+                WheelHandler {
+                    onWheel: event => {
+                        if (cardFlick.contentHeight <= cardFlick.height) return;
+                        const maxY = Math.max(0, cardFlick.contentHeight - cardFlick.height);
+                        cardFlick.contentY = Math.max(0, Math.min(maxY, cardFlick.contentY - event.angleDelta.y * 0.6));
+                    }
+                }
+
+                SanctuaryCareTab {
+                    id: careTab
+                    visible: root.activePage === 0
+                    width: cardFlick.width - (cardFlick.contentHeight > cardFlick.height ? 8 : 0)
+                    selectedConfig: root.selectedConfig
+                    selectedLivePet: root.selectedLivePet
+                    selectedResident: root.selectedResident
+                    selectedIsRoaming: root.selectedIsRoaming
+                    stateSource: root.stateSource
+                    currentAnimState: root.rawActivityState
+                    onCareRequested: act => root.triggerCareAction(act)
+                    onEvolvedCeremony: root._playEvolutionCeremony()
+                }
+
+                SanctuaryMemoTab {
+                    id: memoTab
+                    visible: root.activePage === 1
+                    width: cardFlick.width - (cardFlick.contentHeight > cardFlick.height ? 8 : 0)
+                    selectedConfig: root.selectedConfig
+                    stateSource: root.stateSource
+                    selectedIsRoaming: root.selectedIsRoaming
+                    speciesAbilities: root.speciesAbilities
+                    currentAgeSec: root.currentAgeSec
+                    nowMs: root.nowMs
+                    onCompanionSelected: petId => root.companionSelected(petId)
                 }
             }
 
             Rectangle {
-                Layout.fillWidth: true
-                radius: Theme.radius(-3)
-                color: Theme.bg
-                border.width: 1
-                border.color: Theme.borderSubtle
-                implicitHeight: controlsCol.implicitHeight + 18
-
-                ColumnLayout {
-                    id: controlsCol
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.top: parent.top
-                    anchors.margins: 9
-                    spacing: 8
-
-                    Flow {
-                        Layout.fillWidth: true
-                        spacing: 8
-
-                        RowLayout {
-                            height: 28
-                            spacing: 8
-
-                            Text {
-                                text: "Roaming"
-                                color: Theme.subtext
-                                font.family: Theme.uiFont
-                                font.pixelSize: 11
-                            }
-
-                            Rectangle {
-                                implicitHeight: 28
-                                implicitWidth: policyRow.implicitWidth + 4
-                                radius: Theme.radius(-6)
-                                color: Theme.surface
-                                border.width: 1
-                                border.color: Theme.borderSubtle
-
-                                RowLayout {
-                                    id: policyRow
-                                    anchors.centerIn: parent
-                                    spacing: 2
-
-                                    Repeater {
-                                        model: [
-                                            {
-                                                mode: "auto",
-                                                label: "Auto Rotate",
-                                                tip: "Naturally rotates between desktop and Sanctuary based on energy and rhythm"
-                                            },
-                                            {
-                                                mode: "always",
-                                                label: "Always Out",
-                                                tip: "Stays on your desktop unless manually tucked into the Sanctuary"
-                                            },
-                                            {
-                                                mode: "penned",
-                                                label: "Stay in Sanctuary",
-                                                tip: "Rests permanently in the Sanctuary until called out"
-                                            }
-                                        ]
-
-                                        Rectangle {
-                                            id: modeBtn
-                                            required property var modelData
-                                            readonly property bool active: root.selectedConfig !== null
-                                                && (root.selectedConfig.roamMode || "auto") === modeBtn.modelData.mode
-                                            implicitHeight: 24
-                                            implicitWidth: modeBtnTxt.implicitWidth + 16
-                                            radius: Theme.radius(-8)
-                                            color: active
-                                                ? Theme.accentSoft
-                                                : (modeBtnMouse.containsMouse ? Theme.surfaceAlt : "transparent")
-                                            border.width: active ? 1 : 0
-                                            border.color: Theme.accent
-
-                                            Text {
-                                                id: modeBtnTxt
-                                                anchors.centerIn: parent
-                                                text: modeBtn.modelData.label
-                                                color: modeBtn.active ? Theme.accent : Theme.subtext
-                                                font.family: Theme.uiFont
-                                                font.pixelSize: 11
-                                                font.weight: modeBtn.active ? Font.DemiBold : Font.Normal
-                                            }
-
-                                            MouseArea {
-                                                id: modeBtnMouse
-                                                anchors.fill: parent
-                                                hoverEnabled: true
-                                                cursorShape: Qt.PointingHandCursor
-                                                onClicked: {
-                                                    if (root.selectedConfig) {
-                                                        Config.updatePetRoamMode(root.selectedConfig.id, modeBtn.modelData.mode);
-                                                    }
-                                                }
-                                            }
-
-                                            UiTooltip {
-                                                active: modeBtnMouse.containsMouse
-                                                text: modeBtn.modelData.tip
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        RowLayout {
-                            height: 28
-                            spacing: 6
-
-                            Rectangle {
-                                visible: !root.selectedIsRoaming
-                                implicitHeight: 28
-                                radius: Theme.radius(-7)
-                                implicitWidth: callNowTxt.implicitWidth + 18
-                                color: callNowMouse.containsMouse
-                                    ? Theme.alpha(Theme.positive, 0.24)
-                                    : Theme.alpha(Theme.positive, 0.14)
-                                border.width: 1
-                                border.color: Theme.positive
-
-                                Text {
-                                    id: callNowTxt
-                                    anchors.centerIn: parent
-                                    text: "Call Out to Desktop"
-                                    color: Theme.positive
-                                    font.family: Theme.uiFont
-                                    font.pixelSize: 11
-                                    font.weight: Font.DemiBold
-                                }
-
-                                MouseArea {
-                                    id: callNowMouse
-                                    anchors.fill: parent
-                                    hoverEnabled: true
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: {
-                                        if (root.selectedConfig) PetManager.callOutNow(root.selectedConfig.id);
-                                    }
-                                }
-                            }
-
-                            Rectangle {
-                                visible: root.selectedIsRoaming
-                                implicitHeight: 28
-                                radius: Theme.radius(-7)
-                                implicitWidth: walkPenTxt.implicitWidth + 16
-                                color: walkPenMouse.containsMouse ? Theme.alpha(Theme.warm, 0.16) : Theme.surface
-                                border.width: 1
-                                border.color: Theme.alpha(Theme.warm, 0.6)
-
-                                Text {
-                                    id: walkPenTxt
-                                    anchors.centerIn: parent
-                                    text: "Walk Off"
-                                    color: Theme.warm
-                                    font.family: Theme.uiFont
-                                    font.pixelSize: 11
-                                    font.weight: Font.Medium
-                                }
-
-                                MouseArea {
-                                    id: walkPenMouse
-                                    anchors.fill: parent
-                                    hoverEnabled: true
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: {
-                                        if (root.selectedConfig) PetManager.sendToPenNow(root.selectedConfig.id, true);
-                                    }
-                                }
-
-                                UiTooltip {
-                                    active: walkPenMouse.containsMouse
-                                    text: "Have companion stroll to the screen edge and retire to the Sanctuary"
-                                }
-                            }
-
-                            Rectangle {
-                                visible: root.selectedIsRoaming
-                                implicitHeight: 28
-                                radius: Theme.radius(-7)
-                                implicitWidth: instPenTxt.implicitWidth + 16
-                                color: instPenMouse.containsMouse ? Theme.surfaceAlt : Theme.surface
-                                border.width: 1
-                                border.color: Theme.borderSubtle
-
-                                Text {
-                                    id: instPenTxt
-                                    anchors.centerIn: parent
-                                    text: "Tuck In"
-                                    color: Theme.subtext
-                                    font.family: Theme.uiFont
-                                    font.pixelSize: 11
-                                    font.weight: Font.Medium
-                                }
-
-                                MouseArea {
-                                    id: instPenMouse
-                                    anchors.fill: parent
-                                    hoverEnabled: true
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: {
-                                        if (root.selectedConfig) PetManager.sendToPenNow(root.selectedConfig.id, false);
-                                    }
-                                }
-
-                                UiTooltip {
-                                    active: instPenMouse.containsMouse
-                                    text: "Move immediately into the Sanctuary"
-                                }
-                            }
-                        }
-                    }
-
-                    Flow {
-                        Layout.fillWidth: true
-                        spacing: 6
-
-                        RowLayout {
-                            height: 28
-                            spacing: 6
-
-                            Repeater {
-                                model: [
-                                    { label: "Pat", icon: "heart", act: "pat", tint: Theme.love, show: true },
-                                    { label: "Snack", icon: "berry", act: "feed", tint: Theme.positive, show: true },
-                                    { label: "Play", icon: "spark", act: "play", tint: Theme.accent, show: true },
-                                    { label: "Summon", icon: "target", act: "summon", tint: Theme.warm, show: root.selectedIsRoaming }
-                                ]
-
-                                Rectangle {
-                                    id: careChip
-                                    required property var modelData
-                                    visible: careChip.modelData.show
-                                    implicitHeight: 28
-                                    radius: Theme.radius(-7)
-                                    implicitWidth: careRow.implicitWidth + 16
-                                    color: careMouse.containsMouse ? Theme.surfaceAlt : Theme.surface
-                                    border.width: 1
-                                    border.color: careMouse.containsMouse ? careChip.modelData.tint : Theme.borderSubtle
-                                    Behavior on color { ColorAnimation { duration: 120 } }
-
-                                    RowLayout {
-                                        id: careRow
-                                        anchors.centerIn: parent
-                                        spacing: 5
-
-                                        UiIcon {
-                                            name: careChip.modelData.icon
-                                            size: 12
-                                            color: careMouse.containsMouse ? careChip.modelData.tint : Theme.subtext
-                                        }
-
-                                        Text {
-                                            text: careChip.modelData.label
-                                            color: Theme.text
-                                            font.family: Theme.uiFont
-                                            font.pixelSize: 11
-                                            font.weight: Font.Medium
-                                        }
-                                    }
-
-                                    MouseArea {
-                                        id: careMouse
-                                        anchors.fill: parent
-                                        hoverEnabled: true
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: root.triggerCareAction(careChip.modelData.act)
-                                    }
-                                }
-                            }
-                        }
-
-                        RowLayout {
-                            height: 28
-                            spacing: 6
-
-                            Text {
-                                text: "Scale"
-                                color: Theme.subtext
-                                font.family: Theme.uiFont
-                                font.pixelSize: 11
-                            }
-
-                            Repeater {
-                                model: [1, 2, 3, 4]
-
-                                Rectangle {
-                                    id: scaleChip
-                                    required property int modelData
-                                    readonly property bool cur: root.selectedConfig !== null
-                                        && (root.selectedConfig.scale ?? 2) === scaleChip.modelData
-                                    implicitWidth: 30
-                                    implicitHeight: 26
-                                    radius: Theme.radius(-8)
-                                    color: cur
-                                        ? Theme.accentSoft
-                                        : (scaleMouse.containsMouse ? Theme.surfaceAlt : Theme.surface)
-                                    border.width: 1
-                                    border.color: cur ? Theme.accent : Theme.borderSubtle
-
-                                    Text {
-                                        anchors.centerIn: parent
-                                        text: scaleChip.modelData + "×"
-                                        color: scaleChip.cur ? Theme.accent : Theme.text
-                                        font.family: Theme.monoFont
-                                        font.pixelSize: 10
-                                        font.bold: scaleChip.cur
-                                    }
-
-                                    MouseArea {
-                                        id: scaleMouse
-                                        anchors.fill: parent
-                                        hoverEnabled: true
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: {
-                                            if (root.selectedConfig) {
-                                                Config.updatePetScale(root.selectedConfig.id, scaleChip.modelData);
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        RowLayout {
-                            visible: root.connectedMonitors.length > 2
-                            height: 28
-                            spacing: 6
-
-                            Text {
-                                text: "Display"
-                                color: Theme.subtext
-                                font.family: Theme.uiFont
-                                font.pixelSize: 11
-                            }
-
-                            Repeater {
-                                model: root.connectedMonitors.length > 2 ? root.connectedMonitors : []
-
-                                Rectangle {
-                                    id: monChip
-                                    required property string modelData
-                                    readonly property bool cur: root.selectedConfig !== null
-                                        && (root.selectedConfig.monitor || "") === monChip.modelData
-                                    implicitHeight: 26
-                                    radius: Theme.radius(-8)
-                                    implicitWidth: monTxt.implicitWidth + 12
-                                    color: cur
-                                        ? Theme.accentSoft
-                                        : (monMouse.containsMouse ? Theme.surfaceAlt : Theme.surface)
-                                    border.width: 1
-                                    border.color: cur ? Theme.accent : Theme.borderSubtle
-
-                                    Text {
-                                        id: monTxt
-                                        anchors.centerIn: parent
-                                        text: monChip.modelData === "" ? "Any" : monChip.modelData
-                                        color: monChip.cur ? Theme.accent : Theme.text
-                                        font.family: monChip.modelData === "" ? Theme.uiFont : Theme.monoFont
-                                        font.pixelSize: 10
-                                    }
-
-                                    MouseArea {
-                                        id: monMouse
-                                        anchors.fill: parent
-                                        hoverEnabled: true
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: {
-                                            if (root.selectedConfig) {
-                                                Config.updatePetMonitor(root.selectedConfig.id, monChip.modelData);
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: 12
-
-                Rectangle {
-                    Layout.fillWidth: true
-                    Layout.alignment: Qt.AlignTop
-                    implicitHeight: vitalsPanel.implicitHeight + 24
-                    radius: Theme.radius(-3)
-                    color: Theme.bg
-                    border.width: 1
-                    border.color: Theme.borderSubtle
-
-                    SanctuaryVitalsPanel {
-                        id: vitalsPanel
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.top: parent.top
-                        anchors.margins: 12
-                        livePet: root.selectedIsRoaming ? root.selectedLivePet : null
-                        resident: root.selectedResident
-                        maxNotes: 6
-                    }
-                }
-
-                Rectangle {
-                    Layout.fillWidth: true
-                    Layout.alignment: Qt.AlignTop
-                    implicitHeight: soulPanel.implicitHeight + 24
-                    radius: Theme.radius(-3)
-                    color: Theme.bg
-                    border.width: 1
-                    border.color: Theme.borderSubtle
-
-                    SanctuarySoulPanel {
-                        id: soulPanel
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.top: parent.top
-                        anchors.margins: 12
-                        livePet: root.selectedIsRoaming ? root.selectedLivePet : null
-                        resident: root.selectedResident
-                        maxMilestones: 4
-                        onSelectPeerRequested: peerId => root.companionSelected(peerId)
-                    }
-                }
-            }
-
-            SanctuaryEvolutionCard {
-                petId: root.selectedConfig ? root.selectedConfig.id : ""
-                species: root.selectedConfig ? root.selectedConfig.sprite : ""
-                livePet: root.selectedIsRoaming ? root.selectedLivePet : null
-                resident: root.selectedResident
-                onEvolved: {
-                    root.stageOverrideState = "emit";
-                    stageSprite.triggerSquash(1.18, 0.84);
-                    stageBubble.showEmote("heart");
-                    stageOverrideTimer.restart();
-                }
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: 8
-
-                Rectangle {
-                    implicitHeight: 28
-                    radius: Theme.radius(-7)
-                    implicitWidth: morphBtnRow.implicitWidth + 16
-                    color: morphBtnMouse.containsMouse ? Theme.surfaceAlt : Theme.bg
-                    border.width: 1
-                    border.color: Theme.borderSubtle
-
-                    RowLayout {
-                        id: morphBtnRow
-                        anchors.centerIn: parent
-                        spacing: 5
-
-                        UiIcon {
-                            name: root.morphExpanded ? "chevronDown" : "chevronRight"
-                            size: 11
-                            color: Theme.subtext
-                        }
-
-                        Text {
-                            text: root.morphExpanded ? "Hide Species Form" : "Change Species Form"
-                            color: Theme.subtext
-                            font.family: Theme.uiFont
-                            font.pixelSize: 11
-                        }
-                    }
-
-                    MouseArea {
-                        id: morphBtnMouse
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: root.morphExpanded = !root.morphExpanded
-                    }
-                }
-
-                Item { Layout.fillWidth: true }
-
-                SanctuaryConfirmReleaseButton {
-                    id: releaseBtn
-                    petId: root.selectedConfig ? root.selectedConfig.id : ""
-                }
-            }
-
-            Loader {
-                active: root.morphExpanded
-                visible: active
-                Layout.fillWidth: true
-
-                sourceComponent: Flow {
-                    width: detailCol.width
-                    spacing: 5
-
-                    Repeater {
-                        model: Config.speciesList
-
-                        Rectangle {
-                            id: morphSpChip
-                            required property string modelData
-                            readonly property bool cur: root.selectedConfig !== null
-                                && root.selectedConfig.sprite === morphSpChip.modelData
-                            height: 24
-                            radius: Theme.radius(-8)
-                            implicitWidth: morphSpTxt.implicitWidth + 12
-                            color: cur
-                                ? Theme.accentSoft
-                                : (morphSpMouse.containsMouse ? Theme.surfaceAlt : Theme.bg)
-                            border.width: 1
-                            border.color: cur ? Theme.accent : Theme.borderSubtle
-
-                            Text {
-                                id: morphSpTxt
-                                anchors.centerIn: parent
-                                text: SpeciesProfile.profileFor(morphSpChip.modelData).displayName
-                                color: morphSpChip.cur ? Theme.accent : Theme.text
-                                font.family: Theme.uiFont
-                                font.pixelSize: 10
-                                font.weight: morphSpChip.cur ? Font.DemiBold : Font.Normal
-                            }
-
-                            MouseArea {
-                                id: morphSpMouse
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: {
-                                    if (root.selectedConfig) {
-                                        PetManager.morphCompanion(root.selectedConfig.id, morphSpChip.modelData);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+                visible: cardFlick.contentHeight > cardFlick.height && cardFlick.height > 24
+                anchors.right: parent.right
+                width: 4
+                radius: 2
+                color: Theme.alpha(Theme.muted, 0.45)
+                readonly property real ratio: Math.min(1, cardFlick.height / Math.max(1, cardFlick.contentHeight))
+                height: Math.max(24, Math.round(cardFlick.height * ratio))
+                y: Math.round(
+                    (cardFlick.height - height)
+                    * Math.max(0, Math.min(1, cardFlick.contentY / Math.max(1, cardFlick.contentHeight - cardFlick.height)))
+                )
             }
         }
     }

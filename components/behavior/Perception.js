@@ -7,11 +7,6 @@
 
 var NEARBY_PET_DIST = 8000;
 
-function screenForPoint(pet, gx, gy) {
-    var screens = pet.allScreens ? pet.allScreens() : [];
-    return Topology.screenAt(screens, gx, gy) || Topology.nearestScreen(screens, gx, gy);
-}
-
 function perceive(pet) {
     var now = Util.now(pet);
     var curScr = Topology.currentScreen(pet);

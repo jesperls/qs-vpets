@@ -12,15 +12,12 @@ Item {
     property string petColor: "#cba6f7"
     property bool mirror: false
     property string currentState: "idle"
-    property real happiness: 0.5
     property real moveSpeed: 0
-    property real restDrive: 0
     property real altitude: 0
     property real gaitOffsetY: 0
     property string spriteDir: ""
     property var actionMap: ({})
 
-    readonly property var defaultMap: SpriteSheet.DEFAULT_STATE_MAP
     property var _animData: null
     property var _clip: null
     property string _animName: "Idle"
@@ -140,7 +137,7 @@ Item {
 
     FileView {
         id: animFile
-        path: root.spriteDir ? (root.spriteDir.replace(/^file:\/\//, "") + "/AnimData.xml") : ""
+        path: root.spriteDir ? (decodeURIComponent(root.spriteDir.replace(/^file:\/\//, "")) + "/AnimData.xml") : ""
         printErrors: false
         onLoaded: {
             const parsed = SpriteSheet.parseAnimData(text());
@@ -190,8 +187,12 @@ Item {
                 if (isLastFrame) {
                     root._frame = startF;
                     if (!clip.loop && ++root._repCount >= clip.reps) {
+                        const finishedState = root.currentState;
                         root._repCount = 0;
-                        root.oneShotFinished(root.currentState);
+                        root.oneShotFinished(finishedState);
+                        if (root.currentState === finishedState && root._clip === clip) {
+                            root._applyState("idle");
+                        }
                     }
                 } else {
                     root._frame += 1;

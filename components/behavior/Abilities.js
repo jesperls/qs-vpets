@@ -19,19 +19,19 @@ var ABILITIES = {
         id: "phase_blink",
         label: "Psychic Blink",
         icon: "spark",
-        summary: "Blinks weightlessly across open workspace spans when exploring."
+        summary: "Blinks lightly across open workspace spans when exploring."
     },
     hearth_warmth: {
         id: "hearth_warmth",
         label: "Hearth Ember",
-        icon: "sun",
+        icon: "flame",
         summary: "Radiates cozy warmth that draws companions in for shared naps."
     },
     lunar_pulse: {
         id: "lunar_pulse",
         label: "Moonlight Pulse",
         icon: "moon",
-        summary: "Comes alive after dusk and keeps calm, luminous night vigils."
+        summary: "Comes alive after dusk and keeps calm, softly glowing night vigils."
     },
     solar_bask: {
         id: "solar_bask",
@@ -49,13 +49,13 @@ var ABILITIES = {
         id: "sky_drift",
         label: "Wind Glide",
         icon: "wind",
-        summary: "Loves high window perches and lands gentle tosses with grace."
+        summary: "Loves high window perches and lands gentle tosses with ease."
     },
     aura_sense: {
         id: "aura_sense",
         label: "Aura Watch",
         icon: "target",
-        summary: "Attuned to focused coding sessions and crisp martial katas."
+        summary: "Attuned to focused coding sessions and steady martial katas."
     },
     chorus_lead: {
         id: "chorus_lead",
@@ -72,20 +72,20 @@ var ABILITIES = {
     tide_splash: {
         id: "tide_splash",
         label: "Tidepool Joy",
-        icon: "compass",
-        summary: "Unhurried cove spirit with carefree spins and easygoing poise."
+        icon: "droplet",
+        summary: "Unhurried cove spirit with carefree spins and an easygoing stride."
     },
     forage_stash: {
         id: "forage_stash",
         label: "Berry Stash",
         icon: "berry",
-        summary: "Sniffs out hidden snacks early and savors quiet berry breaks."
+        summary: "Sniffs out hidden snacks early and enjoys quiet berry breaks."
     },
     frost_calm: {
         id: "frost_calm",
-        label: "Frost Serene",
+        label: "Frost Calm",
         icon: "spark",
-        summary: "Crisp, tranquil poise that helps cool down nearby squabbles."
+        summary: "Cool, level-headed calm that helps settle nearby squabbles."
     },
     soothing_ribbon: {
         id: "soothing_ribbon",
@@ -156,12 +156,9 @@ function restWithBonus(pet, otherPetOrSpecies) {
 
 function startledStates(pet) {
     if (has(pet, "shell_bunker")) {
-        var sp = SpeciesProfile.speciesOf(pet);
-        var prof = SpeciesProfile.profileFor(sp);
-        if (prof.calmGestures && prof.calmGestures.indexOf("special0") !== -1) {
-            return ["special0", "hide"];
-        }
-        return ["hide", "cringe"];
+        var prof = SpeciesProfile.profileFor(SpeciesProfile.speciesOf(pet));
+        var bunker = prof.bunkerState || "hide";
+        return bunker === "hide" ? ["hide", "cringe"] : [bunker, "hide"];
     }
     return null;
 }
@@ -323,7 +320,7 @@ function _buildPhaseJauntPlan(pet, target) {
         reason: "Blinking lightly across the desktop",
         urgency: 0.56,
         durationMs: 32000,
-        thought: "Blinked weightlessly to a fresh vantage point",
+        thought: "Blinked across to a fresh vantage point",
         steps: [
             { kind: "act", label: "Focusing psychic spark", states: ["pose", "twirl", "rotate"] },
             { kind: "ability_effect", effect: "phase_hop", gx: target.gx, gy: target.gy, label: "Phase blink" },
@@ -360,13 +357,13 @@ function _buildLunarVigilPlan(pet, perc, prof) {
     if (perc.win) {
         steps.push({ kind: "travel", gait: "amble", label: "Padding near night work", gx: perc.win.loafBesideGX, gy: perc.win.loafBesideGY });
     }
-    steps.push({ kind: "act", label: "Moonlit poise", states: [sigState, "pose", "nod"], attendWindow: !!perc.win });
+    steps.push({ kind: "act", label: "Moonlit watch", states: [sigState, "pose", "nod"], attendWindow: !!perc.win });
     steps.push({ kind: "ability_effect", effect: "lunar_glow", label: "Quiet night watch" });
     steps.push({ kind: "loaf_watch", label: "Keeping moonlit vigil", attend: perc.win ? "window" : "cursor", durationMs: 42000 });
     return {
         name: "lunar_vigil",
         label: "Moonlit Vigil",
-        reason: "Keeping serene moonlit watch",
+        reason: "Keeping quiet moonlit watch",
         urgency: 0.52,
         durationMs: 120000,
         thought: "Keeping calm moonlit company through the night",
@@ -396,13 +393,13 @@ function _buildAuraKataPlan(pet, prof) {
     return {
         name: "aura_kata",
         label: "Focus Kata",
-        reason: "Practicing crisp martial form",
+        reason: "Practicing steady martial form",
         urgency: 0.58,
         durationMs: 32000,
-        thought: "Practicing a crisp solo focus kata",
+        thought: "Practicing a steady solo focus kata",
         steps: [
             { kind: "act", label: "Centering stance", states: ["pose", "nod"] },
-            { kind: "act", label: "Crisp strike form", states: spar },
+            { kind: "act", label: "Strike form", states: spar },
             { kind: "act", label: "Follow-through", states: spar },
             { kind: "pant", label: "Steady breath" }
         ]
@@ -468,8 +465,9 @@ function executeStep(pet, plan, step, nav, pickFn, advanceFn) {
     if (eff === "phase_hop") {
         var scr = Topology.currentScreen(pet);
         if (step.gx !== undefined && step.gy !== undefined && scr) {
-            pet.worldX = step.gx - scr.x;
-            pet.worldY = step.gy - scr.y;
+            var pw = pet.width || 64, ph = pet.height || 64;
+            pet.worldX = Topology.clamp(step.gx - scr.x, 0, Math.max(0, scr.width - pw));
+            pet.worldY = Topology.clamp(step.gy - scr.y, 0, Math.max(0, scr.height - ph));
         }
         if (pet.sprite && pet.sprite.triggerSquash) {
             pet.sprite.triggerSquash(0.86, 1.16);
@@ -572,7 +570,7 @@ function sanctuaryActivity(rec, prof, isNight) {
     case "illusion":
         return "Practicing playful shadow disguises in " + prof.biome;
     case "phase_blink":
-        return "Drifting weightlessly above " + prof.biome;
+        return "Floating lightly above " + prof.biome;
     case "hearth_warmth":
         return "Tending a warm hearth spot in " + prof.biome;
     case "lunar_pulse":
@@ -598,7 +596,7 @@ function sanctuaryActivity(rec, prof, isNight) {
     case "forage_stash":
         return "Looking after a cozy berry stash in " + prof.biome;
     case "frost_calm":
-        return "Resting in a crisp, tranquil nook of " + prof.biome;
+        return "Resting in a cool, quiet nook of " + prof.biome;
     case "soothing_ribbon":
         return "Sharing a calm, gentle presence in " + prof.biome;
     default:
@@ -612,7 +610,7 @@ function sanctuaryReadinessDelta(rec, prof, env) {
     var sp = rec ? rec.sprite : "";
     if ((e.isNight || e.isDusk) && has(sp, "lunar_pulse")) delta += 0.12;
     if (!e.isNight && has(sp, "solar_bask")) delta += e.isDawn ? 0.12 : (e.isRaining ? -0.06 : 0.08);
-    if (e.isRaining && (has(sp, "tide_splash") || (prof && prof.kinGroup === "marsh_pals"))) delta += 0.16;
+    if (e.isRaining && SpeciesProfile.hasRainAffinity(sp)) delta += 0.16;
     if (e.isSnowing && has(sp, "frost_calm")) delta += 0.16;
     if ((e.thermalWarmth || 0) > 0.52 && has(sp, "hearth_warmth")) delta += 0.12;
     if (e.mediaPlaying && has(sp, "chorus_lead")) delta += 0.14;

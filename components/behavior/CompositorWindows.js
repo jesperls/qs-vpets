@@ -35,7 +35,7 @@ function parseSwayTree(raw) {
     }
 
     var outputs = root.nodes || [];
-    var focusedWsLeaves = [];
+    var focusedWsLeaves = null;
 
     for (var o = 0; o < outputs.length; o++) {
         var out = outputs[o];
@@ -108,7 +108,7 @@ function parseSwayTree(raw) {
         }
     }
 
-    focusedWsCount = focusedWsLeaves.length > 0 ? focusedWsLeaves.length : (wins.length === 0 ? 0 : wins.length);
+    focusedWsCount = focusedWsLeaves !== null ? focusedWsLeaves.length : wins.length;
 
     return {
         insets: insets,

@@ -13,17 +13,6 @@ var TRAIT_KEYS = [
     "composure"
 ];
 
-var TRAIT_LABELS = {
-    energy: "Energy",
-    curiosity: "Curiosity",
-    playfulness: "Playfulness",
-    sleepiness: "Drowsiness",
-    boldness: "Boldness",
-    sociability: "Affection",
-    patience: "Patience",
-    composure: "Composure"
-};
-
 var PRESETS = {
     emergent: {
         energy: 0.50, curiosity: 0.52, playfulness: 0.50, sleepiness: 0.45,
@@ -91,12 +80,12 @@ var QUIRK_DEFS = {
     velcro_companion: {
         label: "Devoted Shadow",
         icon: "heart",
-        summary: "Deeply bonded; greets you warmly and stays near your focus."
+        summary: "Deeply bonded; greets you warmly and stays close while you work."
     },
     cozy_hermit: {
         label: "Quiet Hermit",
         icon: "leaf",
-        summary: "Cherishes a calm corner and restores composure there."
+        summary: "Keeps a favorite quiet corner and recharges there."
     },
     pack_spark: {
         label: "Pack Spark",
@@ -116,7 +105,7 @@ var QUIRK_DEFS = {
     daydreamer: {
         label: "Daydreamer",
         icon: "dream",
-        summary: "Vivid sleeper whose naps weave lasting reflections."
+        summary: "Deep sleeper that wakes from long naps refreshed and content."
     }
 };
 
@@ -174,15 +163,6 @@ function compose(base, coreDrift, recentDrift) {
         var cd = coreDrift && coreDrift[k] ? clamp(coreDrift[k], -CORE_BOUND, CORE_BOUND) : 0;
         var rd = recentDrift && recentDrift[k] ? clamp(recentDrift[k], -RECENT_BOUND, RECENT_BOUND) : 0;
         out[k] = clamp01(b + cd + rd);
-    }
-    return out;
-}
-
-function totalDelta(base, effective) {
-    var out = {};
-    for (var i = 0; i < TRAIT_KEYS.length; i++) {
-        var k = TRAIT_KEYS[i];
-        out[k] = Math.round(((effective[k] || 0.5) - (base[k] || 0.5)) * 100) / 100;
     }
     return out;
 }
@@ -381,11 +361,6 @@ function socialChemistry(me, other, myStyle, otherStyle, myName, otherName) {
         affinity: clamp(aff, 0.20, 0.70),
         respect: clamp(respect, 0.25, 0.80)
     };
-}
-
-function compatibility(a, b, myStyle, otherStyle) {
-    var chem = socialChemistry(a, b, myStyle, otherStyle, "", "");
-    return clamp((chem.affinity - 0.48) * 3.2, -1, 1);
 }
 
 function relationshipTag(rel) {

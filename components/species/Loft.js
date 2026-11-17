@@ -27,6 +27,7 @@ var SPECIES = {
         signature: { state: "hover", minPlay: 0.30, label: "Fluffing its cotton-cloud wings in song" },
         northWatch: true,
         gait: { amble: 0.48, trot: 0.94, scamper: 1.54 },
+        locomotion: "hover",
         perchAffinity: 1.65,
         windowWatchAffinity: 1.25
     },
@@ -35,7 +36,7 @@ var SPECIES = {
         temperament: "nocturnal",
         kinGroup: "sky_flock",
         abilities: ["lunar_pulse", "soothing_ribbon"],
-        blurb: "Serene lunar swan whose aurora veil calms tension during late-night sessions.",
+        blurb: "Gentle lunar swan whose aurora veil calms tension during late-night sessions.",
         nocturnalAffinity: true,
         socialStyle: "guardian",
         clips: {
@@ -55,6 +56,7 @@ var SPECIES = {
         signature: { state: "twirl", minPlay: 0.34, label: "Trailing a quiet crescent-moon shimmer" },
         northWatch: true,
         gait: { amble: 0.46, trot: 0.90, scamper: 1.48 },
+        locomotion: "hover",
         perchAffinity: 1.35,
         windowWatchAffinity: 1.35
     },
@@ -63,7 +65,7 @@ var SPECIES = {
         temperament: "playful",
         kinGroup: "aura_kin",
         abilities: ["phase_blink", "lunar_pulse"],
-        blurb: "Starlight wishmaker that drifts weightlessly between monitors and naps deeply.",
+        blurb: "Starlight wishmaker that floats lightly between monitors and naps deeply.",
         nocturnalAffinity: true,
         socialStyle: "trickster",
         clips: {
@@ -83,6 +85,7 @@ var SPECIES = {
         signature: { state: "hover", minPlay: 0.30, label: "Fluttering its wish tags in a starlight loop" },
         northWatch: true,
         gait: { amble: 0.54, trot: 1.04, scamper: 1.70 },
+        locomotion: "hover",
         perchAffinity: 1.50,
         windowWatchAffinity: 1.25
     },
@@ -110,6 +113,7 @@ var SPECIES = {
         signature: { state: "rearUp", minPlay: 0.34, label: "Banking playfully on glass-like down feathers" },
         northWatch: true,
         gait: { amble: 0.60, trot: 1.16, scamper: 1.88 },
+        locomotion: "hover",
         perchAffinity: 1.55,
         windowWatchAffinity: 1.25
     },
@@ -118,7 +122,7 @@ var SPECIES = {
         temperament: "brave",
         kinGroup: "aura_kin",
         abilities: ["aura_sense"],
-        blurb: "Composed aura guardian that keeps focused watch over coding sessions and mediates spats.",
+        blurb: "Steady aura guardian that keeps focused watch over coding sessions and mediates spats.",
         socialStyle: "guardian",
         clips: {
             idle: { holdAtFrame: 0, speed: 0.52 }
@@ -137,6 +141,7 @@ var SPECIES = {
         signature: { state: "spAttack", minPlay: 0.38, label: "Centering a calm sphere of aura" },
         northWatch: true,
         gait: { amble: 0.54, trot: 1.04, scamper: 1.70 },
+        locomotion: "springer",
         perchAffinity: 0.95,
         windowWatchAffinity: 1.40
     },
@@ -164,6 +169,7 @@ var SPECIES = {
         signature: { state: "sing", minPlay: 0.28, label: "Humming a graceful starlight aria" },
         northWatch: true,
         gait: { amble: 0.52, trot: 1.00, scamper: 1.64 },
+        locomotion: "springer",
         perchAffinity: 1.45,
         windowWatchAffinity: 1.30
     },
@@ -172,7 +178,7 @@ var SPECIES = {
         temperament: "playful",
         kinGroup: "aura_kin",
         abilities: ["phase_blink", "sky_drift"],
-        blurb: "Weightless psychic drifter that loves music, tosses, and multi-monitor flights.",
+        blurb: "Buoyant psychic drifter that loves music, tosses, and multi-monitor flights.",
         nocturnalAffinity: true,
         socialStyle: "trickster",
         clips: {
@@ -189,9 +195,10 @@ var SPECIES = {
         dodgeMoves: ["twirl", "hop", "tumble"],
         standoffMoves: ["pose", "twirl"],
         dismissMoves: ["twirl", "rotate"],
-        signature: { state: "twirl", minPlay: 0.28, label: "Doing a weightless mid-air somersault" },
+        signature: { state: "twirl", minPlay: 0.28, label: "Doing a mid-air somersault" },
         northWatch: true,
         gait: { amble: 0.56, trot: 1.08, scamper: 1.76 },
+        locomotion: "hover",
         perchAffinity: 1.48,
         windowWatchAffinity: 1.15
     },
@@ -216,9 +223,10 @@ var SPECIES = {
         dodgeMoves: ["hop", "tumbleBack", "rotate"],
         standoffMoves: ["rearUp", "pose", "charge"],
         dismissMoves: ["pose", "rotate"],
-        signature: { state: "quickStrike", minPlay: 0.38, label: "Practicing crisp aura footwork" },
+        signature: { state: "quickStrike", minPlay: 0.38, label: "Practicing quick aura footwork" },
         northWatch: true,
         gait: { amble: 0.58, trot: 1.10, scamper: 1.76 },
+        locomotion: "springer",
         perchAffinity: 1.10,
         windowWatchAffinity: 1.35
     }

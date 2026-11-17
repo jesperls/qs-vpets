@@ -6,6 +6,8 @@ const { loadQmlJs, rootDir } = require("./loadQmlJs");
 const SpeciesProfile = loadQmlJs("components/SpeciesProfile.js");
 const SpriteSheet = loadQmlJs("components/SpriteSheet.js");
 const Abilities = loadQmlJs("components/behavior/Abilities.js");
+const Evolution = loadQmlJs("components/behavior/Evolution.js");
+const FriendAreas = loadQmlJs("components/ui/FriendAreas.js");
 
 function pngDims(filePath) {
     const buf = fs.readFileSync(filePath);
@@ -187,6 +189,79 @@ for (const qmlPath of qmlFiles) {
             assert.ok(!props.has(base), `${path.basename(qmlPath)}: signal '${sig}' collides with property '${base}'`);
         }
     }
+}
+
+// Verify modular Biomes, Friend Areas, Evolutions & Locomotion declarations
+const sanctuaryRoot = path.join(rootDir, "assets/sanctuary");
+for (const biome of SpeciesProfile.BIOME_LIST) {
+    assert.ok(biome.id && biome.shortLabel && biome.backdrop, `Biome '${biome.id}' defines complete metadata`);
+    assert.ok(
+        fs.existsSync(path.join(sanctuaryRoot, "biomes", biome.backdrop)),
+        `Biome backdrop exists: assets/sanctuary/biomes/${biome.backdrop}`
+    );
+}
+for (const area of FriendAreas.AREA_LIST) {
+    assert.ok(fs.existsSync(path.join(sanctuaryRoot, area.baseMap)), `Friend Area baseMap exists: ${area.baseMap}`);
+    if (area.foregroundMap) {
+        assert.ok(fs.existsSync(path.join(sanctuaryRoot, area.foregroundMap)), `Friend Area foregroundMap exists: ${area.foregroundMap}`);
+    }
+    if (area.underlayAnim) {
+        assert.ok(fs.existsSync(path.join(sanctuaryRoot, area.underlayAnim.src)), `Friend Area underlayAnim exists: ${area.underlayAnim.src}`);
+    }
+    if (area.overlayAnim) {
+        assert.ok(fs.existsSync(path.join(sanctuaryRoot, area.overlayAnim.src)), `Friend Area overlayAnim exists: ${area.overlayAnim.src}`);
+    }
+    for (const prop of area.props) {
+        assert.ok(fs.existsSync(path.join(sanctuaryRoot, prop.src)), `Friend Area prop exists: ${prop.src}`);
+    }
+}
+for (const species of SpriteSheet.SPECIES_LIST) {
+    const prof = SpeciesProfile.profileFor(species);
+    const locoKind = typeof prof.locomotion === "object" && prof.locomotion
+        ? (prof.locomotion.kind || "quad")
+        : (prof.locomotion || "quad");
+    assert.ok(SpeciesProfile.LOCOMOTION_KINDS[locoKind], `${species} locomotion '${locoKind}' is valid`);
+    for (const br of Evolution.branchesFor(species)) {
+        assert.ok(SpriteSheet.SPECIES_LIST.includes(br.species), `${species} evolution target '${br.species}' is bundled`);
+    }
+}
+for (const [baseSp, branches] of Object.entries(Evolution.EVOLUTION_LINES)) {
+    assert.ok(SpriteSheet.SPECIES_LIST.includes(baseSp), `Evolution base '${baseSp}' is bundled`);
+    for (const br of branches) {
+        assert.ok(SpriteSheet.SPECIES_LIST.includes(br.species), `Evolution target '${br.species}' is bundled`);
+    }
+}
+
+// Verify zero em-dashes or en-dashes across project code, scripts, packaging, and docs
+function collectTextFiles(dirPath) {
+    const results = [];
+    for (const entry of fs.readdirSync(dirPath, { withFileTypes: true })) {
+        const full = path.join(dirPath, entry.name);
+        if (entry.isDirectory()) {
+            results.push(...collectTextFiles(full));
+        } else if (/\.(js|qml|sh|nix|md|xml|desktop|svg|in|txt)$/.test(entry.name)) {
+            results.push(full);
+        }
+    }
+    return results;
+}
+const textFilesToCheck = [
+    path.join(rootDir, "shell.qml"),
+    path.join(rootDir, "flake.nix"),
+    path.join(rootDir, "README.md"),
+    path.join(rootDir, "install.sh"),
+    path.join(sanctuaryRoot, "credits.txt"),
+    ...["config", "services", "components", "scripts", "tests", "nix", "packaging"].flatMap(d =>
+        collectTextFiles(path.join(rootDir, d))
+    )
+];
+for (const file of textFilesToCheck) {
+    if (path.basename(file) === "test_sprites.js") continue;
+    const text = fs.readFileSync(file, "utf8");
+    assert.ok(
+        !text.includes("\u2014") && !text.includes("\u2013"),
+        `${path.relative(rootDir, file)} must not contain em-dashes or en-dashes`
+    );
 }
 
 console.log(`Sprite verification passed: ${SpriteSheet.SPECIES_LIST.length} species, ${totalAnimsVerified} animations verified.`);

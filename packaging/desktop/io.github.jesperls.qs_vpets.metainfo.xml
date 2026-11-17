@@ -16,7 +16,7 @@
       qs-vpets brings autonomous pixel-art Pokémon companions onto any Wayland desktop supporting wlr-layer-shell (including KDE Plasma Wayland / SteamOS Desktop Mode, Hyprland, Sway, Niri, Cosmic, River, Wayfire, and Labwc).
     </p>
     <p>
-      Companions develop distinct personalities, memories, and inter-Pokémon social bonds over days of use, while rotating emergently between your desktop and the floating Pokémon Sanctuary pasture window.
+      Companions develop distinct personalities, memories, and inter-Pokémon social bonds over days of use, while rotating between your desktop and the floating Pokémon Sanctuary camp clearing.
     </p>
   </description>
   <categories>
@@ -25,7 +25,7 @@
     <category>Utility</category>
   </categories>
   <recommends>
-    <display_length compare="ge">768</display_length>
+    <display_length compare="ge">860</display_length>
   </recommends>
   <supports>
     <control>pointing</control>

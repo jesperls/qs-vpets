@@ -55,6 +55,7 @@ var SPECIES = {
         signature: { state: "twirl", minPlay: 0.30, label: "Pirouetting in a soft woodland breeze" },
         northWatch: true,
         gait: { amble: 0.54, trot: 1.04, scamper: 1.72 },
+        locomotion: "hover",
         perchAffinity: 1.50,
         windowWatchAffinity: 1.20
     },
@@ -63,6 +64,7 @@ var SPECIES = {
         temperament: "playful",
         kinGroup: "sky_flock",
         abilities: ["sky_drift", "forage_stash"],
+        electricAffinity: true,
         blurb: "Gliding canopy squirrel that rides window titlebars and stashes berries.",
         socialStyle: "sprinter",
         clips: {
@@ -82,6 +84,7 @@ var SPECIES = {
         signature: { state: "float", minPlay: 0.34, label: "Spreading its gliding cape in a little hop" },
         northWatch: true,
         gait: { amble: 0.56, trot: 1.10, scamper: 1.80 },
+        locomotion: { kind: "springer", gravityMult: 0.72 },
         perchAffinity: 1.75,
         windowWatchAffinity: 1.20
     },
@@ -90,6 +93,7 @@ var SPECIES = {
         temperament: "grumpy",
         kinGroup: "forest_kin",
         abilities: ["shell_bunker"],
+        bunkerState: "special0",
         blurb: "Stoic iron pod that anchors peacefully in a chosen sanctuary spot.",
         socialStyle: "parallel",
         clips: {
@@ -112,6 +116,7 @@ var SPECIES = {
         pantState: "",
         northWatch: false,
         gait: { amble: 0.38, trot: 0.72, scamper: 1.18 },
+        locomotion: "heavy",
         perchAffinity: 0.20,
         windowWatchAffinity: 0.85
     },
@@ -143,6 +148,7 @@ var SPECIES = {
         pantState: "",
         northWatch: false,
         gait: { amble: 0.44, trot: 0.82, scamper: 1.34 },
+        locomotion: "hover",
         perchAffinity: 0.95,
         windowWatchAffinity: 1.15
     },
@@ -198,6 +204,7 @@ var SPECIES = {
         signature: { state: "dance", minPlay: 0.32, label: "Bobbing in a sleepy owl dance" },
         northWatch: true,
         gait: { amble: 0.44, trot: 0.86, scamper: 1.44 },
+        locomotion: { kind: "springer", gravityMult: 0.72 },
         perchAffinity: 1.70,
         windowWatchAffinity: 1.25
     },
@@ -255,6 +262,7 @@ var SPECIES = {
         signature: { state: "hide", minPlay: 0.28, label: "Settling snugly inside its leafy shell" },
         northWatch: true,
         gait: { amble: 0.40, trot: 0.78, scamper: 1.30 },
+        locomotion: "heavy",
         perchAffinity: 0.35,
         windowWatchAffinity: 1.22
     },

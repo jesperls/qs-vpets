@@ -22,7 +22,7 @@ Singleton {
     property bool _active: true
     property double _idleBeganMs: 0
     readonly property bool userActive: _active
-    property bool cursorKnown: hasHyprland
+    property bool cursorKnown: false
     property real cursorX: 0
     property real cursorY: 0
     property real cursorSpeed: 0

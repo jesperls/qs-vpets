@@ -61,9 +61,21 @@ Item {
         id: hoverDelay
         interval: root.delayMs
         onTriggered: {
-            if (root.active && root.text.length > 0) {
+            if (root.active && root.text.length > 0 && (!root.parent || root.parent.visible)) {
                 root._updatePosition();
                 root._showing = true;
+            }
+        }
+    }
+
+    Connections {
+        target: root.parent
+        function onXChanged(): void { if (root._showing) root._updatePosition(); }
+        function onYChanged(): void { if (root._showing) root._updatePosition(); }
+        function onVisibleChanged(): void {
+            if (root.parent && !root.parent.visible) {
+                hoverDelay.stop();
+                root._showing = false;
             }
         }
     }

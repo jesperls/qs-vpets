@@ -14,7 +14,7 @@ Rectangle {
     property var livePet: null
     property var resident: null
 
-    signal evolved(displayName: string)
+    signal evolved()
 
     readonly property var evaluation: {
         void PetManager.residentRevision;
@@ -30,11 +30,11 @@ Rectangle {
 
     visible: !!(evaluation && evaluation.ready)
     Layout.fillWidth: true
-    implicitHeight: evoCol.implicitHeight + 22
-    radius: Theme.radius(-5)
-    color: Theme.alpha(Theme.accent, 0.08)
+    implicitHeight: evoCol.implicitHeight + 18
+    radius: Theme.radius(-4)
+    color: Theme.alpha(Theme.warmSoft, 0.78)
     border.width: 1
-    border.color: Theme.alpha(Theme.accent, 0.34)
+    border.color: Theme.alpha(Theme.warm, 0.65)
 
     ColumnLayout {
         id: evoCol
@@ -42,9 +42,9 @@ Rectangle {
             left: parent.left
             right: parent.right
             top: parent.top
-            margins: 11
+            margins: 9
         }
-        spacing: 7
+        spacing: 6
 
         RowLayout {
             Layout.fillWidth: true
@@ -52,27 +52,38 @@ Rectangle {
 
             UiIcon {
                 name: "spark"
-                size: 13
-                color: Theme.accent
+                filled: true
+                size: 12
+                color: Theme.warm
             }
 
             Text {
-                text: "Evolution Ready"
-                color: Theme.text
+                Layout.fillWidth: true
+                elide: Text.ElideRight
+                text: "Ready to evolve!"
+                color: Theme.warm
                 font.family: Theme.uiFont
-                font.pixelSize: 11
-                font.weight: Font.DemiBold
+                font.pixelSize: 12
+                font.weight: Font.Bold
             }
         }
 
         Text {
-            visible: !!(root.evaluation && root.evaluation.nextHint)
+            readonly property string descText: {
+                if (!root.evaluation) return "";
+                const opts = root.evaluation.options || [];
+                if (opts.length > 0 && opts[0].reason) return opts[0].reason + ".";
+                return root.evaluation.nextHint || "";
+            }
+            visible: descText.length > 0
             Layout.fillWidth: true
             wrapMode: Text.WordWrap
-            text: root.evaluation ? (root.evaluation.nextHint || "") : ""
+            maximumLineCount: 2
+            elide: Text.ElideRight
+            text: descText
             color: Theme.subtext
             font.family: Theme.uiFont
-            font.pixelSize: 10
+            font.pixelSize: 11
         }
 
         Flow {
@@ -87,12 +98,11 @@ Rectangle {
                     required property var modelData
                     implicitHeight: 26
                     implicitWidth: evoChoiceRow.implicitWidth + 18
-                    radius: Theme.radius(-7)
-                    color: evoChoiceMouse.containsMouse
-                        ? Theme.alpha(Theme.accent, 0.28)
-                        : Theme.alpha(Theme.accent, 0.16)
+                    radius: Theme.radius(-6)
+                    color: evoChoiceMouse.containsMouse ? Theme.warm : Theme.alpha(Theme.warm, 0.24)
                     border.width: 1
-                    border.color: Theme.alpha(Theme.accent, 0.45)
+                    border.color: Theme.warm
+                    Behavior on color { ColorAnimation { duration: 110 } }
 
                     RowLayout {
                         id: evoChoiceRow
@@ -101,16 +111,17 @@ Rectangle {
 
                         UiIcon {
                             name: "spark"
+                            filled: true
                             size: 11
-                            color: Theme.accent
+                            color: evoChoiceMouse.containsMouse ? Theme.overWarm : Theme.warm
                         }
 
                         Text {
                             text: "Evolve into " + (evoChoicePill.modelData.displayName || evoChoicePill.modelData.species || "")
-                            color: Theme.text
+                            color: evoChoiceMouse.containsMouse ? Theme.overWarm : Theme.text
                             font.family: Theme.uiFont
-                            font.pixelSize: 10
-                            font.weight: Font.Medium
+                            font.pixelSize: 11
+                            font.weight: Font.DemiBold
                         }
                     }
 
@@ -123,7 +134,7 @@ Rectangle {
                             if (!root.petId) return;
                             const targetSp = evoChoicePill.modelData.species || "";
                             const evolvedName = PetManager.evolveCompanion(root.petId, targetSp);
-                            if (evolvedName) root.evolved(evolvedName);
+                            if (evolvedName) root.evolved();
                         }
                     }
                 }

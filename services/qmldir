@@ -4,3 +4,4 @@ singleton WindowTracker 1.0 WindowTracker.qml
 singleton InputTracker 1.0 InputTracker.qml
 singleton MediaTracker 1.0 MediaTracker.qml
 singleton SystemMonitor 1.0 SystemMonitor.qml
+VpetsIpc 1.0 VpetsIpc.qml

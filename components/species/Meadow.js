@@ -27,6 +27,7 @@ var SPECIES = {
         signature: { state: "dance", minPlay: 0.30, label: "Swaying its seed bulb in the light" },
         northWatch: true,
         gait: { amble: 0.44, trot: 0.86, scamper: 1.44 },
+        locomotion: "heavy",
         perchAffinity: 0.50,
         windowWatchAffinity: 1.25
     },
@@ -81,6 +82,7 @@ var SPECIES = {
         signature: { state: "hop", minPlay: 0.40, label: "Springing lightly on its toes" },
         northWatch: true,
         gait: { amble: 0.58, trot: 1.12, scamper: 1.78 },
+        locomotion: "springer",
         perchAffinity: 1.55,
         windowWatchAffinity: 1.15
     },
@@ -89,6 +91,7 @@ var SPECIES = {
         temperament: "energetic",
         kinGroup: "eeveelution",
         abilities: ["chorus_lead"],
+        electricAffinity: true,
         blurb: "High-strung electric fox that darts across screens at lightning pace.",
         socialStyle: "sprinter",
         clips: {
@@ -108,6 +111,7 @@ var SPECIES = {
         signature: { state: "shock", minPlay: 0.38, label: "Crackling static through its needle fur" },
         northWatch: true,
         gait: { amble: 0.62, trot: 1.18, scamper: 1.92 },
+        locomotion: "springer",
         perchAffinity: 1.20,
         windowWatchAffinity: 1.15
     },
@@ -162,6 +166,7 @@ var SPECIES = {
         signature: { state: "eat", minPlay: 0.32, label: "Rummaging its fur for a hidden snack" },
         northWatch: true,
         gait: { amble: 0.36, trot: 0.72, scamper: 1.24 },
+        locomotion: "heavy",
         perchAffinity: 0.25,
         windowWatchAffinity: 1.05
     },
@@ -170,6 +175,7 @@ var SPECIES = {
         temperament: "energetic",
         kinGroup: "forager_kin",
         abilities: ["chorus_lead"],
+        electricAffinity: true,
         blurb: "Lively electric partner that loves tag chases, music, and window ledges.",
         socialStyle: "sprinter",
         clips: {
@@ -189,6 +195,7 @@ var SPECIES = {
         signature: { state: "shock", minPlay: 0.42, label: "Crackling tiny sparks across its cheeks" },
         northWatch: true,
         gait: { amble: 0.56, trot: 1.08, scamper: 1.80 },
+        locomotion: "springer",
         perchAffinity: 1.30,
         windowWatchAffinity: 1.20
     },
@@ -216,6 +223,7 @@ var SPECIES = {
         signature: { state: "emit", minPlay: 0.30, label: "Scattering a warm Gracidea shimmer" },
         northWatch: true,
         gait: { amble: 0.46, trot: 0.90, scamper: 1.52 },
+        locomotion: "springer",
         perchAffinity: 0.85,
         windowWatchAffinity: 1.28
     },
@@ -224,6 +232,7 @@ var SPECIES = {
         temperament: "curious",
         kinGroup: "aura_kin",
         abilities: ["lunar_pulse", "chorus_lead"],
+        electricAffinity: true,
         blurb: "Bright-eyed spark cub whose star-tipped tail twitches at cursor motion.",
         socialStyle: "sprinter",
         clips: {
@@ -300,6 +309,7 @@ var SPECIES = {
         pantState: "",
         northWatch: false,
         gait: { amble: 0.50, trot: 0.94, scamper: 1.52 },
+        locomotion: "hover",
         perchAffinity: 1.45,
         windowWatchAffinity: 1.05
     }

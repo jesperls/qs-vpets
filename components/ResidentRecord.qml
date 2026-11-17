@@ -21,7 +21,7 @@ Item {
         return Config.petById(root.petId) ?? {
             id: root.petId,
             name: root.petId,
-            sprite: "zorua",
+            sprite: SpeciesProfile.DEFAULT_SPECIES,
             personality: "emergent",
             scale: 2,
             monitor: "",
@@ -45,16 +45,16 @@ Item {
     property string _lastTraitsSig: ""
 
     property string archetype: "Curious Hatchling"
-    property real mood: 0.56
-    property real happiness: 0.56
-    property real bond: 0.30
-    property real trust: 0.35
-    property real satiety: 0.65
-    property real restDrive: 0.14
-    property real exploreDrive: 0.34
-    property real socialDrive: 0.26
-    property real playDrive: 0.22
-    property real alertness: 0.68
+    property real mood: Persist.SOUL_DEFAULTS.mood
+    property real happiness: Persist.SOUL_DEFAULTS.happiness
+    property real bond: Persist.SOUL_DEFAULTS.bond
+    property real trust: Persist.SOUL_DEFAULTS.trust
+    property real satiety: Persist.SOUL_DEFAULTS.satiety
+    property real restDrive: Persist.SOUL_DEFAULTS.restDrive
+    property real exploreDrive: Persist.SOUL_DEFAULTS.exploreDrive
+    property real socialDrive: Persist.SOUL_DEFAULTS.socialDrive
+    property real playDrive: Persist.SOUL_DEFAULTS.playDrive
+    property real alertness: Persist.SOUL_DEFAULTS.alertness
     property real ageSeconds: 0
     property real maturity: 0
     property real homeGX: 0
@@ -65,12 +65,12 @@ Item {
     property var relationships: ({})
     property var thoughts: []
     property var journal: []
-    property string lastThoughtText: "Relaxing in the Sanctuary"
+    property string lastThoughtText: ""
     property string penState: "idle"
-    property string sanctuaryActivity: "Relaxing in the Sanctuary"
+    property string sanctuaryActivity: ""
 
     readonly property string statePath: Config.stateDir + "/state-" + root.petId + ".json"
-    readonly property string legacyStatePath: Config.configDir + "/state-" + root.petData.name + ".json"
+    readonly property string legacyStatePath: Config.configDir + "/state-" + Config._slug(root.petData.name) + ".json"
 
     function _cloneRelationships(src: var): var {
         const out = {};
@@ -87,7 +87,7 @@ Item {
 
     onPetDataChanged: {
         if (!stateObj) return;
-        const nextSprite = petData.sprite || "zorua";
+        const nextSprite = petData.sprite || SpeciesProfile.DEFAULT_SPECIES;
         const nextPreset = petData.personality || "emergent";
         const nextTraitsSig = JSON.stringify(petData.traits ?? null);
 
@@ -139,7 +139,7 @@ Item {
         thoughts = (stateObj.thoughts || []).slice(-12);
         journal = (stateObj.journal || []).slice(-12);
         penState = stateObj.penState || "idle";
-        sanctuaryActivity = stateObj.sanctuaryActivity || "Relaxing in the Sanctuary";
+        sanctuaryActivity = stateObj.sanctuaryActivity || "";
         if (stateObj.thoughts && stateObj.thoughts.length > 0) {
             lastThoughtText = stateObj.thoughts[stateObj.thoughts.length - 1].text || sanctuaryActivity;
         } else {
@@ -265,25 +265,8 @@ Item {
     }
 
     function rekeyRelationship(oldName: string, newName: string): void {
-        if (!stateObj || _released || !oldName || !newName || oldName === newName) return;
-        let changed = false;
-        if (stateObj.relationships && stateObj.relationships[oldName] !== undefined) {
-            const next = _cloneRelationships(stateObj.relationships);
-            next[newName] = next[oldName];
-            delete next[oldName];
-            stateObj.relationships = next;
-            changed = true;
-        }
-        if (Array.isArray(stateObj.episodes)) {
-            for (let i = 0; i < stateObj.episodes.length; i++) {
-                const ep = stateObj.episodes[i];
-                if (ep && ep.withPet === oldName) {
-                    ep.withPet = newName;
-                    changed = true;
-                }
-            }
-        }
-        if (changed) {
+        if (!stateObj || _released) return;
+        if (Memory.rekeyPeer(stateObj, oldName, newName)) {
             dirty = true;
             refreshView();
             saveNow();
@@ -291,11 +274,8 @@ Item {
     }
 
     function removePeerReferences(removedName: string): void {
-        if (!stateObj || _released || !removedName || !stateObj.relationships) return;
-        if (stateObj.relationships[removedName] !== undefined) {
-            const next = _cloneRelationships(stateObj.relationships);
-            delete next[removedName];
-            stateObj.relationships = next;
+        if (!stateObj || _released) return;
+        if (Memory.removePeer(stateObj, removedName)) {
             dirty = true;
             refreshView();
             saveNow();
@@ -303,11 +283,8 @@ Item {
     }
 
     function updatePeerSpecies(peerName: string, newSpecies: string): void {
-        if (!stateObj || _released || !peerName || !newSpecies || !stateObj.relationships) return;
-        if (stateObj.relationships[peerName]) {
-            const next = _cloneRelationships(stateObj.relationships);
-            next[peerName].species = newSpecies;
-            stateObj.relationships = next;
+        if (!stateObj || _released) return;
+        if (Memory.updatePeerSpecies(stateObj, peerName, newSpecies)) {
             dirty = true;
             refreshView();
             saveNow();
@@ -367,7 +344,7 @@ Item {
 
     Component.onCompleted: {
         _lastPreset = petData.personality || "emergent";
-        _lastSprite = petData.sprite || "zorua";
+        _lastSprite = petData.sprite || SpeciesProfile.DEFAULT_SPECIES;
         _lastTraitsSig = JSON.stringify(petData.traits ?? null);
         refreshView();
         PetManager.registerResident(root.petId, root);

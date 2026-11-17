@@ -8,7 +8,7 @@ var SPECIES = {
         temperament: "chill",
         kinGroup: "eeveelution",
         abilities: ["frost_calm"],
-        blurb: "Poised frost fox whose diamond-dust calm cools down rowdy neighbors.",
+        blurb: "Calm frost fox whose diamond-dust breeze cools down rowdy neighbors.",
         socialStyle: "guardian",
         clips: {
             idle: { holdAtFrame: 0, speed: 0.48 }
@@ -24,7 +24,7 @@ var SPECIES = {
         dodgeMoves: ["hop", "tumbleBack", "rotate"],
         standoffMoves: ["pose", "charge"],
         dismissMoves: ["tailWhip", "rotate"],
-        signature: { state: "shake", minPlay: 0.30, label: "Scattering crisp frost crystals in the air" },
+        signature: { state: "shake", minPlay: 0.30, label: "Scattering fine frost crystals in the air" },
         northWatch: true,
         gait: { amble: 0.48, trot: 0.94, scamper: 1.58 },
         perchAffinity: 1.10,
@@ -81,6 +81,7 @@ var SPECIES = {
         signature: { state: "twirl", minPlay: 0.34, label: "Flourishing its scalchop in a clean spin" },
         northWatch: true,
         gait: { amble: 0.50, trot: 0.96, scamper: 1.60 },
+        locomotion: "springer",
         perchAffinity: 0.75,
         windowWatchAffinity: 1.22
     },
@@ -108,6 +109,7 @@ var SPECIES = {
         signature: { state: "appeal", minPlay: 0.32, label: "Puffing its chest with penguin dignity" },
         northWatch: true,
         gait: { amble: 0.44, trot: 0.86, scamper: 1.46 },
+        locomotion: "springer",
         perchAffinity: 0.70,
         windowWatchAffinity: 1.24
     },
@@ -136,6 +138,7 @@ var SPECIES = {
         pantState: "",
         northWatch: false,
         gait: { amble: 0.40, trot: 0.80, scamper: 1.38 },
+        locomotion: "heavy",
         perchAffinity: 0.35,
         windowWatchAffinity: 1.15
     },
@@ -163,6 +166,7 @@ var SPECIES = {
         signature: { state: "hide", minPlay: 0.30, label: "Ducking playfully into its polished shell" },
         northWatch: true,
         gait: { amble: 0.46, trot: 0.90, scamper: 1.50 },
+        locomotion: "heavy",
         perchAffinity: 0.60,
         windowWatchAffinity: 1.20
     },
@@ -190,6 +194,7 @@ var SPECIES = {
         signature: { state: "idleOnce", minPlay: 0.30, label: "Doing its trademark two-foot croc hop" },
         northWatch: true,
         gait: { amble: 0.54, trot: 1.04, scamper: 1.72 },
+        locomotion: "springer",
         perchAffinity: 0.65,
         windowWatchAffinity: 1.15
     },
@@ -221,6 +226,7 @@ var SPECIES = {
         pantState: "",
         northWatch: false,
         gait: { amble: 0.34, trot: 0.66, scamper: 1.10 },
+        locomotion: "heavy",
         perchAffinity: 0.30,
         windowWatchAffinity: 0.90
     },

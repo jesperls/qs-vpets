@@ -4,6 +4,7 @@ import QtQuick
 import QtQuick.Layouts
 import "../config"
 import "../services"
+import "ui/FriendAreas.js" as FriendAreas
 
 RowLayout {
     id: root
@@ -15,245 +16,162 @@ RowLayout {
     signal toggleAdoptMode()
     signal closeRequested()
 
-    Layout.fillWidth: true
+    function _cycleCamp(): void {
+        Config.updateSanctuaryCamp(FriendAreas.nextAreaId(Config.sanctuaryCamp));
+    }
+
+    height: implicitHeight
     spacing: 10
 
     Rectangle {
-        implicitWidth: 36
-        implicitHeight: 36
-        radius: Theme.radius(-4)
-        color: Theme.surface
+        implicitHeight: 44
+        implicitWidth: signRow.implicitWidth + 24
+        radius: Theme.radius(2)
+        color: Theme.alpha(Theme.panel, 0.92)
         border.width: 1
-        border.color: Theme.borderSubtle
+        border.color: Theme.border
 
-        UiIcon {
+        RowLayout {
+            id: signRow
             anchors.centerIn: parent
-            name: "sanctuary"
-            size: 17
-            color: Theme.accent
-        }
-    }
+            spacing: 10
 
-    ColumnLayout {
-        spacing: 1
+            Rectangle {
+                implicitWidth: 30
+                implicitHeight: 30
+                radius: 15
+                color: Theme.surfaceAlt
+                border.width: 1
+                border.color: Theme.borderSubtle
 
-        Text {
-            text: "Pokémon Sanctuary"
-            color: Theme.text
-            font.family: Theme.uiFont
-            font.pixelSize: 17
-            font.weight: Font.Bold
-        }
+                UiIcon {
+                    anchors.centerIn: parent
+                    name: "pokeball"
+                    filled: true
+                    size: 17
+                    color: Theme.border
+                    accentColor: Theme.pokeball
+                }
+            }
 
-        Text {
-            text: PetManager.roamingIds.length + " roaming on desktop  ·  "
-                + Math.max(0, Config.pets.length - PetManager.roamingIds.length) + " resting in sanctuary"
-            color: Theme.subtext
-            font.family: Theme.uiFont
-            font.pixelSize: 11
+            ColumnLayout {
+                spacing: 0
+
+                RowLayout {
+                    spacing: 7
+
+                    Text {
+                        text: "Pokémon Sanctuary"
+                        color: Theme.text
+                        font.family: Theme.uiFont
+                        font.pixelSize: 14
+                        font.weight: Font.Bold
+                    }
+
+                    Rectangle {
+                        implicitHeight: 20
+                        implicitWidth: areaBadgeTxt.implicitWidth + 14
+                        radius: 10
+                        color: areaBadgeMouse.containsMouse ? Theme.warmSoft : Theme.surfaceAlt
+                        border.width: 1
+                        border.color: areaBadgeMouse.containsMouse ? Theme.warm : Theme.borderSubtle
+
+                        Text {
+                            id: areaBadgeTxt
+                            anchors.centerIn: parent
+                            text: FriendAreas.areaFor(Config.sanctuaryCamp).label
+                            color: Theme.warm
+                            font.family: Theme.uiFont
+                            font.pixelSize: 10
+                            font.weight: Font.DemiBold
+                        }
+
+                        MouseArea {
+                            id: areaBadgeMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: root._cycleCamp()
+                        }
+
+                        UiTooltip {
+                            active: areaBadgeMouse.containsMouse
+                            text: "Switch Friend Area"
+                        }
+                    }
+                }
+
+                Text {
+                    readonly property int outCount: PetManager.roamingIds.length
+                    readonly property int campCount: Math.max(0, Config.pets.length - outCount)
+                    text: (PetManager.hidden ? "Desktop paused  ·  " : "")
+                        + outCount + " exploring  ·  " + campCount + " at camp"
+                    color: PetManager.hidden ? Theme.warm : Theme.subtext
+                    font.family: Theme.uiFont
+                    font.pixelSize: 11
+                }
+            }
         }
     }
 
     Item { Layout.fillWidth: true }
 
-    Rectangle {
-        implicitHeight: 30
-        radius: Theme.radius(-6)
-        color: Theme.surface
-        border.width: 1
-        border.color: Theme.borderSubtle
-        implicitWidth: maxRow.implicitWidth + 16
+    // Welcome Pokémon (Field Guide) button with authentic PMD Adventure Log sprite
+    Item {
+        implicitHeight: 38
+        implicitWidth: welcomeInner.implicitWidth + 28
 
-        RowLayout {
-            id: maxRow
-            anchors.centerIn: parent
-            spacing: 6
+        Rectangle {
+            anchors.fill: parent
+            anchors.topMargin: 2
+            radius: Theme.radius(0)
+            color: root.adoptMode ? Theme.borderSubtle : "#3b2816"
+        }
 
-            Text {
-                text: "Max Roaming"
-                color: Theme.subtext
-                font.family: Theme.uiFont
-                font.pixelSize: 11
-            }
+        Rectangle {
+            anchors.fill: parent
+            anchors.bottomMargin: welcomeMouse.pressed ? 0 : 2
+            anchors.topMargin: welcomeMouse.pressed ? 2 : 0
+            radius: Theme.radius(0)
+            color: root.adoptMode
+                ? Theme.surfaceAlt
+                : (welcomeMouse.containsMouse ? Theme.warm : Theme.alpha(Theme.panel, 0.94))
+            border.width: 1
+            border.color: root.adoptMode ? Theme.border : Theme.warm
+            Behavior on color { ColorAnimation { duration: 120 } }
 
-            Rectangle {
-                implicitWidth: 20
-                implicitHeight: 20
-                radius: Theme.radius(-9)
-                color: minusArea.containsMouse ? Theme.surfaceAlt : "transparent"
+            RowLayout {
+                id: welcomeInner
+                anchors.centerIn: parent
+                spacing: 7
+
+                Image {
+                    visible: !root.adoptMode
+                    Layout.preferredWidth: 22
+                    Layout.preferredHeight: 22
+                    smooth: false
+                    source: Qt.resolvedUrl("../assets/sanctuary/items/diary_closed.png")
+                }
 
                 UiIcon {
-                    anchors.centerIn: parent
-                    name: "minus"
-                    size: 11
-                    color: Theme.text
+                    visible: root.adoptMode
+                    name: "arrowLeft"
+                    size: 14
+                    color: Theme.warm
                 }
 
-                MouseArea {
-                    id: minusArea
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: Config.updateMaxRoaming(Config.maxActiveRoaming - 1)
+                Text {
+                    text: root.adoptMode ? "Back to Clearing" : "Welcome Pokémon"
+                    color: !root.adoptMode && welcomeMouse.containsMouse ? Theme.overWarm : Theme.text
+                    font.family: Theme.uiFont
+                    font.pixelSize: 12
+                    font.weight: Font.DemiBold
                 }
-            }
-
-            Text {
-                Layout.minimumWidth: 16
-                horizontalAlignment: Text.AlignHCenter
-                text: String(Config.maxActiveRoaming)
-                color: Theme.accent
-                font.family: Theme.monoFont
-                font.pixelSize: 12
-                font.bold: true
-            }
-
-            Rectangle {
-                implicitWidth: 20
-                implicitHeight: 20
-                radius: Theme.radius(-9)
-                color: plusArea.containsMouse ? Theme.surfaceAlt : "transparent"
-
-                UiIcon {
-                    anchors.centerIn: parent
-                    name: "plus"
-                    size: 11
-                    color: Theme.text
-                }
-
-                MouseArea {
-                    id: plusArea
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: Config.updateMaxRoaming(Config.maxActiveRoaming + 1)
-                }
-            }
-        }
-    }
-
-    Rectangle {
-        implicitHeight: 30
-        radius: Theme.radius(-6)
-        implicitWidth: visRow.implicitWidth + 16
-        color: PetManager.hidden
-            ? Theme.alpha(Theme.warm, 0.14)
-            : (visMouse.containsMouse ? Theme.surfaceAlt : Theme.surface)
-        border.width: 1
-        border.color: PetManager.hidden ? Theme.alpha(Theme.warm, 0.55) : Theme.borderSubtle
-        Behavior on color { ColorAnimation { duration: 120 } }
-
-        RowLayout {
-            id: visRow
-            anchors.centerIn: parent
-            spacing: 6
-
-            UiIcon {
-                name: PetManager.hidden ? "eyeOff" : "eye"
-                size: 13
-                color: PetManager.hidden ? Theme.warm : Theme.subtext
-            }
-
-            Text {
-                text: PetManager.hidden ? "Hidden" : "Visible"
-                color: PetManager.hidden ? Theme.warm : Theme.text
-                font.family: Theme.uiFont
-                font.pixelSize: 11
-                font.weight: Font.Medium
             }
         }
 
         MouseArea {
-            id: visMouse
-            anchors.fill: parent
-            hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
-            onClicked: PetManager.hidden = !PetManager.hidden
-        }
-
-        UiTooltip {
-            active: visMouse.containsMouse
-            text: "Temporarily hide or show all desktop companions"
-        }
-    }
-
-    Rectangle {
-        implicitHeight: 30
-        radius: Theme.radius(-6)
-        implicitWidth: prefBtnRow.implicitWidth + 16
-        color: root.prefsExpanded
-            ? Theme.accentSoft
-            : (prefBtnMouse.containsMouse ? Theme.surfaceAlt : Theme.surface)
-        border.width: 1
-        border.color: root.prefsExpanded ? Theme.accent : Theme.borderSubtle
-        Behavior on color { ColorAnimation { duration: 120 } }
-
-        RowLayout {
-            id: prefBtnRow
-            anchors.centerIn: parent
-            spacing: 6
-
-            UiIcon {
-                name: "sliders"
-                size: 13
-                color: root.prefsExpanded ? Theme.accent : Theme.subtext
-            }
-
-            Text {
-                text: "Preferences"
-                color: root.prefsExpanded ? Theme.accent : Theme.text
-                font.family: Theme.uiFont
-                font.pixelSize: 11
-                font.weight: Font.Medium
-            }
-        }
-
-        MouseArea {
-            id: prefBtnMouse
-            anchors.fill: parent
-            hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
-            onClicked: root.togglePrefs()
-        }
-    }
-
-    Rectangle {
-        implicitHeight: 30
-        radius: Theme.radius(-6)
-        implicitWidth: adoptToggleRow.implicitWidth + 18
-        color: root.adoptMode
-            ? Theme.surfaceAlt
-            : (adoptToggleMouse.containsMouse ? Theme.accent : Theme.accentSoft)
-        border.width: 1
-        border.color: root.adoptMode ? Theme.border : Theme.accent
-        Behavior on color { ColorAnimation { duration: 120 } }
-
-        RowLayout {
-            id: adoptToggleRow
-            anchors.centerIn: parent
-            spacing: 6
-
-            UiIcon {
-                name: root.adoptMode ? "arrowLeft" : "plus"
-                size: 12
-                color: root.adoptMode
-                    ? Theme.text
-                    : (adoptToggleMouse.containsMouse ? Theme.overAccent : Theme.accent)
-            }
-
-            Text {
-                text: root.adoptMode ? "Back to Companion" : "Adopt Companion"
-                color: root.adoptMode
-                    ? Theme.text
-                    : (adoptToggleMouse.containsMouse ? Theme.overAccent : Theme.accent)
-                font.family: Theme.uiFont
-                font.pixelSize: 11
-                font.weight: Font.DemiBold
-            }
-        }
-
-        MouseArea {
-            id: adoptToggleMouse
+            id: welcomeMouse
             anchors.fill: parent
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
@@ -261,24 +179,58 @@ RowLayout {
         }
     }
 
+    // Camp Settings button
     Rectangle {
-        implicitWidth: 30
-        implicitHeight: 30
-        radius: Theme.radius(-6)
-        color: closeWinArea.containsMouse ? Theme.surfaceAlt : Theme.surface
+        implicitWidth: 38
+        implicitHeight: 38
+        radius: 19
+        color: root.prefsExpanded
+            ? Theme.warmSoft
+            : (prefsMouse.containsMouse ? Theme.surfaceAlt : Theme.alpha(Theme.panel, 0.90))
         border.width: 1
-        border.color: closeWinArea.containsMouse ? Theme.border : Theme.borderSubtle
-        Behavior on color { ColorAnimation { duration: 120 } }
+        border.color: root.prefsExpanded ? Theme.warm : Theme.border
+        Behavior on color { ColorAnimation { duration: 110 } }
+
+        UiIcon {
+            anchors.centerIn: parent
+            name: "sliders"
+            size: 14
+            color: root.prefsExpanded ? Theme.warm : Theme.subtext
+        }
+
+        MouseArea {
+            id: prefsMouse
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: root.togglePrefs()
+        }
+
+        UiTooltip {
+            active: prefsMouse.containsMouse && !root.prefsExpanded
+            text: "Camp & desktop settings"
+        }
+    }
+
+    // Close Sanctuary button
+    Rectangle {
+        implicitWidth: 38
+        implicitHeight: 38
+        radius: 19
+        color: closeMouse.containsMouse ? Theme.surfaceAlt : Theme.alpha(Theme.panel, 0.90)
+        border.width: 1
+        border.color: closeMouse.containsMouse ? Theme.pokeball : Theme.border
+        Behavior on color { ColorAnimation { duration: 110 } }
 
         UiIcon {
             anchors.centerIn: parent
             name: "close"
             size: 13
-            color: closeWinArea.containsMouse ? Theme.text : Theme.subtext
+            color: closeMouse.containsMouse ? Theme.text : Theme.subtext
         }
 
         MouseArea {
-            id: closeWinArea
+            id: closeMouse
             anchors.fill: parent
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor

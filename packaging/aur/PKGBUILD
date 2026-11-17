@@ -32,6 +32,7 @@ check() {
   cd "${srcdir}/qs-vpets"
   node tests/test_sprites.js
   node tests/test_cognition.js
+  node tests/test_soak.js
   bash -n scripts/qs-vpets.sh
 }
 

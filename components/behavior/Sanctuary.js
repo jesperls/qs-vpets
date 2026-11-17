@@ -1,6 +1,7 @@
 .pragma library
 
 .import "../SpeciesProfile.js" as SpeciesProfile
+.import "../PetPersistence.js" as Persist
 .import "Personality.js" as Personality
 .import "Memory.js" as Memory
 .import "Abilities.js" as Abilities
@@ -14,13 +15,20 @@ var MIN_PEN_REST_MS = 8 * 60000;
 
 var clamp01 = Util.clamp01;
 
+function _isNocturnal(target, prof, sp) {
+    return !!(prof.nocturnalAffinity
+        || Personality.hasQuirk(target, "night_watch")
+        || Abilities.has(sp, "lunar_pulse"));
+}
+
 function createDefaultResident(petCfg, nowMs) {
-    var sprite = (petCfg && petCfg.sprite) || "zorua";
+    var sprite = (petCfg && petCfg.sprite) || SpeciesProfile.DEFAULT_SPECIES;
     var preset = (petCfg && petCfg.personality) || "emergent";
     var name = (petCfg && petCfg.name) || "Companion";
     var seedKey = (petCfg && petCfg.id) || name;
     var base = Personality.resolveBase(preset, seedKey, petCfg ? petCfg.traits : null);
     var eff = Personality.compose(base, {}, {});
+    var d = Persist.SOUL_DEFAULTS;
     return {
         id: (petCfg && petCfg.id) || "pet",
         name: name,
@@ -34,7 +42,7 @@ function createDefaultResident(petCfg, nowMs) {
         get personality() {
             return Personality.compose(this.basePersonality, this.coreDrift, this.recentDrift);
         },
-        archetype: Personality.archetypeTitle(eff, [], 0, 0.3),
+        archetype: Personality.archetypeTitle(eff, [], 0, d.bond),
         gx: 0,
         gy: 0,
         homeGX: 0,
@@ -42,18 +50,18 @@ function createDefaultResident(petCfg, nowMs) {
         hasSavedPos: false,
         ageSeconds: 0,
         maturity: 0,
-        bond: 0.30,
-        trust: 0.35,
-        satiety: 0.65,
-        happiness: 0.56,
-        mood: 0.56,
-        restDrive: 0.14,
-        exploreDrive: 0.34,
-        socialDrive: 0.26,
-        comfortDrive: 0.0,
-        playDrive: 0.22,
-        alertness: 0.68,
-        boredom: 0.05,
+        bond: d.bond,
+        trust: d.trust,
+        satiety: d.satiety,
+        happiness: d.happiness,
+        mood: d.mood,
+        restDrive: d.restDrive,
+        exploreDrive: d.exploreDrive,
+        socialDrive: d.socialDrive,
+        comfortDrive: d.comfortDrive,
+        playDrive: d.playDrive,
+        alertness: d.alertness,
+        boredom: d.boredom,
         thoughts: [],
         episodes: [],
         journal: [],
@@ -63,7 +71,7 @@ function createDefaultResident(petCfg, nowMs) {
         relationships: {},
         userRhythm: {},
         penState: "idle",
-        sanctuaryActivity: "Relaxing in the Sanctuary",
+        sanctuaryActivity: "",
         enteredPenAt: nowMs || Date.now()
     };
 }
@@ -81,7 +89,7 @@ function integrateResident(rec, dtSec, penMates, env, nowMs) {
     rec.ageSeconds = (rec.ageSeconds || 0) + dtSec;
     rec.maturity = clamp01(1 - Math.exp(-rec.ageSeconds / 86400));
 
-    var sleepingInPen = rec.restDrive > 0.30 || (isNight && !prof.nocturnalAffinity && p.sleepiness > 0.32);
+    var sleepingInPen = rec.restDrive > 0.30 || (isNight && !_isNocturnal(rec, prof, rec.sprite) && p.sleepiness > 0.32);
     if (sleepingInPen) {
         rec.restDrive = clamp01(rec.restDrive - (0.00018 + (1 - p.sleepiness) * 0.00006) * dtSec);
         rec.alertness = clamp01(rec.alertness + (0.00016 + p.energy * 0.00008) * dtSec);
@@ -126,7 +134,7 @@ function integrateResident(rec, dtSec, penMates, env, nowMs) {
                 if (p.patience < 0.38 && !sleepingInPen) {
                     Memory.adjustRelation(rec, mate.name, -0.008, 0.015, "friction", { outcome: "squabble" });
                     rec.penState = "idle";
-                    rec.sanctuaryActivity = "Huffed over a sunny spot with " + mate.name;
+                    rec.sanctuaryActivity = "Grumbling over a sunny spot with " + mate.name;
                 } else {
                     Memory.adjustRelation(rec, mate.name, 0.0, 0.012);
                     rec.sanctuaryActivity = "Keeping distance from " + mate.name + " in " + prof.biome;
@@ -166,7 +174,7 @@ function integrateResident(rec, dtSec, penMates, env, nowMs) {
         rec.sanctuaryActivity = "Loafing comfortably in " + prof.biome;
     } else if (rec.alertness > 0.62 && rec.restDrive < 0.26) {
         rec.penState = Math.random() < 0.35 ? "wander" : "idle";
-        rec.sanctuaryActivity = "Rested in " + prof.biome + " & ready to roam";
+        rec.sanctuaryActivity = "Rested in " + prof.biome + " and ready to roam";
     } else {
         rec.penState = "idle";
         var abLine = Math.random() < 0.55 ? Abilities.sanctuaryActivity(rec, prof, isNight) : "";
@@ -193,7 +201,7 @@ function readinessScore(rec, activeDesktopNames, env, nowMs, ignoreRestCooldown)
 
     var e = env || {};
     if (e.isNight) {
-        if (prof.nocturnalAffinity || Personality.hasQuirk(rec, "night_watch")) score += 0.28;
+        if (_isNocturnal(rec, prof, rec.sprite)) score += 0.28;
         else score -= 0.18 + p.sleepiness * 0.16;
     } else if (prof.nocturnalAffinity) {
         score -= 0.18;
@@ -210,7 +218,6 @@ function readinessScore(rec, activeDesktopNames, env, nowMs, ignoreRestCooldown)
     }
     score += Abilities.sanctuaryReadinessDelta(rec, prof, e);
 
-    // Best friends / soulmates currently roaming pull companions out to join them!
     if (activeDesktopNames && rec.relationships) {
         for (var i = 0; i < activeDesktopNames.length; i++) {
             var rel = rec.relationships[activeDesktopNames[i]];
@@ -243,7 +250,7 @@ function retireDesire(livePet, hasWaitingPeers, env, nowMs) {
     var desire = fatigue * 0.78 + durationPressure + p.sleepiness * 0.12 - (livePet.bond || 0.3) * 0.08;
 
     if (e.isNight) {
-        if (prof.nocturnalAffinity || Personality.hasQuirk(livePet, "night_watch")) desire -= 0.26;
+        if (_isNocturnal(livePet, prof, SpeciesProfile.trueSpeciesOf(livePet))) desire -= 0.26;
         else desire += 0.22;
     }
     if (e.fullscreen && p.boldness < 0.60) {
@@ -317,7 +324,7 @@ function evaluateRotation(petConfigs, residentMap, livePetMap, currentRoamingIds
 
     var openAutoSlots = Math.max(0, cap - alwaysCount);
 
-    // 2. If over cap (e.g. user lowered maxActiveRoaming), retire most tired auto pet promptly.
+    // If over cap (e.g. user lowered maxActiveRoaming), retire most tired auto pet promptly.
     if (activeAuto.length > openAutoSlots) {
         var mostTired = _pickRetiringPet(activeAuto, livePetMap, true, env, now, true);
         if (mostTired) return { spawnId: "", retireId: mostTired.id, immediate: true };
@@ -336,7 +343,7 @@ function evaluateRotation(petConfigs, residentMap, livePetMap, currentRoamingIds
     }
     waitingAuto.sort(function(a, b) { return b.score - a.score; });
 
-    // 3. Fill an open auto slot after a brief settle pause.
+    // Fill an open auto slot after a brief settle pause.
     if (activeAuto.length < openAutoSlots && waitingAuto.length > 0) {
         if (now - (lastRotationMs || 0) >= OPEN_SLOT_DELAY_MS) {
             return { spawnId: waitingAuto[0].id, retireId: "", immediate: false };
@@ -348,7 +355,7 @@ function evaluateRotation(petConfigs, residentMap, livePetMap, currentRoamingIds
         return { spawnId: "", retireId: "", immediate: false };
     }
 
-    // 4. Check if a currently roaming auto pet naturally wants to retire / swap with an eager pen-mate.
+    // Check if a currently roaming auto pet naturally wants to swap with a rested campmate.
     var hasWaiting = waitingAuto.length > 0;
     // Keep at least 1 pet on screen when there are no waiting replacements unless user penned everyone.
     if (!hasWaiting && (activeAuto.length + alwaysCount) <= 1) {
@@ -391,7 +398,7 @@ function patInPen(stateObj, nowMs) {
     stateObj.bond = Util.clamp01((stateObj.bond || 0.3) + 0.015);
     stateObj.trust = Util.clamp01((stateObj.trust || 0.35) + 0.025);
     stateObj.socialDrive = Math.max(0, stateObj.socialDrive - 0.28);
-    stateObj.penState = "hop";
+    stateObj.penState = "idle";
     stateObj.sanctuaryActivity = "Enjoying warm headpats in the Sanctuary";
     Memory.recordEpisode(stateObj, "petted", { valence: 0.65, salience: 0.6 });
     Memory.thinkAloud(stateObj, "pen_pat", "Leaned into gentle headpats in the Sanctuary", { minGapMs: 2000 });
@@ -404,11 +411,12 @@ function feedInPen(stateObj, nowMs) {
     stateObj.satiety = Util.clamp01((stateObj.satiety === undefined ? 0.5 : stateObj.satiety) + 0.45);
     stateObj.happiness = Util.clamp01(stateObj.happiness + 0.16);
     stateObj.mood = Util.clamp01(stateObj.mood + 0.22);
+    stateObj.bond = Util.clamp01((stateObj.bond || 0.3) + 0.020);
     stateObj.trust = Util.clamp01((stateObj.trust || 0.35) + 0.035);
-    stateObj.penState = "eat";
-    stateObj.sanctuaryActivity = "Happily munching a berry snack";
+    stateObj.penState = "idle";
+    stateObj.sanctuaryActivity = "Happily munching an Oran Berry";
     Memory.recordEpisode(stateObj, "fed_snack", { valence: 0.8, salience: 0.72 });
-    Memory.thinkAloud(stateObj, "pen_fed", "Happily ate a sweet berry in the Sanctuary", { minGapMs: 2000 });
+    Memory.thinkAloud(stateObj, "pen_fed", "Happily ate an Oran Berry in the Sanctuary", { minGapMs: 2000 });
     if (nowMs) delete stateObj._simNow;
 }
 
@@ -417,10 +425,11 @@ function playInPen(stateObj, nowMs) {
     if (nowMs) stateObj._simNow = nowMs;
     stateObj.happiness = Util.clamp01(stateObj.happiness + 0.10);
     stateObj.mood = Util.clamp01(stateObj.mood + 0.16);
+    stateObj.bond = Util.clamp01((stateObj.bond || 0.3) + 0.012);
     stateObj.trust = Util.clamp01((stateObj.trust || 0.35) + 0.02);
     stateObj.playDrive = Math.max(0, stateObj.playDrive - 0.25);
-    stateObj.penState = "wander";
-    stateObj.sanctuaryActivity = "Romping playfully across the Sanctuary pasture";
+    stateObj.penState = "idle";
+    stateObj.sanctuaryActivity = "Romping playfully across the Sanctuary clearing";
     Memory.recordEpisode(stateObj, "played_solo", { valence: 0.6, salience: 0.55 });
     Memory.thinkAloud(stateObj, "pen_play", "Played a lively game in the Sanctuary", { minGapMs: 2000 });
     if (nowMs) delete stateObj._simNow;

@@ -93,6 +93,7 @@ let
       enablePerching
       enableMusicReact
       maxActiveRoaming
+      sanctuaryCamp
       ;
   };
 
@@ -228,6 +229,18 @@ in
         default = null;
         description = "Maximum auto-rotating companions roaming the desktop simultaneously.";
       };
+      sanctuaryCamp = lib.mkOption {
+        type = lib.types.nullOr (
+          lib.types.enum [
+            "shore"
+            "forest"
+            "cliff"
+            "spring"
+          ]
+        );
+        default = null;
+        description = "Active Pokémon Mystery Dungeon Friend Area clearing in Pokémon Sanctuary.";
+      };
     };
 
     systemd = {
@@ -256,7 +269,7 @@ in
       (lib.mkIf cfg.systemd.enable {
         systemd.user.services.qs-vpets = {
           Unit = {
-            Description = "Desktop virtual pets (Quickshell)";
+            Description = "Pokémon Sanctuary desktop companions (Quickshell)";
             After = [
               cfg.systemd.target
               "pipewire.service"

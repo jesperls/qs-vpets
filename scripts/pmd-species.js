@@ -12,12 +12,17 @@ const SPRITES_DIR = path.join(ROOT_DIR, "assets", "sprites");
 const TRACKER_URL = "https://raw.githubusercontent.com/PMDCollab/SpriteCollab/master/tracker.json";
 const RAW_BASE = "https://raw.githubusercontent.com/PMDCollab/SpriteCollab/master/sprite";
 
-function fetchBuffer(url) {
+function fetchBuffer(url, redirectsLeft = 5) {
     return new Promise((resolve, reject) => {
         const req = https.get(url, { headers: { "User-Agent": "qs-vpets-species-tool/1.0" } }, res => {
             if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
                 res.resume();
-                fetchBuffer(res.headers.location).then(resolve, reject);
+                if (redirectsLeft <= 0) {
+                    reject(new Error(`Too many redirects for ${url}`));
+                    return;
+                }
+                const nextUrl = new URL(res.headers.location, url).toString();
+                fetchBuffer(nextUrl, redirectsLeft - 1).then(resolve, reject);
                 return;
             }
             if (res.statusCode !== 200) {
@@ -417,6 +422,70 @@ async function importSpecies(dexIdRaw, slug) {
     auditSpecies(slug);
 }
 
+function scaffoldSpecies(slug) {
+    const dir = path.join(SPRITES_DIR, slug);
+    const xmlPath = path.join(dir, "AnimData.xml");
+    if (!fs.existsSync(xmlPath)) {
+        throw new Error(`Missing AnimData.xml for ${slug}; run 'import <dexId> ${slug}' first.`);
+    }
+    const anims = parseAnimXml(fs.readFileSync(xmlPath, "utf8"));
+    const idle = anims.Idle;
+    const idleInfo = idle
+        ? analyzeSheetRow(path.join(dir, `${idle.sheet}-Anim.png`), idle.frameWidth, idle.frameHeight, idle.frameCount, 0)
+        : null;
+    const rec = recommendIdleClip(idle, idleInfo);
+
+    const idleClip = { speed: 0.52 };
+    if (rec.holdAtFrame !== undefined) idleClip.holdAtFrame = rec.holdAtFrame;
+    if (rec.startFrame !== undefined) idleClip.startFrame = rec.startFrame;
+    if (rec.endFrame !== undefined) idleClip.endFrame = rec.endFrame;
+
+    const clips = { idle: idleClip };
+    if (!anims.EventSleep && anims.Sleep) clips.loaf = { anim: "Sleep" };
+
+    const pick = (cands, fallback) => {
+        const out = cands.filter(([st, an]) => !!anims[an]).map(([st]) => st);
+        return out.length > 0 ? out : fallback;
+    };
+
+    const calm = pick([["nod", "Nod"], ["pose", "Pose"], ["shake", "Shake"], ["rotate", "Rotate"]], ["rotate"]);
+    const affection = pick([["appeal", "Appeal"], ["tailWhip", "TailWhip"], ["dance", "Dance"], ["pose", "Pose"], ["nod", "Nod"], ["rotate", "Rotate"]], ["rotate"]);
+    const spar = pick([["quickStrike", "QuickStrike"], ["leapForth", "LeapForth"], ["strike", "Strike"], ["shoot", "Shoot"], ["swing", "Swing"], ["double", "Double"], ["attack", "Attack"]], ["hop"]);
+    const showOff = pick([["appeal", "Appeal"], ["dance", "Dance"], ["twirl", "Twirl"], ["pose", "Pose"], ["hop", "Hop"]], ["rotate"]);
+    const dodge = pick([["hop", "Hop"], ["tumbleBack", "TumbleBack"], ["rotate", "Rotate"]], ["rotate"]);
+
+    const entry = {
+        displayName: slug.charAt(0).toUpperCase() + slug.slice(1),
+        temperament: "curious",
+        kinGroup: "forager_kin",
+        abilities: ["forage_stash"],
+        blurb: "Curious companion that explores your desktop and rests at camp.",
+        socialStyle: "parallel",
+        clips,
+        vocalState: rec.holdAtFrame === 0 ? "idleOnce" : (calm[0] || "nod"),
+        altVocalState: anims.Hop ? "hop" : (affection[0] || "rotate"),
+        calmGestures: calm.slice(0, 2),
+        affectionGestures: affection.slice(0, 2),
+        greetGestures: calm.slice(0, 2),
+        settleGestures: ["rotate"].concat(calm.slice(0, 1)),
+        sparMoves: spar.slice(0, 4),
+        showOffMoves: showOff.slice(0, 3),
+        dodgeMoves: dodge.slice(0, 3),
+        standoffMoves: pick([["pose", "Pose"], ["charge", "Charge"]], ["nod"]),
+        dismissMoves: ["rotate"],
+        signature: { state: affection[0] || "rotate", minPlay: 0.34, label: "Stretching happily" },
+        northWatch: !!(anims.Sit && anims.LookUp),
+        gait: { amble: 0.50, trot: 0.96, scamper: 1.60 },
+        locomotion: "graceful",
+        perchAffinity: 1.00,
+        windowWatchAffinity: 1.20
+    };
+    if (!anims.Wake) entry.wakeState = calm[0] || "rotate";
+    if (!anims.DeepBreath) entry.pantState = "";
+
+    console.log(`    ${slug}: ${JSON.stringify(entry, null, 8).replace(/\n/g, "\n    ")},`);
+}
+
 async function main() {
     const [cmd, ...args] = process.argv.slice(2);
     if (cmd === "clean") {
@@ -441,7 +510,12 @@ async function main() {
         await importSpecies(args[0], args[1]);
         return;
     }
-    console.log("Usage: node scripts/pmd-species.js <audit|clean|search|import> [...]");
+    if (cmd === "scaffold") {
+        if (args.length < 1) throw new Error("Usage: scaffold <slug>");
+        scaffoldSpecies(args[0]);
+        return;
+    }
+    console.log("Usage: node scripts/pmd-species.js <audit|clean|search|import|scaffold> [...]");
 }
 
 main().catch(err => {

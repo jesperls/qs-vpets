@@ -84,6 +84,8 @@ ShellRoot {
         sourceComponent: SanctuaryWindow {}
     }
 
+    VpetsIpc {}
+
     Connections {
         target: Config
         function onConfigReady(): void { root._reconcileIds(); }

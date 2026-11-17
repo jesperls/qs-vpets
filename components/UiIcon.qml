@@ -8,8 +8,10 @@ Item {
 
     property string name: ""
     property color color: Theme.text
+    property color accentColor: Theme.pokeball
+    property bool filled: false
     property int size: 14
-    property real strokeWidth: 1.5
+    property real strokeWidth: 1.55
 
     implicitWidth: size
     implicitHeight: size
@@ -18,6 +20,8 @@ Item {
 
     onNameChanged: canvas.requestPaint()
     onColorChanged: canvas.requestPaint()
+    onAccentColorChanged: canvas.requestPaint()
+    onFilledChanged: canvas.requestPaint()
     onSizeChanged: canvas.requestPaint()
     onStrokeWidthChanged: canvas.requestPaint()
 
@@ -40,19 +44,157 @@ Item {
             ctx.lineJoin = "round";
 
             switch (root.name) {
+            case "pokeball":
             case "sanctuary":
+                if (root.filled) {
+                    ctx.save();
+                    ctx.beginPath();
+                    ctx.arc(8, 8, 6.2, Math.PI, Math.PI * 2);
+                    ctx.closePath();
+                    ctx.fillStyle = root.accentColor.toString();
+                    ctx.fill();
+                    ctx.beginPath();
+                    ctx.arc(8, 8, 6.2, 0, Math.PI);
+                    ctx.closePath();
+                    ctx.fillStyle = "#f7efe2";
+                    ctx.fill();
+                    ctx.restore();
+                }
                 ctx.beginPath();
                 ctx.arc(8, 8, 6.2, 0, Math.PI * 2);
                 ctx.stroke();
                 ctx.beginPath();
-                ctx.arc(8, 8, 2.0, 0, Math.PI * 2);
-                ctx.stroke();
-                ctx.beginPath();
                 ctx.moveTo(1.9, 8);
-                ctx.lineTo(6.0, 8);
-                ctx.moveTo(10.0, 8);
+                ctx.lineTo(5.9, 8);
+                ctx.moveTo(10.1, 8);
                 ctx.lineTo(14.1, 8);
                 ctx.stroke();
+                if (root.filled) {
+                    ctx.beginPath();
+                    ctx.arc(8, 8, 2.1, 0, Math.PI * 2);
+                    ctx.fillStyle = "#f7efe2";
+                    ctx.fill();
+                }
+                ctx.beginPath();
+                ctx.arc(8, 8, 2.1, 0, Math.PI * 2);
+                ctx.stroke();
+                break;
+
+            case "heart":
+            case "heartFill":
+            case "heartHalf":
+                ctx.beginPath();
+                ctx.moveTo(8, 13.4);
+                ctx.bezierCurveTo(1.8, 9.6, 1.6, 4.3, 5.0, 3.2);
+                ctx.bezierCurveTo(6.6, 2.7, 7.6, 3.7, 8, 4.8);
+                ctx.bezierCurveTo(8.4, 3.7, 9.4, 2.7, 11.0, 3.2);
+                ctx.bezierCurveTo(14.4, 4.3, 14.2, 9.6, 8, 13.4);
+                ctx.closePath();
+                if (root.name === "heartFill" || root.filled) {
+                    ctx.fill();
+                } else if (root.name === "heartHalf") {
+                    ctx.save();
+                    ctx.clip();
+                    ctx.fillRect(0, 0, 8, 16);
+                    ctx.restore();
+                    ctx.stroke();
+                } else {
+                    ctx.stroke();
+                }
+                break;
+
+            case "berry":
+                ctx.beginPath();
+                ctx.arc(8, 9.6, 4.3, 0, Math.PI * 2);
+                if (root.filled) {
+                    ctx.fill();
+                } else {
+                    ctx.stroke();
+                }
+                ctx.beginPath();
+                ctx.moveTo(8, 5.2);
+                ctx.quadraticCurveTo(6.2, 2.8, 4.5, 3.4);
+                ctx.quadraticCurveTo(5.6, 5.2, 8, 5.2);
+                ctx.moveTo(8, 5.2);
+                ctx.quadraticCurveTo(9.8, 2.6, 11.7, 3.2);
+                ctx.quadraticCurveTo(10.5, 5.2, 8, 5.2);
+                ctx.stroke();
+                break;
+
+            case "paw":
+                ctx.beginPath();
+                ctx.ellipse(5.2, 7.8, 5.6, 4.6);
+                ctx.fill();
+                ctx.beginPath();
+                ctx.arc(4.2, 5.9, 1.25, 0, Math.PI * 2);
+                ctx.arc(6.7, 4.4, 1.25, 0, Math.PI * 2);
+                ctx.arc(9.5, 4.4, 1.25, 0, Math.PI * 2);
+                ctx.arc(11.9, 5.9, 1.25, 0, Math.PI * 2);
+                ctx.fill();
+                break;
+
+            case "ribbon":
+                ctx.beginPath();
+                ctx.arc(8, 6.3, 3.8, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.arc(8, 6.3, 1.5, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.beginPath();
+                ctx.moveTo(5.6, 9.4);
+                ctx.lineTo(4.2, 13.8);
+                ctx.lineTo(6.8, 12.4);
+                ctx.lineTo(8.0, 14.0);
+                ctx.moveTo(10.4, 9.4);
+                ctx.lineTo(11.8, 13.8);
+                ctx.lineTo(9.2, 12.4);
+                ctx.lineTo(8.0, 14.0);
+                ctx.stroke();
+                break;
+
+            case "lantern":
+                ctx.beginPath();
+                ctx.moveTo(6.0, 3.4);
+                ctx.quadraticCurveTo(8.0, 1.6, 10.0, 3.4);
+                ctx.moveTo(5.0, 4.6);
+                ctx.lineTo(11.0, 4.6);
+                ctx.moveTo(5.6, 4.6);
+                ctx.lineTo(4.8, 11.4);
+                ctx.lineTo(11.2, 11.4);
+                ctx.lineTo(10.4, 4.6);
+                ctx.moveTo(4.4, 13.0);
+                ctx.lineTo(11.6, 13.0);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.arc(8.0, 8.4, 1.4, 0, Math.PI * 2);
+                ctx.fill();
+                break;
+
+            case "flame":
+                ctx.beginPath();
+                ctx.moveTo(8.0, 2.2);
+                ctx.bezierCurveTo(12.2, 5.8, 12.8, 9.8, 10.6, 12.3);
+                ctx.bezierCurveTo(9.2, 13.8, 6.8, 13.8, 5.4, 12.3);
+                ctx.bezierCurveTo(3.3, 9.9, 4.2, 6.4, 6.6, 4.8);
+                ctx.quadraticCurveTo(6.8, 6.8, 8.0, 2.2);
+                ctx.stroke();
+                break;
+
+            case "droplet":
+                ctx.beginPath();
+                ctx.moveTo(8.0, 2.3);
+                ctx.bezierCurveTo(11.8, 6.8, 12.4, 9.4, 11.4, 11.6);
+                ctx.bezierCurveTo(10.4, 13.6, 5.6, 13.6, 4.6, 11.6);
+                ctx.bezierCurveTo(3.6, 9.4, 4.2, 6.8, 8.0, 2.3);
+                ctx.stroke();
+                break;
+
+            case "dots":
+                ctx.beginPath();
+                ctx.arc(3.8, 8, 1.25, 0, Math.PI * 2);
+                ctx.arc(8.0, 8, 1.25, 0, Math.PI * 2);
+                ctx.arc(12.2, 8, 1.25, 0, Math.PI * 2);
+                ctx.fill();
                 break;
 
             case "search":
@@ -128,27 +270,6 @@ Item {
                 ctx.stroke();
                 break;
 
-            case "heart":
-                ctx.beginPath();
-                ctx.moveTo(8, 13.3);
-                ctx.bezierCurveTo(2.0, 9.6, 1.8, 4.4, 5.1, 3.3);
-                ctx.bezierCurveTo(6.7, 2.8, 7.6, 3.8, 8, 4.8);
-                ctx.bezierCurveTo(8.4, 3.8, 9.3, 2.8, 10.9, 3.3);
-                ctx.bezierCurveTo(14.2, 4.4, 14.0, 9.6, 8, 13.3);
-                ctx.stroke();
-                break;
-
-            case "berry":
-                ctx.beginPath();
-                ctx.arc(8, 9.3, 4.3, 0, Math.PI * 2);
-                ctx.stroke();
-                ctx.beginPath();
-                ctx.moveTo(8, 5.0);
-                ctx.quadraticCurveTo(8.2, 2.5, 11.4, 2.4);
-                ctx.quadraticCurveTo(10.8, 4.8, 8, 5.0);
-                ctx.stroke();
-                break;
-
             case "spark":
                 ctx.beginPath();
                 ctx.moveTo(8, 2.0);
@@ -157,7 +278,8 @@ Item {
                 ctx.quadraticCurveTo(7.6, 8.8, 2.0, 8);
                 ctx.quadraticCurveTo(7.6, 7.2, 8, 2.0);
                 ctx.closePath();
-                ctx.stroke();
+                if (root.filled) ctx.fill();
+                else ctx.stroke();
                 break;
 
             case "target":
@@ -301,22 +423,6 @@ Item {
                 ctx.moveTo(7.2, 4.2);
                 ctx.lineTo(3.4, 8);
                 ctx.lineTo(7.2, 11.8);
-                ctx.stroke();
-                break;
-
-            case "chevronDown":
-                ctx.beginPath();
-                ctx.moveTo(4.0, 6.2);
-                ctx.lineTo(8.0, 10.2);
-                ctx.lineTo(12.0, 6.2);
-                ctx.stroke();
-                break;
-
-            case "chevronRight":
-                ctx.beginPath();
-                ctx.moveTo(6.2, 4.0);
-                ctx.lineTo(10.2, 8.0);
-                ctx.lineTo(6.2, 12.0);
                 ctx.stroke();
                 break;
             }

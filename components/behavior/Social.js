@@ -82,9 +82,12 @@ function notifyBystanders(actorA, actorB, kind) {
 function greet(pet, other) {
     var oName = other.petData.name;
     markPeerBout(pet, "greet");
-    Memory.adjustRelation(pet, oName, 0.014, 0.06, null, { outcome: "greet" });
+    var rel = Memory.adjustRelation(pet, oName, 0.014, 0.06, null, { outcome: "greet" });
     Memory.recordEpisode(pet, "greeted", { valence: 0.30, withPet: oName });
-    Memory.thinkAloud(pet, "greet", "Checked in warmly with best friend " + oName);
+    var line = (rel.familiarity >= 0.50 && rel.affinity >= 0.65)
+        ? ("Checked in warmly with close friend " + oName)
+        : (rel.familiarity < 0.24 ? ("Said hello to " + oName) : ("Greeted " + oName));
+    Memory.thinkAloud(pet, "greet", line);
     pet.socialDrive = Math.max(0, pet.socialDrive - 0.22);
     pet.mood = Drives.clamp01(pet.mood + 0.05);
     other.socialEvent("greet", pet);
@@ -102,10 +105,6 @@ function bidPlay(pet, other, isRetry) {
     other.socialEvent("play_bid", pet, { retry: !!isRetry });
 }
 
-function invitePlay(pet, other) {
-    bidPlay(pet, other, false);
-}
-
 function startSpar(pet, other) {
     var oName = other.petData.name;
     markPeerBout(pet, "spar");
@@ -120,7 +119,7 @@ function sparExchange(pet, other) {
     var oName = other.petData.name;
     Memory.adjustRelation(pet, oName, 0.016, 0.06, "spar", { respectDelta: 0.04, outcome: "spar" });
     Memory.recordEpisode(pet, "sparred", { valence: 0.48, salience: 0.66, withPet: oName });
-    Memory.thinkAloud(pet, "spar_clash", "Traded crisp sparring moves with " + oName);
+    Memory.thinkAloud(pet, "spar_clash", "Traded quick sparring moves with " + oName);
     pet.playDrive = Math.max(0, pet.playDrive - 0.24);
     pet.socialDrive = Math.max(0, pet.socialDrive - 0.16);
     pet.mood = Drives.clamp01(pet.mood + 0.07);
@@ -167,17 +166,6 @@ function syncGroove(pet, other) {
     Memory.recordEpisode(pet, "music_groove", { valence: 0.45, music: true, withPet: oName });
     pet.mood = Drives.clamp01(pet.mood + 0.05);
     other.socialEvent("groove", pet);
-}
-
-function shareDiscovery(pet, other, topic) {
-    var oName = other.petData.name;
-    markPeerBout(pet, "greet");
-    Memory.adjustRelation(pet, oName, 0.016, 0.06, null, { outcome: "greet" });
-    Memory.recordEpisode(pet, "greeted", { valence: 0.35, withPet: oName, note: topic || "story" });
-    Memory.thinkAloud(pet, "story", "Checked in happily with " + oName);
-    pet.socialDrive = Math.max(0, pet.socialDrive - 0.22);
-    pet.mood = Drives.clamp01(pet.mood + 0.05);
-    other.socialEvent("story", pet, { topic: topic || "adventure" });
 }
 
 function restBeside(pet, other) {
@@ -235,31 +223,6 @@ function annoy(pet, other) {
     Memory.thinkAloud(pet, "annoy", "Stepped away for personal space from " + oName);
     pet.mood = Math.max(0, pet.mood - 0.03);
     other.socialEvent("annoy", pet);
-}
-
-function pounce(pet, other) {
-    var oName = other.petData.name;
-    markPeerBout(pet, "spar");
-    Memory.adjustRelation(pet, oName, 0.006, 0.05, "play", { outcome: "spar" });
-    Memory.recordEpisode(pet, "pounced", { valence: 0.35, withPet: oName });
-    Memory.thinkAloud(pet, "pounce", "Play-pounced " + oName);
-    pet.playDrive = Math.max(0, pet.playDrive - 0.18);
-    pet.socialDrive = Math.max(0, pet.socialDrive - 0.08);
-    pet.mood = Drives.clamp01(pet.mood + 0.05);
-    Drives.happier(pet, 0.02);
-    other.socialEvent("pounce", pet);
-}
-
-function sparBack(pet, other) {
-    var oName = other.petData.name;
-    markPeerBout(pet, "spar");
-    Memory.adjustRelation(pet, oName, 0.018, 0.06, "spar", { respectDelta: 0.035, outcome: "spar" });
-    Memory.recordEpisode(pet, "sparred", { valence: 0.45, withPet: oName });
-    Memory.thinkAloud(pet, "spar", "Tumbled playfully with " + oName);
-    pet.playDrive = Math.max(0, pet.playDrive - 0.18);
-    pet.mood = Drives.clamp01(pet.mood + 0.06);
-    Drives.happier(pet, 0.025);
-    other.socialEvent("spar", pet);
 }
 
 function rebuff(pet, other) {

@@ -88,12 +88,13 @@ function scoreCandidates(pet, perc, nav, pickFn) {
                       + (p.boldness < 0.30 && perc.atHome ? 0.10 : 0);
         if (perc.isNight) restScore *= isNocturnal && !perc.userIdle ? 0.78 : 1.38;
         if (perc.micActive) restScore *= 1.16;
-        if (perc.isRaining && (spProf.biome === "Warm Hearth" || spProf.biome === "Sunlit Meadow")) restScore *= 1.15;
+        var thermalPreferred = SpeciesProfile.hasThermalAffinity(pet);
+        if (perc.isRaining && thermalPreferred) restScore *= 1.15;
         restScore *= 1 + (quietHour - 0.5) * 0.48;
         if (justWoke) restScore *= 0.2;
 
         var deep = pet.restDrive > 0.68 || (perc.isNight && pet.restDrive > 0.44);
-        var wantSploot = !deep && (((perc.thermalWarmth || 0) > 0.54 && (spProf.biome === "Warm Hearth" || p.sleepiness > 0.52))
+        var wantSploot = !deep && (((perc.thermalWarmth || 0) > 0.54 && (thermalPreferred || p.sleepiness > 0.52))
                                    || pet.restDrive > 0.60);
         var favSpot = Memory.favoriteSpot(pet);
 
@@ -227,10 +228,11 @@ function scoreCandidates(pet, perc, nav, pickFn) {
         var supBoost = perc.win.isCode
             ? ((Personality.hasQuirk(pet, "terminal_supervisor") ? 0.28 : 0) + Abilities.codeWatchBonus(pet))
             : 0;
-        if ((perc.thermalWarmth || 0) > 0.48 && (Abilities.has(pet, "hearth_warmth") || spProf.biome === "Warm Hearth")) {
+        var warmBoost = SpeciesProfile.hasThermalAffinity(pet);
+        if ((perc.thermalWarmth || 0) > 0.48 && warmBoost) {
             supBoost += 0.22 * perc.thermalWarmth;
         }
-        if (perc.isRaining && (spProf.biome === "Warm Hearth" || spProf.biome === "Sunlit Meadow")) {
+        if (perc.isRaining && warmBoost) {
             supBoost += 0.14;
         }
         var supScore = (0.14 + (pet.exploreDrive * 0.56 + pet.socialDrive * 0.44)

@@ -44,23 +44,16 @@ Item {
         root.emoteKind = kind;
         dropletCanvas.requestPaint();
         emoteBadge.opacity = 1;
-        emoteBadge.scale = 0.65;
+        emoteBadge.scale = 0.62;
         emoteBadge.popOffsetY = root.flipped ? 0 : 10;
         emotePopAnim.start();
     }
 
     onFlippedChanged: dropletCanvas.requestPaint()
 
-    Connections {
-        target: Theme
-        function onBgChanged(): void { dropletCanvas.requestPaint(); sleepCanvas.requestPaint(); }
-        function onAccentChanged(): void { dropletCanvas.requestPaint(); sleepCanvas.requestPaint(); }
-        function onBorderChanged(): void { dropletCanvas.requestPaint(); }
-    }
-
     Item {
         id: sleepDrift
-        visible: root.sleeping && Config.showEmotes && emoteBadge.opacity < 0.05
+        visible: root.sleeping && (Config.showEmotes || root.forceEnabled) && emoteBadge.opacity < 0.05
         width: 18
         height: 18
         anchors.horizontalCenter: parent.horizontalCenter
@@ -90,14 +83,14 @@ Item {
                     ".z.......",
                     ".zzz....."
                 ];
-                const hi = Theme.subtext.toString();
-                const lo = Theme.muted.toString();
                 for (let r = 0; r < rows.length; r++) {
                     const line = rows[r];
                     for (let c = 0; c < line.length; c++) {
                         const ch = line[c];
                         if (ch === ".") continue;
-                        ctx.fillStyle = ch === "Z" ? hi : lo;
+                        ctx.fillStyle = "#2b211b";
+                        ctx.fillRect(c * 2 + 1, r * 2 + 1, 2, 2);
+                        ctx.fillStyle = ch === "Z" ? "#f7efe2" : "#cbb8ef";
                         ctx.fillRect(c * 2, r * 2, 2, 2);
                     }
                 }
@@ -110,9 +103,9 @@ Item {
             PauseAnimation { duration: 14500 }
             ParallelAnimation {
                 SequentialAnimation {
-                    NumberAnimation { target: sleepDrift; property: "opacity"; from: 0.0; to: 0.65; duration: 1100; easing.type: Easing.OutSine }
+                    NumberAnimation { target: sleepDrift; property: "opacity"; from: 0.0; to: 0.78; duration: 1100; easing.type: Easing.OutSine }
                     PauseAnimation { duration: 1400 }
-                    NumberAnimation { target: sleepDrift; property: "opacity"; from: 0.65; to: 0.0; duration: 1300; easing.type: Easing.InSine }
+                    NumberAnimation { target: sleepDrift; property: "opacity"; from: 0.78; to: 0.0; duration: 1300; easing.type: Easing.InSine }
                 }
                 NumberAnimation {
                     target: sleepDrift
@@ -148,22 +141,29 @@ Item {
                 ctx.reset();
                 if (!root.emoteKind) return;
 
+                // Classic PMD warm cream comic speech droplet with dark cocoa pixel outline
                 const bodyY = root.flipped ? 4 : 0;
-                const bgCol = Qt.rgba(Theme.surfaceAlt.r, Theme.surfaceAlt.g, Theme.surfaceAlt.b, 0.96).toString();
-                const brdCol = Theme.border.toString();
-                const rimCol = Theme.rimHighlight.toString();
+                const brdCol = "#33251d";
+                const bgCol = "#fbf2e3";
+                const shadeCol = "#eedec4";
+                const rimCol = "#fffaf2";
 
                 ctx.fillStyle = brdCol;
-                ctx.fillRect(3, bodyY, 22, 22);
-                ctx.fillRect(1, bodyY + 2, 26, 18);
-                ctx.fillRect(2, bodyY + 1, 24, 20);
+                ctx.fillRect(4, bodyY, 20, 22);
+                ctx.fillRect(2, bodyY + 2, 24, 18);
+                ctx.fillRect(1, bodyY + 4, 26, 14);
+                ctx.fillRect(3, bodyY + 1, 22, 20);
 
                 ctx.fillStyle = bgCol;
-                ctx.fillRect(3, bodyY + 1, 22, 20);
-                ctx.fillRect(2, bodyY + 2, 24, 18);
+                ctx.fillRect(4, bodyY + 1, 20, 20);
+                ctx.fillRect(3, bodyY + 2, 22, 18);
+                ctx.fillRect(2, bodyY + 4, 24, 14);
+
+                ctx.fillStyle = shadeCol;
+                ctx.fillRect(4, bodyY + 19, 20, 2);
 
                 ctx.fillStyle = rimCol;
-                ctx.fillRect(4, bodyY + 1, 20, 1);
+                ctx.fillRect(5, bodyY + 1, 18, 2);
 
                 if (root.flipped) {
                     ctx.fillStyle = brdCol;
@@ -184,49 +184,49 @@ Item {
 
                 switch (root.emoteKind) {
                 case "heart":
-                    palette = { "X": Theme.love.toString(), "H": "#ffffff" };
+                    palette = { "X": "#e3546d", "D": "#ba374f", "H": "#ffffff" };
                     pattern = [
                         ".XX...XX.",
                         "XHXX.XXXX",
-                        "XHXXXXXXX",
-                        "XXXXXXXXX",
-                        ".XXXXXXX.",
-                        "..XXXXX..",
-                        "...XXX...",
-                        "....X...."
+                        "XHXXXXXXD",
+                        "XXXXXXXXD",
+                        ".XXXXXXD.",
+                        "..XXXXD..",
+                        "...XXD...",
+                        "....D...."
                     ];
                     break;
 
                 case "note":
-                    palette = { "X": Theme.accent.toString() };
+                    palette = { "X": "#3e8ec4", "A": "#e59934" };
                     pattern = [
                         "...XXXXXX",
                         "...XX..XX",
                         "...X....X",
                         "...X....X",
-                        "...X..XXX",
-                        ".XXX..XXX",
-                        "XXXX...X.",
-                        ".XX......"
+                        "...X..AAX",
+                        ".AAX..AAA",
+                        "AAAA...A.",
+                        ".AA......"
                     ];
                     break;
 
                 case "exclaim":
-                    palette = { "X": Theme.warm.toString() };
+                    palette = { "X": "#df8a26", "D": "#b56514" };
                     pattern = [
                         "...XXX...",
                         "...XXX...",
                         "...XXX...",
-                        "...XXX...",
-                        "....X....",
+                        "...XXD...",
+                        "....D....",
                         ".........",
                         "...XXX...",
-                        "...XXX..."
+                        "...XXD..."
                     ];
                     break;
 
                 case "question":
-                    palette = { "X": Theme.accent.toString() };
+                    palette = { "X": "#3b8bc2" };
                     pattern = [
                         "..XXXXX..",
                         ".XX...XX.",
@@ -240,7 +240,7 @@ Item {
                     break;
 
                 case "ellipses":
-                    palette = { "X": Theme.subtext.toString() };
+                    palette = { "X": "#6b5647" };
                     pattern = [
                         "..........",
                         "..........",
@@ -254,7 +254,7 @@ Item {
                     break;
 
                 case "frustrated":
-                    palette = { "X": Theme.danger.toString() };
+                    palette = { "X": "#db5046" };
                     pattern = [
                         "..X...X..",
                         "..X...X..",
@@ -269,26 +269,27 @@ Item {
 
                 case "berry":
                     palette = {
-                        "L": Theme.positive.toString(),
-                        "B": Theme.accent.toString(),
+                        "L": "#4da65b",
+                        "B": "#3e92cc",
+                        "D": "#2b6ea1",
                         "H": "#ffffff"
                     };
                     pattern = [
                         "..LL.LL..",
                         "...LLL...",
                         "..BBBBB..",
-                        ".BHBBBBB.",
-                        ".BBBBBBB.",
-                        ".BBBBBBB.",
-                        "..BBBBB..",
-                        "...BBB..."
+                        ".BHBBBBD.",
+                        ".BBBBBBD.",
+                        ".BBBBBDD.",
+                        "..BBBDD..",
+                        "...BDD..."
                     ];
                     break;
 
                 case "sleepy":
                     palette = {
-                        "Z": Theme.accent.toString(),
-                        "z": Theme.subtext.toString()
+                        "Z": "#6d58b5",
+                        "z": "#8f7cc9"
                     };
                     pattern = [
                         "....ZZZZZ",
@@ -304,8 +305,8 @@ Item {
 
                 case "dream":
                     palette = {
-                        "M": Theme.warm.toString(),
-                        "S": Theme.accent.toString()
+                        "M": "#de9a2c",
+                        "S": "#6f59b8"
                     };
                     pattern = [
                         "...MMM.S.",
@@ -340,11 +341,11 @@ Item {
 
         ParallelAnimation {
             id: emotePopAnim
-            NumberAnimation { target: emoteBadge; property: "scale"; from: 0.65; to: 1.0; duration: 190; easing.type: Easing.OutBack }
+            NumberAnimation { target: emoteBadge; property: "scale"; from: 0.62; to: 1.0; duration: 200; easing.type: Easing.OutBack }
             NumberAnimation { target: emoteBadge; property: "popOffsetY"; from: root.flipped ? 0 : 10; to: root.flipped ? 6 : 0; duration: 1250; easing.type: Easing.OutCubic }
             SequentialAnimation {
-                PauseAnimation { duration: 880 }
-                NumberAnimation { target: emoteBadge; property: "opacity"; from: 0.98; to: 0.0; duration: 370 }
+                PauseAnimation { duration: 900 }
+                NumberAnimation { target: emoteBadge; property: "opacity"; from: 0.98; to: 0.0; duration: 350 }
             }
         }
     }

@@ -66,7 +66,17 @@ Singleton {
     property real _prevVolume: 0
     property double _lastSpikeEmitMs: 0
 
-    onMicActiveChanged: root.micStateChanged(root.micActive)
+    readonly property var defaultSink: Pipewire.defaultAudioSink
+
+    onDefaultSinkChanged: {
+        root._prevMuted = root.audioMuted;
+        root._prevVolume = root.audioVolume;
+    }
+
+    onMicActiveChanged: {
+        if (!root._audioReady) return;
+        root.micStateChanged(root.micActive);
+    }
 
     onAudioMutedChanged: {
         if (!root._audioReady) return;

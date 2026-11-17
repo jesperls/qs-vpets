@@ -262,9 +262,9 @@ Singleton {
         const rec = residentFor(id);
         if (lp && rec && !rec._released) {
             rec.syncFromPet(lp, false);
-            rec.markEnteredPen("Resting cozily in the Sanctuary pen");
+            rec.markEnteredPen("Resting quietly in the Sanctuary clearing");
         } else if (rec && !rec._released) {
-            rec.markEnteredPen("Resting cozily in the Sanctuary pen");
+            rec.markEnteredPen("Resting quietly in the Sanctuary clearing");
         }
         if (inspectedPet && inspectedPet.petData && inspectedPet.petData.id === id) {
             closeInspector();
@@ -358,12 +358,9 @@ Singleton {
                     sendToPenNow(decision.retireId, false);
                 } else {
                     const lp = findPetById(decision.retireId);
-                    if (lp && tryPairRetire(decision.retireId)) {
-                        // Paired departure initiated on both companions.
-                    } else if (lp && lp.beginRetireToPen) {
-                        lp.beginRetireToPen();
-                    } else {
-                        completeRetire(decision.retireId);
+                    if (!lp || !tryPairRetire(decision.retireId)) {
+                        if (lp && lp.beginRetireToPen) lp.beginRetireToPen();
+                        else completeRetire(decision.retireId);
                     }
                 }
                 _lastRotationMs = now;
@@ -454,11 +451,6 @@ Singleton {
                 o.socialEvent("friend_lifted", draggedPet);
             }
         }
-    }
-
-    function notifyPetTossed(tossedPet: var, speed: real): void {
-        void speed;
-        notifyPetDragBegan(tossedPet);
     }
 
     function notifyPetTossLanded(landedPet: var, speed: real, cleanLanding: bool): void {
@@ -561,16 +553,22 @@ Singleton {
         else openPen();
     }
 
+    function _syncRoamingResidents(): void {
+        for (let i = 0; i < pets.length; i++) {
+            const lp = pets[i];
+            if (lp && lp._stateReady && lp.petData) {
+                const rec = residentFor(lp.petData.id);
+                if (rec && !rec._released) rec.syncFromPet(lp, false);
+            }
+        }
+    }
+
     function _syncPeerSpecies(peerName: string, newSpecies: string): void {
         for (let i = 0; i < pets.length; i++) {
             const lp = pets[i];
-            if (lp && lp.relationships && lp.relationships[peerName]) {
-                const nextRel = Object.assign({}, lp.relationships);
-                nextRel[peerName] = Object.assign({}, nextRel[peerName], { species: newSpecies });
-                lp.relationships = nextRel;
-                lp.memoryRevision++;
-            }
+            if (lp) Memory.updatePeerSpecies(lp, peerName, newSpecies);
         }
+        _syncRoamingResidents();
         const rKeys = Object.keys(residentsById);
         for (let i = 0; i < rKeys.length; i++) {
             const rec = residentsById[rKeys[i]];
@@ -588,22 +586,7 @@ Singleton {
         for (let i = 0; i < pets.length; i++) {
             const lp = pets[i];
             if (!lp) continue;
-            let touched = false;
-            if (lp.relationships && lp.relationships[oldName] !== undefined) {
-                const nextRel = Object.assign({}, lp.relationships);
-                nextRel[finalName] = Object.assign({}, nextRel[oldName]);
-                delete nextRel[oldName];
-                lp.relationships = nextRel;
-                touched = true;
-            }
-            if (Array.isArray(lp.episodes)) {
-                for (let e = 0; e < lp.episodes.length; e++) {
-                    if (lp.episodes[e] && lp.episodes[e].withPet === oldName) {
-                        lp.episodes[e].withPet = finalName;
-                        touched = true;
-                    }
-                }
-            }
+            Memory.rekeyPeer(lp, oldName, finalName);
             if (lp.activePlan) {
                 if (lp.activePlan.otherName === oldName) lp.activePlan.otherName = finalName;
                 if (lp.activePlan.secondOtherName === oldName) lp.activePlan.secondOtherName = finalName;
@@ -611,8 +594,8 @@ Singleton {
             if (lp.intention && lp.intention.otherName === oldName) {
                 lp.intention.otherName = finalName;
             }
-            if (touched) lp.memoryRevision++;
         }
+        _syncRoamingResidents();
         const rKeys = Object.keys(residentsById);
         for (let i = 0; i < rKeys.length; i++) {
             const rec = residentsById[rKeys[i]];
@@ -669,29 +652,6 @@ Singleton {
         return SpeciesProfile.profileFor(toSp).displayName;
     }
 
-    function morphCompanion(idOrName: string, species: string): bool {
-        const target = Config.findPet(idOrName);
-        if (!target || !species || target.sprite === species) return false;
-        const compName = target.name;
-        const lp = findPetById(target.id);
-        const rec = residentFor(target.id);
-        if (lp) {
-            lp.illusionSpecies = "";
-            lp.illusionUntil = 0;
-            if (rec) rec.syncFromPet(lp, false);
-        }
-        Config.updatePetSpecies(target.id, species);
-        if (rec && rec.stateObj) {
-            rec.stateObj.sprite = species;
-            rec.dirty = true;
-            rec.refreshView();
-            rec.saveNow();
-        }
-        _syncPeerSpecies(compName, species);
-        residentRevision++;
-        return true;
-    }
-
     function _drainUnlinkQueue(): void {
         if (unlinkProc.running || _pendingUnlinkPaths.length === 0) return;
         const batch = _pendingUnlinkPaths.slice();
@@ -701,10 +661,12 @@ Singleton {
     }
 
     function releaseCompanion(idOrName: string): bool {
+        if (Config.pets.length <= 1) return false;
         const target = Config.findPet(idOrName);
         if (!target) return false;
         const id = target.id;
         const removedName = target.name;
+        if (!Config.removePet(id)) return false;
 
         if (inspectedPet && inspectedPet.petData && inspectedPet.petData.id === id) {
             closeInspector();
@@ -728,11 +690,9 @@ Singleton {
         for (let i = 0; i < pets.length; i++) {
             const lp = pets[i];
             if (!lp || (lp.petData && lp.petData.id === id)) continue;
-            if (lp.relationships && lp.relationships[removedName] !== undefined) {
-                const nextRel = Object.assign({}, lp.relationships);
-                delete nextRel[removedName];
-                lp.relationships = nextRel;
-                lp.memoryRevision++;
+            Memory.removePeer(lp, removedName);
+            if (lp.intention && lp.intention.otherName === removedName) {
+                lp.intention = null;
             }
             if (lp.activePlan && (lp.activePlan.otherName === removedName
                     || lp.activePlan.secondOtherName === removedName)) {
@@ -741,6 +701,7 @@ Singleton {
             }
         }
 
+        _syncRoamingResidents();
         const rKeys = Object.keys(residentsById);
         for (let i = 0; i < rKeys.length; i++) {
             const otherRec = residentsById[rKeys[i]];
@@ -749,15 +710,14 @@ Singleton {
             }
         }
 
-        Config.removePet(id);
-
         if (penSelectedPetId === id) {
             penSelectedPetId = Config.pets.length > 0 ? Config.pets[0].id : "";
         }
 
+        const safeLegacySlug = Config._slug(removedName);
         _pendingUnlinkPaths = _pendingUnlinkPaths.concat([
             Config.stateDir + "/state-" + id + ".json",
-            Config.configDir + "/state-" + removedName + ".json"
+            Config.configDir + "/state-" + safeLegacySlug + ".json"
         ]);
         _drainUnlinkQueue();
         residentRevision++;
@@ -905,212 +865,5 @@ Singleton {
     Connections {
         target: Qt.application
         function onAboutToQuit(): void { root.flushAll(); }
-    }
-
-    IpcHandler {
-        target: "vpets"
-
-        function status(): string {
-            const sanctuaryList = [];
-            for (let i = 0; i < Config.pets.length; i++) {
-                const cfg = Config.pets[i];
-                if (!root.isRoaming(cfg.id)) {
-                    const rec = root.residentFor(cfg.id);
-                    const evo = rec && rec.stateObj ? Evolution.evaluate(rec.stateObj, cfg.sprite) : { ready: false, options: [] };
-                    sanctuaryList.push({
-                        id: cfg.id,
-                        name: cfg.name,
-                        species: cfg.sprite,
-                        roamMode: cfg.roamMode || "auto",
-                        archetype: rec ? rec.archetype : "Curious Hatchling",
-                        state: rec ? rec.penState : "idle",
-                        activity: rec ? rec.sanctuaryActivity : "Resting in Sanctuary",
-                        mood: Math.round((rec ? rec.mood : 0.56) * 100),
-                        energy: Math.round((1 - (rec ? rec.restDrive : 0.14)) * 100),
-                        bond: Math.round((rec ? rec.bond : 0.3) * 100),
-                        evolutionReady: evo.ready ? evo.options.map(o => o.species) : []
-                    });
-                }
-            }
-            return JSON.stringify({
-                hidden: root.hidden,
-                penVisible: root.penVisible,
-                maxActiveRoaming: Config.maxActiveRoaming,
-                totalCount: Config.pets.length,
-                roamingCount: root.pets.length,
-                sanctuaryCount: sanctuaryList.length,
-                pets: root.pets.map(p => {
-                    const evo = Evolution.evaluate(p, p.petData.sprite);
-                    return {
-                        id: p.petData.id,
-                        name: p.petData.name,
-                        species: p.petData.sprite,
-                        roamMode: p.petData.roamMode || "auto",
-                        archetype: p.archetype,
-                        state: p.state_,
-                        mood: Math.round(p.mood * 100),
-                        bond: Math.round(p.bond * 100),
-                        trust: Math.round(p.trust * 100),
-                        plan: p.activePlan ? p.activePlan.label : "Idle",
-                        thought: p.lastThoughtText,
-                        quirks: p.quirks,
-                        evolutionReady: evo.ready ? evo.options.map(o => o.species) : []
-                    };
-                }),
-                sanctuary: sanctuaryList
-            }, null, 2);
-        }
-
-        function open(): string {
-            root.hidden = false;
-            root.openPen();
-            return "opened";
-        }
-
-        function pen(): string {
-            root.togglePen();
-            return root.penVisible ? "opened" : "closed";
-        }
-
-        function flush(): string {
-            root.flushAll();
-            return "flushed";
-        }
-
-        function toggle(): string {
-            root.hidden = !root.hidden;
-            if (root.hidden) root.closeInspector();
-            return root.hidden ? "hidden" : "visible";
-        }
-
-        function pet(name: string): string {
-            const lp = root.findPet(name);
-            if (lp) {
-                lp.onStroked();
-                return "petted " + lp.petData.name;
-            }
-            const cfg = root.findConfigPet(name);
-            const rec = cfg ? root.residentFor(cfg.id) : null;
-            if (cfg && rec) {
-                rec.patInPen();
-                return "petted " + cfg.name + " in Sanctuary";
-            }
-            return "not found";
-        }
-
-        function feed(name: string): string {
-            const lp = root.findPet(name);
-            if (lp) {
-                lp.onFed();
-                return "fed " + lp.petData.name;
-            }
-            const cfg = root.findConfigPet(name);
-            const rec = cfg ? root.residentFor(cfg.id) : null;
-            if (cfg && rec) {
-                rec.feedInPen();
-                return "fed " + cfg.name + " in Sanctuary";
-            }
-            return "not found";
-        }
-
-        function play(name: string): string {
-            const lp = root.findPet(name);
-            if (lp) {
-                lp.onPlayTriggered();
-                return "playing with " + lp.petData.name;
-            }
-            const cfg = root.findConfigPet(name);
-            const rec = cfg ? root.residentFor(cfg.id) : null;
-            if (cfg && rec) {
-                rec.playInPen();
-                return "played with " + cfg.name + " in Sanctuary";
-            }
-            return "not found";
-        }
-
-        function summon(name: string): string {
-            const lp = root.findPet(name);
-            if (lp) {
-                lp.summonToCursor();
-                return "summoned " + lp.petData.name;
-            }
-            const cfg = root.findConfigPet(name);
-            if (cfg) {
-                root.callOutNow(cfg.id);
-                return "called " + cfg.name + " out from Sanctuary";
-            }
-            return "not found";
-        }
-
-        function roam(name: string, mode: string): string {
-            const cfg = root.findConfigPet(name);
-            if (!cfg) return "not found";
-            const m = String(mode || "").trim().toLowerCase();
-            if (m === "out" || m === "call") {
-                root.callOutNow(cfg.id);
-                return cfg.name + " called out to roam";
-            }
-            if (m === "in" || m === "pen") {
-                root.sendToPenNow(cfg.id, false);
-                return cfg.name + " sent to Sanctuary";
-            }
-            if (m !== "auto" && m !== "always" && m !== "penned") {
-                return "invalid mode (use auto, always, penned, out, or in)";
-            }
-            Config.updatePetRoamMode(cfg.id, m);
-            return cfg.name + " roamMode=" + m;
-        }
-
-        function rename(oldName: string, newName: string): string {
-            const updated = root.renameCompanion(oldName, newName);
-            if (!updated) return "rename failed";
-            return "renamed to " + updated;
-        }
-
-        function inspect(name: string): string {
-            const lp = root.findPet(name);
-            if (lp) {
-                root.toggleInspector(lp);
-                return root.inspectedPet === lp ? ("opened " + lp.petData.name) : "closed";
-            }
-            const cfg = root.findConfigPet(name);
-            if (cfg) {
-                root.openPen(cfg.id);
-                return "opened Sanctuary for " + cfg.name;
-            }
-            return "not found";
-        }
-
-        function spawn(species: string, name: string): string {
-            const added = Config.addPet(species, name, "");
-            return "spawned " + added.name + " (" + added.sprite + ")";
-        }
-
-        function release(name: string): string {
-            const cfg = root.findConfigPet(name);
-            if (!cfg) return "not found";
-            const label = cfg.name;
-            return root.releaseCompanion(cfg.id) ? ("released " + label) : "release failed";
-        }
-
-        function evolve(name: string, species: string): string {
-            const cfg = root.findConfigPet(name);
-            if (!cfg) return "not found";
-            const evolvedName = root.evolveCompanion(cfg.id, species || "");
-            if (!evolvedName) {
-                const lp = root.findPetById(cfg.id);
-                const rec = root.residentFor(cfg.id);
-                const evo = Evolution.evaluate(lp || (rec ? rec.stateObj : null), cfg.sprite);
-                if (!evo.hasLine) return cfg.name + " does not have an evolution line";
-                if (!evo.ready) return cfg.name + " is not ready to evolve yet (" + evo.nextHint + ")";
-                return "invalid target form (ready: " + evo.options.map(o => o.species).join(", ") + ")";
-            }
-            return "evolved " + cfg.name + " into " + evolvedName;
-        }
-
-        function notify(appName: string, urgency: string): string {
-            SystemMonitor.emitExternalToast(appName || "Desktop", urgency || "normal", false);
-            return "notified";
-        }
     }
 }

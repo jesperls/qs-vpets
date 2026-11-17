@@ -39,6 +39,39 @@ function _totalSparCount(target) {
     return total;
 }
 
+function _scoreBranch(branch, target, p) {
+    if (typeof branch.scoreFn === "function") {
+        return branch.scoreFn(target, p);
+    }
+    var epCount = branch.episodes ? _countEpisodes(target, branch.episodes) : 0;
+    if (branch.includeSpars) epCount += _totalSparCount(target);
+    var epWeight = branch.episodeWeight !== undefined ? branch.episodeWeight : 0.16;
+
+    var hasMatchedQuirk = false;
+    if (Array.isArray(branch.quirks)) {
+        for (var i = 0; i < branch.quirks.length; i++) {
+            if (Personality.hasQuirk(target, branch.quirks[i])) {
+                hasMatchedQuirk = true;
+                break;
+            }
+        }
+    }
+    if (!hasMatchedQuirk && branch.friendMinAffinity && _hasCloseFriend(target, branch.friendMinAffinity)) {
+        hasMatchedQuirk = true;
+    }
+
+    var traitBonus = 0;
+    if (branch.trait && p[branch.trait] >= (branch.traitMin !== undefined ? branch.traitMin : 0.58)) {
+        traitBonus = branch.traitBonus !== undefined ? branch.traitBonus : 0.20;
+    }
+
+    var fit = epCount * epWeight + (hasMatchedQuirk ? (branch.quirkBonus !== undefined ? branch.quirkBonus : 0.40) : 0) + traitBonus;
+    var threshold = branch.minFit !== undefined ? branch.minFit : 0.44;
+    if (fit < threshold) return 0;
+    var baseScore = branch.baseScore !== undefined ? branch.baseScore : 0.58;
+    return baseScore + Math.min(0.38, fit * 0.35);
+}
+
 var EVOLUTION_LINES = {
     eevee: [
         {
@@ -47,12 +80,14 @@ var EVOLUTION_LINES = {
             minMaturity: 0.28,
             reason: "Deep bond forged through calm late-night vigils",
             hint: "Keep quiet late-night company together",
-            scoreFn: function(t, p) {
-                var vigils = _countEpisodes(t, ["night_vigil", "lunar_vigil"]);
-                var hasWatch = Personality.hasQuirk(t, "night_watch");
-                var fit = vigils * 0.22 + (hasWatch ? 0.48 : 0) + (p.composure >= 0.58 ? 0.18 : 0);
-                return fit >= 0.44 ? (0.60 + Math.min(0.38, fit * 0.35)) : 0;
-            }
+            episodes: ["night_vigil", "lunar_vigil"],
+            episodeWeight: 0.22,
+            quirks: ["night_watch"],
+            quirkBonus: 0.48,
+            trait: "composure",
+            traitMin: 0.58,
+            traitBonus: 0.18,
+            baseScore: 0.60
         },
         {
             species: "leafeon",
@@ -60,25 +95,28 @@ var EVOLUTION_LINES = {
             minMaturity: 0.28,
             reason: "Peaceful daytime naps, foraging, and unhurried patience",
             hint: "Share peaceful daytime naps and berry breaks",
-            scoreFn: function(t, p) {
-                var calmEps = _countEpisodes(t, ["sunlit_bask", "foraged", "sanctuary_nap", "well_rested"]);
-                var calmQuirk = Personality.hasQuirk(t, "cozy_hermit") || Personality.hasQuirk(t, "daydreamer");
-                var fit = calmEps * 0.16 + (calmQuirk ? 0.42 : 0) + (p.patience >= 0.60 ? 0.20 : 0);
-                return fit >= 0.44 ? (0.58 + Math.min(0.38, fit * 0.35)) : 0;
-            }
+            episodes: ["sunlit_bask", "foraged", "sanctuary_nap", "well_rested"],
+            episodeWeight: 0.16,
+            quirks: ["cozy_hermit", "daydreamer"],
+            quirkBonus: 0.42,
+            trait: "patience",
+            traitMin: 0.60,
+            traitBonus: 0.20
         },
         {
             species: "flareon",
             minBond: 0.56,
             minMaturity: 0.28,
             reason: "Warm affection, shared naps, and devoted companionship",
-            hint: "Build warm affection and cozy tandem naps",
-            scoreFn: function(t, p) {
-                var warmEps = _countEpisodes(t, ["hearth_bask", "rested_with", "petted", "stroked", "bid_answered"]);
-                var devoted = Personality.hasQuirk(t, "velcro_companion") || _hasCloseFriend(t, 0.68);
-                var fit = warmEps * 0.14 + (devoted ? 0.40 : 0) + (p.sociability >= 0.60 ? 0.20 : 0);
-                return fit >= 0.44 ? (0.58 + Math.min(0.38, fit * 0.35)) : 0;
-            }
+            hint: "Build warm affection and cozy shared naps",
+            episodes: ["hearth_bask", "rested_with", "petted", "stroked", "bid_answered"],
+            episodeWeight: 0.14,
+            quirks: ["velcro_companion"],
+            friendMinAffinity: 0.68,
+            quirkBonus: 0.40,
+            trait: "sociability",
+            traitMin: 0.60,
+            traitBonus: 0.20
         },
         {
             species: "jolteon",
@@ -97,14 +135,15 @@ var EVOLUTION_LINES = {
             species: "glaceon",
             minBond: 0.54,
             minMaturity: 0.28,
-            reason: "Crisp composure atop high window perches and focused work",
+            reason: "Steady calm atop high window perches and focused work",
             hint: "Perch on window ledges and supervise focused work",
-            scoreFn: function(t, p) {
-                var poiseEps = _countEpisodes(t, ["perched_window", "supervised_code", "mediated"]);
-                var poiseQuirk = Personality.hasQuirk(t, "window_percher") || Personality.hasQuirk(t, "terminal_supervisor");
-                var fit = poiseEps * 0.18 + (poiseQuirk ? 0.42 : 0) + (p.composure >= 0.62 ? 0.20 : 0);
-                return fit >= 0.44 ? (0.58 + Math.min(0.38, fit * 0.35)) : 0;
-            }
+            episodes: ["perched_window", "supervised_code", "mediated"],
+            episodeWeight: 0.18,
+            quirks: ["window_percher", "terminal_supervisor"],
+            quirkBonus: 0.42,
+            trait: "composure",
+            traitMin: 0.62,
+            traitBonus: 0.20
         }
     ],
     riolu: [
@@ -127,14 +166,16 @@ var EVOLUTION_LINES = {
             species: "ninetales",
             minBond: 0.56,
             minMaturity: 0.32,
-            reason: "Serene hearth wisdom and composed companionship",
+            reason: "Quiet hearth wisdom and steady late-hour companionship",
             hint: "Grow together through calm hearth naps and quiet evenings",
-            scoreFn: function(t, p) {
-                var hearthEps = _countEpisodes(t, ["hearth_bask", "night_vigil", "rested_with", "mediated"]);
-                var calmQuirk = Personality.hasQuirk(t, "night_watch") || Personality.hasQuirk(t, "cozy_hermit");
-                var fit = hearthEps * 0.18 + (calmQuirk ? 0.38 : 0) + (p.composure >= 0.55 ? 0.22 : 0);
-                return fit >= 0.44 ? (0.60 + Math.min(0.35, fit * 0.35)) : 0;
-            }
+            episodes: ["hearth_bask", "night_vigil", "rested_with", "mediated"],
+            episodeWeight: 0.18,
+            quirks: ["night_watch", "cozy_hermit"],
+            quirkBonus: 0.38,
+            trait: "composure",
+            traitMin: 0.55,
+            traitBonus: 0.22,
+            baseScore: 0.60
         }
     ],
     charmander: [
@@ -144,23 +185,29 @@ var EVOLUTION_LINES = {
             minMaturity: 0.36,
             reason: "Bold spirit tempered by sparring and wide-ranging expeditions",
             hint: "Gain experience through bold sparring and desktop expeditions",
-            scoreFn: function(t, p) {
-                var boldEps = _countEpisodes(t, ["sparred", "scout_complete", "tossed_fun", "hearth_bask"]) + _totalSparCount(t);
-                var boldQuirk = Personality.hasQuirk(t, "screen_hopper") || Personality.hasQuirk(t, "sky_acrobat");
-                var fit = boldEps * 0.16 + (boldQuirk ? 0.38 : 0) + (p.boldness >= 0.56 ? 0.22 : 0);
-                return fit >= 0.44 ? (0.60 + Math.min(0.35, fit * 0.35)) : 0;
-            }
+            episodes: ["sparred", "scout_complete", "tossed_fun", "hearth_bask"],
+            includeSpars: true,
+            episodeWeight: 0.16,
+            quirks: ["screen_hopper", "sky_acrobat"],
+            quirkBonus: 0.38,
+            trait: "boldness",
+            traitMin: 0.56,
+            traitBonus: 0.22,
+            baseScore: 0.60
         }
     ]
 };
 
-function hasEvolutionLine(species) {
-    return !!(species && EVOLUTION_LINES[species]);
+function branchesFor(species) {
+    if (!species) return [];
+    var prof = SpeciesProfile.profileFor(species);
+    if (prof.evolutions && prof.evolutions.length > 0) return prof.evolutions;
+    return EVOLUTION_LINES[species] || [];
 }
 
 function evaluate(target, explicitSpecies) {
     var sp = explicitSpecies || SpeciesProfile.trueSpeciesOf(target);
-    var branches = sp ? EVOLUTION_LINES[sp] : null;
+    var branches = branchesFor(sp);
     if (!branches || branches.length === 0) {
         return { hasLine: false, ready: false, options: [], nextHint: "" };
     }
@@ -174,7 +221,7 @@ function evaluate(target, explicitSpecies) {
     for (var i = 0; i < branches.length; i++) {
         var b = branches[i];
         if (bond < b.minBond || maturity < b.minMaturity) continue;
-        var sc = b.scoreFn(target, p);
+        var sc = _scoreBranch(b, target, p);
         if (sc > 0) {
             var prof = SpeciesProfile.profileFor(b.species);
             readyOptions.push({
@@ -217,7 +264,7 @@ function recordEvolutionMilestone(target, fromSpecies, toSpecies) {
     Memory.thinkAloud(
         target,
         "evolved",
-        "Evolved into " + toName + " while keeping every shared memory",
+        "Felt a warm surge of strength and evolved into " + toName,
         { minGapMs: 0 }
     );
     var ep = Memory.recordEpisode(target, "evolved", {
