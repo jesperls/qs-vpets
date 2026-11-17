@@ -388,23 +388,14 @@ Rectangle {
                                     color: "#2b12182c"
                                 }
 
-                                Image {
+                                SpriteAnimation {
                                     anchors.horizontalCenter: parent.horizontalCenter
                                     anchors.bottom: parent.bottom
                                     anchors.bottomMargin: 2
                                     width: 64
-                                    height: 32
-                                    smooth: false
-                                    source: Qt.resolvedUrl("../assets/sanctuary/props/shadow.png")
-                                }
-
-                                SpriteAnimation {
-                                    anchors.horizontalCenter: parent.horizontalCenter
-                                    anchors.bottom: parent.bottom
-                                    anchors.bottomMargin: 1
-                                    width: 64
                                     height: 64
                                     speciesName: cellWrap.modelData
+                                    showShadow: true
                                     currentState: (spCard.hovered || spCard.isChosen) && spCard.prof.signature
                                         ? spCard.prof.signature.state
                                         : "idle"

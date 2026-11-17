@@ -285,16 +285,6 @@ Rectangle {
                     Layout.preferredWidth: 72
                     Layout.preferredHeight: 86
 
-                    Image {
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        anchors.bottom: parent.bottom
-                        anchors.bottomMargin: 2
-                        width: 64
-                        height: 32
-                        smooth: false
-                        source: Qt.resolvedUrl("../assets/sanctuary/props/shadow.png")
-                    }
-
                     SpriteAnimation {
                         id: stageSprite
                         anchors.horizontalCenter: parent.horizontalCenter
@@ -303,6 +293,7 @@ Rectangle {
                         width: 64
                         height: 64
                         speciesName: root.selectedConfig ? root.selectedConfig.sprite : SpeciesProfile.DEFAULT_SPECIES
+                        showShadow: true
                         currentState: root.portraitAnimState
                         spriteDir: root.selectedConfig
                             ? Qt.resolvedUrl("../assets/sprites/" + root.selectedConfig.sprite)

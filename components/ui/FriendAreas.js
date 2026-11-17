@@ -28,7 +28,7 @@ var AREA_LIST = [
             { src: "props/bell_sign.png", wx: 152, wy: 36, fw: 32, fh: 32, frames: 4, rate: 2, footY: 68, obs: [148, 48, 188, 74] },
             { src: "props/flowers_yellow.png", wx: 124, wy: 52, fw: 32, fh: 32, frames: 10, rate: 2, footY: 82, obs: [120, 60, 158, 86] },
             { src: "props/flowers_pink.png", wx: 344, wy: 48, fw: 32, fh: 32, frames: 10, rate: 2, footY: 78, obs: [340, 56, 378, 84] },
-            { src: "props/stump_chair.png", wx: 124, wy: 128, fw: 16, fh: 16, frames: 1, rate: 1, footY: 144, obs: [120, 118, 192, 160] },
+            { src: "props/stump_chair.png", wx: 124, wy: 128, fw: 16, fh: 16, frames: 1, rate: 1, footY: 144, obs: [120, 106, 194, 160] },
             { src: "props/stump_table.png", wx: 140, wy: 108, fw: 48, fh: 48, frames: 1, rate: 1, footY: 155, obs: null },
             { src: "props/berry_basket_blue.png", wx: 154, wy: 115, fw: 20, fh: 20, frames: 1, rate: 1, footY: 156, obs: null },
             { src: "props/campfire.png", wx: 260, wy: 134, fw: 32, fh: 32, frames: 1, rate: 1, footY: 165, obs: [252, 138, 298, 170] },
@@ -70,7 +70,7 @@ var AREA_LIST = [
         props: [
             { src: "props/tent.png", wx: 346, wy: 98, fw: 80, fh: 80, frames: 1, rate: 1, footY: 178, obs: [342, 138, 430, 184] },
             { src: "props/flowers_yellow.png", wx: 278, wy: 138, fw: 32, fh: 32, frames: 10, rate: 2, footY: 168, obs: [274, 148, 312, 174] },
-            { src: "props/stump_chair.png", wx: 144, wy: 164, fw: 16, fh: 16, frames: 1, rate: 1, footY: 180, obs: [140, 154, 212, 196] },
+            { src: "props/stump_chair.png", wx: 144, wy: 164, fw: 16, fh: 16, frames: 1, rate: 1, footY: 180, obs: [140, 142, 214, 196] },
             { src: "props/stump_table.png", wx: 160, wy: 144, fw: 48, fh: 48, frames: 1, rate: 1, footY: 190, obs: null },
             { src: "props/berry_basket_blue.png", wx: 174, wy: 151, fw: 20, fh: 20, frames: 1, rate: 1, footY: 191, obs: null },
             { src: "props/sign.png", wx: 84, wy: 190, fw: 40, fh: 40, frames: 1, rate: 1, footY: 221, obs: [80, 198, 126, 226] },

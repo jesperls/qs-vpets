@@ -349,7 +349,7 @@ Item {
         readonly property real clampedWY: Math.max(bounds.minY, Math.min(bounds.maxY, worldY))
 
         x: Math.round((clampedWX - 16) * pxScale)
-        y: Math.round((clampedWY - 28) * pxScale)
+        y: Math.round((clampedWY - 29) * pxScale)
         z: Math.round(clampedWY * pxScale)
         width: 32 * pxScale
         height: 32 * pxScale
@@ -511,31 +511,23 @@ Item {
 
         Rectangle {
             visible: actor.isSelected || actorMouse.containsMouse
-            anchors.horizontalCenter: parent.horizontalCenter
-            anchors.bottom: parent.bottom
-            anchors.bottomMargin: 2 * actor.pxScale
-            width: 24 * actor.pxScale
-            height: 8 * actor.pxScale
-            radius: 4 * actor.pxScale
+            readonly property int ringW: actorSprite.shadowSize === 2 ? 26 : (actorSprite.shadowSize === 0 ? 14 : 20)
+            readonly property int ringH: actorSprite.shadowSize === 2 ? 10 : 8
+            x: Math.round((15.5 - ringW * 0.5) * actor.pxScale)
+            y: Math.round((29.0 - ringH * 0.5) * actor.pxScale)
+            width: ringW * actor.pxScale
+            height: ringH * actor.pxScale
+            radius: (ringH * 0.5) * actor.pxScale
             color: actor.isSelected ? Theme.alpha(Theme.warm, 0.25) : Theme.alpha(Theme.text, 0.14)
             border.width: actor.isSelected ? 2 : 1
             border.color: actor.isSelected ? Theme.warm : Theme.alpha(Theme.text, 0.42)
-        }
-
-        Image {
-            anchors.horizontalCenter: parent.horizontalCenter
-            anchors.bottom: parent.bottom
-            anchors.bottomMargin: actor.pxScale
-            width: 32 * actor.pxScale
-            height: 16 * actor.pxScale
-            smooth: false
-            source: Qt.resolvedUrl("../assets/sanctuary/props/shadow.png")
         }
 
         SpriteAnimation {
             id: actorSprite
             anchors.fill: parent
             speciesName: actor.petConfig.sprite
+            showShadow: true
             moveSpeed: actor.walking ? 52 : 0
             currentState: {
                 if (actor.overrideAnim.length > 0) return actor.overrideAnim;

@@ -17,6 +17,8 @@ Item {
     property real gaitOffsetY: 0
     property string spriteDir: ""
     property var actionMap: ({})
+    property bool showShadow: false
+    property int shadowSize: 1
 
     property var _animData: null
     property var _clip: null
@@ -133,6 +135,7 @@ Item {
         _clip = null;
         _frame = 0;
         _tickAccum = 0;
+        shadowSize = 1;
     }
 
     FileView {
@@ -141,6 +144,7 @@ Item {
         printErrors: false
         onLoaded: {
             const parsed = SpriteSheet.parseAnimData(text());
+            root.shadowSize = Math.max(0, Math.min(2, parsed.shadowSize ?? 1));
             root._animData = parsed.anims;
             root.setState(root.currentState);
         }
@@ -215,6 +219,26 @@ Item {
                 return;
             }
             root._dirRow = SpriteSheet.stepDirectionRow(root._dirRow, root._targetDirRow);
+        }
+    }
+
+    Item {
+        id: groundShadow
+        visible: root.showShadow && root.useSpriteSheet && sheet.status === Image.Ready
+        readonly property real px: root.width / 32
+        x: Math.round(-0.5 * px)
+        y: Math.round(root.height - 11 * px)
+        width: 32 * px
+        height: 16 * px
+        clip: true
+
+        Image {
+            x: -(root.shadowSize * 32 * groundShadow.px)
+            y: 0
+            width: 96 * groundShadow.px
+            height: 16 * groundShadow.px
+            smooth: false
+            source: root.showShadow ? Qt.resolvedUrl("../assets/sanctuary/props/shadow.png") : ""
         }
     }
 
