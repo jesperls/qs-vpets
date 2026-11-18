@@ -73,9 +73,173 @@ jobs:
           path: dist/qs-vpets-portable-${{ matrix.arch }}.tar.zst*
           if-no-files-found: error
 
+  check-and-bundle-macos:
+    name: Check & Build macOS (aarch64-darwin)
+    runs-on: macos-15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Homebrew dependencies
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+        run: brew install qtbase qtdeclarative qtsvg qtimageformats zstd shellcheck
+
+      - name: Unit, cognition & soak tests + shellcheck
+        run: |
+          node tests/test_sprites.js
+          node tests/test_cognition.js
+          node tests/test_soak.js
+          bash -n scripts/qs-vpets-macos.sh macos/build-icns.sh install.sh
+          shellcheck scripts/qs-vpets-macos.sh macos/build-icns.sh install.sh
+
+      - name: Build & bundle Apple Silicon .app (CMake + Qt6 + macdeployqt)
+        run: |
+          brew_prefix="$(brew --prefix)"
+          qtbase_prefix="$(brew --prefix qtbase)"
+          cmake -S macos -B build-macos -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$brew_prefix"
+          cmake --build build-macos --config Release --parallel
+
+          ln -sfn "Pokemon Sanctuary.app/Contents/Resources/qml" build-macos/qml-scan
+          "$qtbase_prefix/bin/macdeployqt" "build-macos/Pokemon Sanctuary.app" \
+            -qmldir=build-macos/qml-scan \
+            -libpath="$brew_prefix/lib" \
+            -libpath="$(brew --prefix qtsvg)/lib"
+          codesign --force --deep --sign - "build-macos/Pokemon Sanctuary.app"
+
+          stage_dir="dist-stage/qs-vpets-macos-arm64"
+          rm -rf dist-stage dist
+          mkdir -p "$stage_dir/bin" dist
+          cp -R "build-macos/Pokemon Sanctuary.app" "$stage_dir/Pokemon Sanctuary.app"
+          install -m 0755 scripts/qs-vpets-macos.sh "$stage_dir/bin/qs-vpets"
+
+          cat > "$stage_dir/install" <<'EOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          here=$(cd "$(dirname "$0")" && pwd)
+          prefix="${QS_VPETS_PREFIX:-$HOME/.local}"
+          appsDir="${QS_VPETS_MACOS_APPS_DIR:-$HOME/Applications}"
+          autostart="1"
+          for arg in "$@"; do
+            case "$arg" in
+              --no-autostart) autostart="0" ;;
+              --autostart) autostart="1" ;;
+            esac
+          done
+          if [ -x "$prefix/bin/qs-vpets" ]; then
+            "$prefix/bin/qs-vpets" stop >/dev/null 2>&1 || true
+          fi
+          mkdir -p "$appsDir" "$prefix/bin"
+          rm -rf "$appsDir/Pokemon Sanctuary.app" "$appsDir/Pokémon Sanctuary.app"
+          cp -R "$here/Pokemon Sanctuary.app" "$appsDir/Pokemon Sanctuary.app"
+          install -m 0755 "$here/bin/qs-vpets" "$prefix/bin/qs-vpets"
+          cat > "$prefix/bin/qs-vpets-uninstall" <<UNEOF
+          #!/usr/bin/env bash
+          set -euo pipefail
+          if [ -x "$prefix/bin/qs-vpets" ]; then
+            "$prefix/bin/qs-vpets" stop >/dev/null 2>&1 || true
+            "$prefix/bin/qs-vpets" autostart disable >/dev/null 2>&1 || true
+          fi
+          rm -rf "$appsDir/Pokemon Sanctuary.app" "$appsDir/Pokémon Sanctuary.app"
+          rm -f "$prefix/bin/qs-vpets" "$prefix/bin/qs-vpets-uninstall"
+          UNEOF
+          chmod 0755 "$prefix/bin/qs-vpets-uninstall"
+          if [ "$autostart" = "1" ]; then
+            QS_VPETS_MACOS_BIN="$appsDir/Pokemon Sanctuary.app/Contents/MacOS/Pokemon Sanctuary" \
+              "$prefix/bin/qs-vpets" autostart enable >/dev/null || true
+          fi
+          echo "Installed Pokemon Sanctuary into $appsDir/Pokemon Sanctuary.app"
+          EOF
+          chmod 0755 "$stage_dir/install"
+          shellcheck "$stage_dir/install"
+
+          tar -cf - -C dist-stage qs-vpets-macos-arm64 | zstd -19 -T0 -o dist/qs-vpets-macos-arm64.tar.zst
+          (cd dist && shasum -a 256 qs-vpets-macos-arm64.tar.zst > qs-vpets-macos-arm64.tar.zst.sha256)
+          ls -lh dist/
+
+      - name: Smoke-test live macOS app & IPC on Apple Silicon
+        run: |
+          # 1. Verify ./install.sh --native end-to-end
+          tmp_native=$(mktemp -d)
+          mkdir -p "$tmp_native/home"
+          HOME="$tmp_native/home" ./install.sh --native --no-autostart
+          export QS_VPETS_SOCKET="/tmp/qs-vpets-nat-$$.sock"
+          HOME="$tmp_native/home" "$tmp_native/home/.local/bin/qs-vpets" start || {
+            cat "$tmp_native/home/.local/state/qs-vpets/qs-vpets.log" >&2 || true
+            exit 1
+          }
+          HOME="$tmp_native/home" "$tmp_native/home/.local/bin/qs-vpets" status >/dev/null
+          HOME="$tmp_native/home" "$tmp_native/home/.local/bin/qs-vpets" stop
+          HOME="$tmp_native/home" ./install.sh --uninstall
+          rm -rf "$tmp_native"
+
+          # 2. Verify self-contained macdeployqt bundle end-to-end
+          tmp_test=$(mktemp -d)
+          mkdir -p "$tmp_test/home"
+          zstd -dc dist/qs-vpets-macos-arm64.tar.zst | tar -xf - -C "$tmp_test"
+          HOME="$tmp_test/home" "$tmp_test/qs-vpets-macos-arm64/install" --no-autostart
+          HOME="$tmp_test/home" "$tmp_test/home/.local/bin/qs-vpets" --version
+
+          export QS_VPETS_SOCKET="/tmp/qs-vpets-ci-$$.sock"
+          HOME="$tmp_test/home" "$tmp_test/home/.local/bin/qs-vpets" start || {
+            cat "$tmp_test/home/.local/state/qs-vpets/qs-vpets.log" >&2 || true
+            exit 1
+          }
+          sleep 1
+          status_json=$(HOME="$tmp_test/home" "$tmp_test/home/.local/bin/qs-vpets" status) || {
+            cat "$tmp_test/home/.local/state/qs-vpets/qs-vpets.log" >&2 || true
+            exit 1
+          }
+          printf '%s\n' "$status_json"
+          STATUS_JSON="$status_json" node -e '
+            const s = JSON.parse(process.env.STATUS_JSON);
+            if (s.totalCount < 2 || s.roamingCount < 1) {
+              throw new Error("Unexpected status counts: " + JSON.stringify(s));
+            }
+          '
+          roam_win_json=$(HOME="$tmp_test/home" "$tmp_test/home/Applications/Pokemon Sanctuary.app/Contents/MacOS/Pokemon Sanctuary" --ipc win_debug)
+          printf '%s\n' "$roam_win_json"
+          WIN_JSON="$roam_win_json" node -e '
+            const w = JSON.parse(process.env.WIN_JSON);
+            if (w.visibleWindows < 1) {
+              throw new Error("Expected visible roaming overlay windows, got: " + JSON.stringify(w));
+            }
+          '
+
+          HOME="$tmp_test/home" "$tmp_test/home/.local/bin/qs-vpets" open
+          sleep 0.5
+          pen_win_json=$(HOME="$tmp_test/home" "$tmp_test/home/Applications/Pokemon Sanctuary.app/Contents/MacOS/Pokemon Sanctuary" --ipc win_debug)
+          printf '%s\n' "$pen_win_json"
+          WIN_JSON="$pen_win_json" node -e '
+            const w = JSON.parse(process.env.WIN_JSON);
+            const hasSanctuary = w.windows.some(x => x.visible && x.visibility !== 0 && x.title.includes("Sanctuary"));
+            if (!hasSanctuary) {
+              throw new Error("Expected visible SanctuaryWindow, got: " + JSON.stringify(w));
+            }
+          '
+
+          HOME="$tmp_test/home" "$tmp_test/home/.local/bin/qs-vpets" pet
+          HOME="$tmp_test/home" "$tmp_test/home/.local/bin/qs-vpets" flush
+          HOME="$tmp_test/home" "$tmp_test/home/.local/bin/qs-vpets" stop
+          HOME="$tmp_test/home" "$tmp_test/home/.local/bin/qs-vpets-uninstall"
+          rm -rf "$tmp_test"
+
+      - name: Install Nix & verify aarch64-darwin flake check
+        uses: DeterminateSystems/nix-installer-action@main
+
+      - name: Nix flake check (aarch64-darwin package & launchd HM module)
+        run: nix flake check -L
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: portable-aarch64-darwin
+          path: dist/qs-vpets-macos-arm64.tar.zst*
+          if-no-files-found: error
+
   publish-release:
     name: Publish GitHub Release
-    needs: check-and-bundle
+    needs: [check-and-bundle, check-and-bundle-macos]
     if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
     runs-on: ubuntu-24.04
     permissions:
@@ -95,3 +259,5 @@ jobs:
           files: |
             release-assets/qs-vpets-portable-*.tar.zst
             release-assets/qs-vpets-portable-*.tar.zst.sha256
+            release-assets/qs-vpets-macos-*.tar.zst
+            release-assets/qs-vpets-macos-*.tar.zst.sha256

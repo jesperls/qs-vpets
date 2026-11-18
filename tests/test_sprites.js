@@ -170,7 +170,8 @@ assert.equal(SpriteSheet.angleToDirectionRow((3 * Math.PI) / 4), 7);
 
 const qmlFiles = [
     path.join(rootDir, "shell.qml"),
-    ...["config", "services", "components"].flatMap(dir =>
+    path.join(rootDir, "macos/qml/shell.qml"),
+    ...["config", "services", "components", "macos/qml/services", "macos/qml/components"].flatMap(dir =>
         fs.readdirSync(path.join(rootDir, dir))
             .filter(f => f.endsWith(".qml"))
             .map(f => path.join(rootDir, dir, f))
@@ -239,7 +240,7 @@ function collectTextFiles(dirPath) {
         const full = path.join(dirPath, entry.name);
         if (entry.isDirectory()) {
             results.push(...collectTextFiles(full));
-        } else if (/\.(js|qml|sh|nix|md|xml|desktop|svg|in|txt)$/.test(entry.name)) {
+        } else if (/\.(js|qml|sh|nix|md|xml|desktop|svg|in|txt|h|cpp|mm|yml)$/.test(entry.name)) {
             results.push(full);
         }
     }
@@ -251,7 +252,7 @@ const textFilesToCheck = [
     path.join(rootDir, "README.md"),
     path.join(rootDir, "install.sh"),
     path.join(sanctuaryRoot, "credits.txt"),
-    ...["config", "services", "components", "scripts", "tests", "nix", "packaging"].flatMap(d =>
+    ...["config", "services", "components", "scripts", "tests", "nix", "packaging", "macos", ".github"].flatMap(d =>
         collectTextFiles(path.join(rootDir, d))
     )
 ];

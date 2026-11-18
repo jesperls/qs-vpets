@@ -1,6 +1,6 @@
-# qs-vpets - Pokémon Sanctuary for Wayland
+# qs-vpets - Pokémon Sanctuary for Wayland & macOS
 
-Interactive pixel-art Pokémon companions for **`wlr-layer-shell` Wayland desktops**, built on [Quickshell](https://quickshell.outfoxxed.me/) with persistent personalities, sleep memory consolidation, inter-Pokémon social bonds, modular species abilities, a **Pokémon Sanctuary** camp clearing app, and 56 pixel-verified [PMD Collab](https://sprites.pmdcollab.org/#/) species.
+Interactive pixel-art Pokémon companions for **`wlr-layer-shell` Wayland desktops** and **Apple Silicon macOS**, built on [Quickshell](https://quickshell.outfoxxed.me/) (Linux) and a native **Qt6 Metal + AppKit/Quartz host** (macOS) with persistent personalities, sleep memory consolidation, inter-Pokémon social bonds, modular species abilities, a **Pokémon Sanctuary** camp clearing app, and 56 pixel-verified [PMD Collab](https://sprites.pmdcollab.org/#/) species.
 
 ---
 
@@ -16,9 +16,9 @@ Interactive pixel-art Pokémon companions for **`wlr-layer-shell` Wayland deskto
 - **56 PMD Collab Species, Modular Abilities & Lifestyle Evolution**:
   - Declarative habitat catalogs (`components/species/*.js`), frame-slice clip playback (`SpriteSheet.resolveClip`), kin-group chemistry, lifestyle-based opt-in evolution (`components/behavior/Evolution.js`), and 14 composable abilities (`components/behavior/Abilities.js`).
   - Spontaneous social moments on the desktop: tag games with role reversal, play-sparring, side-by-side naps, synchronized music dancing, unrequited play bids, personal-space squabbles, and peacekeeper mediation.
-- **Broad Wayland Support**:
-  - Runs on **KDE Plasma Wayland (including SteamOS Desktop Mode)**, **Hyprland**, **Sway / Scroll**, **Niri**, **COSMIC**, **River**, **Wayfire**, **Labwc**, and **MangoWC**.
-  - Uses `Quickshell.Wayland` (`wlr-layer-shell`, `ToplevelManager`, `IdleMonitor`) for fullscreen game awareness, active-app perception, window focus activation, and idle tracking, plus compositor IPC window-ledge perching on Hyprland, Sway, and Niri.
+- **Broad Wayland & Native macOS Support**:
+  - **Linux Wayland**: Runs on **KDE Plasma Wayland (including SteamOS Desktop Mode)**, **Hyprland**, **Sway / Scroll**, **Niri**, **COSMIC**, **River**, **Wayfire**, **Labwc**, and **MangoWC** via `Quickshell.Wayland` (`wlr-layer-shell`, `ToplevelManager`, `IdleMonitor`) plus compositor IPC window-ledge perching.
+  - **macOS (Apple Silicon / MacBook)**: Native Qt6 Metal + Objective-C++ host (`Pokemon Sanctuary.app` + Menu Bar Pokéball icon) with click-through multi-Space desktop overlays, MacBook camera-notch & Dock inset awareness, `CGWindowListCopyWindowInfo` window-ledge perching (requiring zero Screen Recording or Accessibility permissions), `IOKit` MagSafe/battery reactivity, Apple Silicon thermal/CPU warmth, CoreAudio volume/mute/mic detection, and Spotify/Apple Music Now Playing.
 
 ---
 
@@ -43,6 +43,34 @@ Uninstall cleanly at any time (preserving companion memories in `~/.local/state/
 ```sh
 curl -fsSL https://raw.githubusercontent.com/jesperls/qs-vpets/main/install.sh | bash -s -- --uninstall
 ```
+
+---
+
+### macOS (Apple Silicon / MacBook Pro)
+
+#### Option 1: Build & Install via Homebrew + CMake
+
+Installs `Pokemon Sanctuary.app` into `~/Applications/`, `~/.local/bin/qs-vpets`, and configures a `launchd` LaunchAgent for login autostart:
+
+```sh
+git clone https://github.com/jesperls/qs-vpets.git
+cd qs-vpets
+./install.sh --native
+~/.local/bin/qs-vpets open
+```
+
+#### Option 2: Self-Contained Apple Silicon Bundle
+
+Download `qs-vpets-macos-arm64.tar.zst` from [GitHub Releases](https://github.com/jesperls/qs-vpets/releases) (or run `./install.sh --portable`):
+
+```sh
+zstd -dc qs-vpets-macos-arm64.tar.zst | tar -xf -
+cd qs-vpets-macos-arm64
+./install
+~/.local/bin/qs-vpets open
+```
+
+On macOS, click the Pokéball icon in your **Menu Bar** to open **Pokémon Sanctuary**, summon a companion, or hide desktop pets. Right-click or `Ctrl+Click` any roaming Pokémon to open its interactive partner card.
 
 ---
 
@@ -108,7 +136,9 @@ ls -lh result/
 
 ---
 
-### NixOS & Home Manager
+### NixOS, nix-darwin & Home Manager
+
+Works on both Linux (`systemd.user.services.qs-vpets`) and Apple Silicon macOS (`launchd.agents.qs-vpets`):
 
 ```nix
 # flake.nix
@@ -140,10 +170,11 @@ Leave `programs.qs-vpets.pets = null` (the default) to welcome, nickname, and ma
 
 ---
 
-## Wayland Compositor Compatibility
+## Desktop & Compositor Compatibility
 
 | Desktop / Compositor | Overlay & Input | Fullscreen & Active App | Idle Detection | Window Ledge Perching |
 | :--- | :---: | :---: | :---: | :---: |
+| **macOS 13+ (Apple Silicon)** | Yes (AppKit + Metal) | Yes (Quartz + NSWorkspace) | Yes (CoreGraphics) | Yes (Quartz `CGWindowList`) |
 | **Hyprland** | Yes | Yes | Yes | Yes (Hyprland IPC) |
 | **Sway / Scroll** | Yes | Yes | Yes | Yes (Sway IPC) |
 | **Niri** | Yes | Yes | Yes | Yes (Niri IPC) |

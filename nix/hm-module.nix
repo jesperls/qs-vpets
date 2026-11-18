@@ -180,6 +180,11 @@ let
       PY
     '';
   };
+  darwinStartCmd = pkgs.writeShellScript "qs-vpets-launchd-start" ''
+    set -euo pipefail
+    ${lib.optionalString hasDeclarativeConfig "${lib.getExe applyConfig}"}
+    exec ${lib.getExe cfg.package} run
+  '';
 in
 {
   options.programs.qs-vpets = {
@@ -261,12 +266,14 @@ in
     lib.mkMerge [
       {
         home.packages = [ cfg.package ];
+      }
+      (lib.mkIf pkgs.stdenv.hostPlatform.isLinux {
         systemd.user.tmpfiles.rules = [
           "d ${configDir} 0755 - - -"
           "d ${stateDir} 0755 - - -"
         ];
-      }
-      (lib.mkIf cfg.systemd.enable {
+      })
+      (lib.mkIf (pkgs.stdenv.hostPlatform.isLinux && cfg.systemd.enable) {
         systemd.user.services.qs-vpets = {
           Unit = {
             Description = "Pokémon Sanctuary desktop companions (Quickshell)";
@@ -293,6 +300,26 @@ in
           };
 
           Install.WantedBy = [ cfg.systemd.target ];
+        };
+      })
+      (lib.mkIf (pkgs.stdenv.hostPlatform.isDarwin && cfg.systemd.enable) {
+        launchd.agents.qs-vpets = {
+          enable = true;
+          config = {
+            ProgramArguments = [ "${darwinStartCmd}" ];
+            RunAtLoad = true;
+            KeepAlive = {
+              SuccessfulExit = false;
+            };
+            ProcessType = "Interactive";
+            EnvironmentVariables = {
+              QS_VPETS_CONFIG_DIR = configDir;
+              QS_VPETS_STATE_DIR = stateDir;
+              QS_VPETS_OPEN_ON_START = "0";
+            };
+            StandardOutPath = "${stateDir}/qs-vpets.log";
+            StandardErrorPath = "${stateDir}/qs-vpets.log";
+          };
         };
       })
     ]

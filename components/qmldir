@@ -1,11 +1,13 @@
 module components
 PetWindow 1.0 PetWindow.qml
+PetOverlayContent 1.0 PetOverlayContent.qml
 Pet 1.0 Pet.qml
 SpriteAnimation 1.0 SpriteAnimation.qml
 EmoteBubble 1.0 EmoteBubble.qml
 PetInspector 1.0 PetInspector.qml
 ResidentRecord 1.0 ResidentRecord.qml
 SanctuaryWindow 1.0 SanctuaryWindow.qml
+SanctuaryContent 1.0 SanctuaryContent.qml
 SanctuaryClearingScene 1.0 SanctuaryClearingScene.qml
 SanctuaryHeaderBar 1.0 SanctuaryHeaderBar.qml
 SanctuaryPrefsDrawer 1.0 SanctuaryPrefsDrawer.qml

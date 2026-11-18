@@ -1,5 +1,5 @@
 {
-  description = "Interactive pixel-art Pokémon companions for Wayland desktops via Quickshell";
+  description = "Interactive pixel-art Pokémon companions for Wayland and macOS desktops";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -20,10 +20,17 @@
       systems = [
         "x86_64-linux"
         "aarch64-linux"
+        "aarch64-darwin"
+        "x86_64-darwin"
       ];
       forAllSystems = lib.genAttrs systems;
       version = self.shortRev or self.dirtyShortRev or "0.5.0";
-      packageFor = pkgs: pkgs.callPackage ./nix { inherit version; };
+      packageFor =
+        pkgs:
+        if pkgs.stdenv.hostPlatform.isDarwin then
+          pkgs.callPackage ./nix/macos.nix { inherit version; }
+        else
+          pkgs.callPackage ./nix { inherit version; };
       pkgsFor = system: nixpkgs.legacyPackages.${system};
     in
     {
@@ -35,9 +42,13 @@
         system:
         let
           pkgs = pkgsFor system;
-        in
-        rec {
           qs-vpets = packageFor pkgs;
+        in
+        {
+          inherit qs-vpets;
+          default = qs-vpets;
+        }
+        // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
           portable = import ./nix/portable.nix {
             inherit
               lib
@@ -46,7 +57,6 @@
               version
               ;
           };
-          default = qs-vpets;
         }
       );
 
@@ -54,10 +64,14 @@
 
       checks = forAllSystems (
         system:
+        let
+          pkgs = pkgsFor system;
+        in
         import ./nix/checks.nix {
           inherit lib self home-manager;
-          pkgs = pkgsFor system;
-          inherit (self.packages.${system}) qs-vpets portable;
+          inherit pkgs;
+          inherit (self.packages.${system}) qs-vpets;
+          portable = self.packages.${system}.portable or null;
         }
       );
 
@@ -85,14 +99,20 @@
         in
         {
           default = pkgs.mkShell {
-            packages = pkg.runtimeInputs ++ [
-              pkg
-              pkgs.nodejs
-              pkgs.python3
-              pkgs.shellcheck
-              pkgs.qt6.qtdeclarative
-              pkgs.nixfmt-tree
-            ];
+            packages =
+              pkg.runtimeInputs
+              ++ [
+                pkg
+                pkgs.nodejs
+                pkgs.python3
+                pkgs.shellcheck
+                pkgs.qt6.qtdeclarative
+                pkgs.nixfmt-tree
+              ]
+              ++ lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
+                pkgs.cmake
+                pkgs.ninja
+              ];
             QML2_IMPORT_PATH = "${pkg.qmlEnv}/lib/qt-6/qml";
             QML_IMPORT_PATH = "${pkg.qmlEnv}/lib/qt-6/qml";
             QT_PLUGIN_PATH = "${pkg.qmlEnv}/lib/qt-6/plugins";

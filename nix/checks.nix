@@ -17,7 +17,8 @@ let
         self.homeModules.default
         {
           home.username = "vpets-test";
-          home.homeDirectory = "/home/vpets-test";
+          home.homeDirectory =
+            if pkgs.stdenv.hostPlatform.isDarwin then "/Users/vpets-test" else "/home/vpets-test";
           home.stateVersion = "26.05";
           programs.qs-vpets.enable = true;
         }
@@ -87,8 +88,15 @@ in
       }
       ''
         bash -n "${src}/scripts/qs-vpets.sh"
+        bash -n "${src}/scripts/qs-vpets-macos.sh"
+        bash -n "${src}/macos/build-icns.sh"
         bash -n "${src}/install.sh"
-        shellcheck "${src}/scripts/qs-vpets.sh" "${src}/install.sh" "${lib.getExe qs-vpets}"
+        shellcheck \
+          "${src}/scripts/qs-vpets.sh" \
+          "${src}/scripts/qs-vpets-macos.sh" \
+          "${src}/macos/build-icns.sh" \
+          "${src}/install.sh" \
+          "${lib.getExe qs-vpets}"
         touch "$out"
       '';
 
@@ -97,53 +105,141 @@ in
       {
         nativeBuildInputs = [ pkgs.qt6.qtdeclarative ];
       }
+      (
+        if pkgs.stdenv.hostPlatform.isLinux then
+          ''
+            cd "${src}"
+            qmllint --bare \
+              -I "${pkgs.quickshell}/lib/qt-6/qml" \
+              -I "${qs-vpets.qmlEnv}/lib/qt-6/qml" \
+              -I . \
+              -i config/qmldir \
+              -i services/qmldir \
+              -i components/qmldir \
+              shell.qml config/*.qml services/*.qml components/*.qml >"$TMPDIR/qmllint.log" 2>&1 || true
+            if grep -E '\[(syntax|import|unresolved-type|id-shadows-member)\]' "$TMPDIR/qmllint.log"; then
+              cat "$TMPDIR/qmllint.log" >&2
+              exit 1
+            fi
+            touch "$out"
+          ''
+        else
+          ''
+            cd "${src}"
+            qmllint --bare \
+              -I "${qs-vpets.qmlEnv}/lib/qt-6/qml" \
+              macos/qml/shell.qml macos/qml/services/*.qml macos/qml/components/*.qml >"$TMPDIR/qmllint.log" 2>&1 || true
+            if grep -E '\[(syntax)\]' "$TMPDIR/qmllint.log"; then
+              cat "$TMPDIR/qmllint.log" >&2
+              exit 1
+            fi
+            touch "$out"
+          ''
+      );
+
+  cli = pkgs.runCommand "qs-vpets-cli-check" { } (
+    if pkgs.stdenv.hostPlatform.isLinux then
       ''
-        cd "${src}"
-        qmllint --bare \
-          -I "${pkgs.quickshell}/lib/qt-6/qml" \
-          -I "${qs-vpets.qmlEnv}/lib/qt-6/qml" \
-          -I . \
-          -i config/qmldir \
-          -i services/qmldir \
-          -i components/qmldir \
-          shell.qml config/*.qml services/*.qml components/*.qml >"$TMPDIR/qmllint.log" 2>&1 || true
-        if grep -E '\[(syntax|import|unresolved-type|id-shadows-member)\]' "$TMPDIR/qmllint.log"; then
-          cat "$TMPDIR/qmllint.log" >&2
+        export HOME="$TMPDIR/home"
+        mkdir -p "$HOME"
+
+        test -f "${qs-vpets}/share/applications/qs-vpets.desktop"
+        test -f "${qs-vpets}/share/icons/hicolor/scalable/apps/qs-vpets.svg"
+        test -f "${qs-vpets}/share/metainfo/io.github.jesperls.qs_vpets.metainfo.xml"
+        test -f "${qs-vpets}/lib/systemd/user/qs-vpets.service"
+        grep -F "Name=Pokémon Sanctuary" "${qs-vpets}/share/applications/qs-vpets.desktop"
+
+        ${lib.getExe qs-vpets} --version | grep -F "qs-vpets"
+        ${lib.getExe qs-vpets} --help | grep -F "open | app"
+        ${lib.getExe qs-vpets} --help | grep -F "spawn <species>"
+        ${lib.getExe qs-vpets} --help | grep -F "pen | sanctuary"
+        ${lib.getExe qs-vpets} --help | grep -F "release <name>"
+        ${lib.getExe qs-vpets} --help | grep -F "flush"
+        ${lib.getExe qs-vpets} autostart enable | grep -F "autostart enabled"
+        test -f "$HOME/.config/autostart/qs-vpets-autostart.desktop"
+        ${lib.getExe qs-vpets} autostart status | grep -F "enabled"
+        ${lib.getExe qs-vpets} autostart disable | grep -F "autostart disabled"
+        test ! -e "$HOME/.config/autostart/qs-vpets-autostart.desktop"
+
+        if ${lib.getExe qs-vpets} dev /missing-vpets-dir >dev.log 2>&1; then
+          echo "dev accepted missing checkout" >&2
           exit 1
         fi
+        grep -F "run from a qs-vpets checkout" dev.log
         touch "$out"
-      '';
+      ''
+    else
+      ''
+        export HOME="$TMPDIR/home"
+        mkdir -p "$HOME"
 
-  cli = pkgs.runCommand "qs-vpets-cli-check" { } ''
-    export HOME="$TMPDIR/home"
-    mkdir -p "$HOME"
+        test -d "${qs-vpets}/Applications/Pokemon Sanctuary.app"
+        test -x "${qs-vpets}/Applications/Pokemon Sanctuary.app/Contents/MacOS/Pokemon Sanctuary"
+        test -f "${qs-vpets}/Applications/Pokemon Sanctuary.app/Contents/Resources/qml/shell.qml"
 
-    test -f "${qs-vpets}/share/applications/qs-vpets.desktop"
-    test -f "${qs-vpets}/share/icons/hicolor/scalable/apps/qs-vpets.svg"
-    test -f "${qs-vpets}/share/metainfo/io.github.jesperls.qs_vpets.metainfo.xml"
-    test -f "${qs-vpets}/lib/systemd/user/qs-vpets.service"
-    grep -F "Name=Pokémon Sanctuary" "${qs-vpets}/share/applications/qs-vpets.desktop"
+        ${lib.getExe qs-vpets} --version | grep -F "qs-vpets"
+        ${lib.getExe qs-vpets} --help | grep -F "open | app"
+        ${lib.getExe qs-vpets} --help | grep -F "spawn <species>"
+        ${lib.getExe qs-vpets} --help | grep -F "pen | sanctuary"
+        ${lib.getExe qs-vpets} --help | grep -F "release <name>"
+        ${lib.getExe qs-vpets} --help | grep -F "flush"
+        touch "$out"
+      ''
+  );
 
-    ${lib.getExe qs-vpets} --version | grep -F "qs-vpets"
-    ${lib.getExe qs-vpets} --help | grep -F "open | app"
-    ${lib.getExe qs-vpets} --help | grep -F "spawn <species>"
-    ${lib.getExe qs-vpets} --help | grep -F "pen | sanctuary"
-    ${lib.getExe qs-vpets} --help | grep -F "release <name>"
-    ${lib.getExe qs-vpets} --help | grep -F "flush"
-    ${lib.getExe qs-vpets} autostart enable | grep -F "autostart enabled"
-    test -f "$HOME/.config/autostart/qs-vpets-autostart.desktop"
-    ${lib.getExe qs-vpets} autostart status | grep -F "enabled"
-    ${lib.getExe qs-vpets} autostart disable | grep -F "autostart disabled"
-    test ! -e "$HOME/.config/autostart/qs-vpets-autostart.desktop"
-
-    if ${lib.getExe qs-vpets} dev /missing-vpets-dir >dev.log 2>&1; then
-      echo "dev accepted missing checkout" >&2
-      exit 1
-    fi
-    grep -F "run from a qs-vpets checkout" dev.log
-    touch "$out"
-  '';
-
+  home-manager =
+    assert valid plain && valid custom && valid disabled && valid manual;
+    assert
+      if pkgs.stdenv.hostPlatform.isLinux then
+        plain.systemd.user.services.qs-vpets.Service.ExecStartPre == [ ]
+        && builtins.length custom.systemd.user.services.qs-vpets.Service.ExecStartPre == 1
+        &&
+          custom.systemd.user.services.qs-vpets.Unit.After == [
+            "hyprland-session.target"
+            "pipewire.service"
+          ]
+        && lib.hasSuffix " flush" custom.systemd.user.services.qs-vpets.Service.ExecStop
+        && !(disabled.systemd.user.services ? qs-vpets)
+        && !(manual.systemd.user.services ? qs-vpets)
+      else
+        plain.launchd.agents.qs-vpets.enable
+        && custom.launchd.agents.qs-vpets.enable
+        && !(disabled.launchd.agents ? qs-vpets)
+        && !(manual.launchd.agents ? qs-vpets);
+    pkgs.runCommand "qs-vpets-hm-check" { } (
+      if pkgs.stdenv.hostPlatform.isLinux then
+        ''
+          export HOME="$TMPDIR/home"
+          export QS_VPETS_CONFIG_DIR="$HOME/.config/qs-vpets"
+          mkdir -p "$QS_VPETS_CONFIG_DIR"
+          echo '{"pets":[{"id":"nyx","name":"Nyx","sprite":"umbreon"},{"id":"moss-99","name":"Moss","sprite":"absol"}],"behavior":{"idleTimeout":420,"walkSpeed":90}}' \
+            > "$QS_VPETS_CONFIG_DIR/config.json"
+          ${builtins.head custom.systemd.user.services.qs-vpets.Service.ExecStartPre}
+          ${pkgs.python3}/bin/python3 - "$HOME/.config/qs-vpets/config.json" <<'PY'
+          import json, sys
+          with open(sys.argv[1]) as f:
+              data = json.load(f)
+          assert len(data["pets"]) == 2
+          assert data["pets"][0]["id"] == "nyx"
+          assert data["pets"][0]["name"] == "Nyx"
+          assert data["pets"][0]["sprite"] == "umbreon"
+          assert data["pets"][0]["color"] == "#a6e3a1"
+          assert data["pets"][0]["traits"]["curiosity"] == 0.72
+          assert data["pets"][1]["id"] == "moss-99"
+          assert data["pets"][1]["sprite"] == "grovyle"
+          assert data["behavior"]["idleTimeout"] == 420
+          assert data["behavior"]["walkSpeed"] == 75
+          assert data["behavior"]["sanctuaryCamp"] == "forest"
+          PY
+          touch "$out"
+        ''
+      else
+        ''
+          touch "$out"
+        ''
+    );
+}
+// lib.optionalAttrs (pkgs.stdenv.hostPlatform.isLinux && portable != null) {
   portable-bundle =
     pkgs.runCommand "qs-vpets-portable-check"
       {
@@ -176,42 +272,4 @@ in
         test ! -d "$HOME/.local/opt/qs-vpets"
         touch "$out"
       '';
-
-  home-manager =
-    assert valid plain && valid custom && valid disabled && valid manual;
-    assert plain.systemd.user.services.qs-vpets.Service.ExecStartPre == [ ];
-    assert builtins.length custom.systemd.user.services.qs-vpets.Service.ExecStartPre == 1;
-    assert
-      custom.systemd.user.services.qs-vpets.Unit.After == [
-        "hyprland-session.target"
-        "pipewire.service"
-      ];
-    assert lib.hasSuffix " flush" custom.systemd.user.services.qs-vpets.Service.ExecStop;
-    assert !(disabled.systemd.user.services ? qs-vpets);
-    assert !(manual.systemd.user.services ? qs-vpets);
-    pkgs.runCommand "qs-vpets-hm-check" { } ''
-      export HOME="$TMPDIR/home"
-      export QS_VPETS_CONFIG_DIR="$HOME/.config/qs-vpets"
-      mkdir -p "$QS_VPETS_CONFIG_DIR"
-      echo '{"pets":[{"id":"nyx","name":"Nyx","sprite":"umbreon"},{"id":"moss-99","name":"Moss","sprite":"absol"}],"behavior":{"idleTimeout":420,"walkSpeed":90}}' \
-        > "$QS_VPETS_CONFIG_DIR/config.json"
-      ${builtins.head custom.systemd.user.services.qs-vpets.Service.ExecStartPre}
-      ${pkgs.python3}/bin/python3 - "$HOME/.config/qs-vpets/config.json" <<'PY'
-      import json, sys
-      with open(sys.argv[1]) as f:
-          data = json.load(f)
-      assert len(data["pets"]) == 2
-      assert data["pets"][0]["id"] == "nyx"
-      assert data["pets"][0]["name"] == "Nyx"
-      assert data["pets"][0]["sprite"] == "umbreon"
-      assert data["pets"][0]["color"] == "#a6e3a1"
-      assert data["pets"][0]["traits"]["curiosity"] == 0.72
-      assert data["pets"][1]["id"] == "moss-99"
-      assert data["pets"][1]["sprite"] == "grovyle"
-      assert data["behavior"]["idleTimeout"] == 420
-      assert data["behavior"]["walkSpeed"] == 75
-      assert data["behavior"]["sanctuaryCamp"] == "forest"
-      PY
-      touch "$out"
-    '';
 }

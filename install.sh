@@ -11,6 +11,8 @@ else
 	dataDir="${QS_VPETS_DATA_DIR:-${XDG_DATA_HOME:-$prefix/share}}"
 fi
 optDir="${QS_VPETS_OPT_DIR:-$prefix/opt/qs-vpets}"
+macAppsDir="${QS_VPETS_MACOS_APPS_DIR:-$HOME/Applications}"
+hostKernel="$(uname -s)"
 
 mode="auto"
 autostart="1"
@@ -76,6 +78,15 @@ doUninstall() {
 	if [ -x "$binDir/qs-vpets" ]; then
 		"$binDir/qs-vpets" stop >/dev/null 2>&1 || true
 		"$binDir/qs-vpets" autostart disable >/dev/null 2>&1 || true
+	fi
+	if [ "$hostKernel" = "Darwin" ]; then
+		rm -f "$binDir/qs-vpets"
+		rm -rf \
+			"$macAppsDir/Pokemon Sanctuary.app" \
+			"$macAppsDir/Pokémon Sanctuary.app" \
+			"$optDir"
+		log "Uninstalled qs-vpets (companion memories kept in ~/.local/state/qs-vpets)."
+		exit 0
 	fi
 	rm -f \
 		"$binDir/qs-vpets" \
@@ -254,6 +265,165 @@ installNativeFiles() {
 	printf '  Launcher: Pokémon Sanctuary (%s/applications/qs-vpets.desktop)\n' "$dataDir"
 	printf '  CLI:      %s/qs-vpets open\n' "$binDir"
 }
+
+detectMacArch() {
+	case "$(uname -m)" in
+	arm64 | aarch64) printf 'arm64' ;;
+	x86_64 | amd64) printf 'x86_64' ;;
+	*) die "unsupported macOS architecture '$(uname -m)'" ;;
+	esac
+}
+
+tryInstallMacosBundle() {
+	local arch archive url tmpWork extracted
+	arch=$(detectMacArch)
+	archive="qs-vpets-macos-${arch}.tar.zst"
+	url="${QS_VPETS_PORTABLE_URL:-https://github.com/${repo}/releases/latest/download/${archive}}"
+
+	command -v curl >/dev/null 2>&1 || return 1
+	command -v zstd >/dev/null 2>&1 || return 1
+
+	tmpWork=$(mktemp -d)
+	trap 'rm -rf "$tmpWork"' RETURN
+
+	log "Downloading macOS bundle (${archive})..."
+	if ! curl -fL --retry 2 -o "$tmpWork/$archive" "$url"; then
+		return 1
+	fi
+
+	if curl -fsSL "${url}.sha256" -o "$tmpWork/${archive}.sha256" 2>/dev/null; then
+		if command -v shasum >/dev/null 2>&1; then
+			(cd "$tmpWork" && shasum -a 256 -c "${archive}.sha256" >/dev/null)
+		elif command -v sha256sum >/dev/null 2>&1; then
+			(cd "$tmpWork" && sha256sum -c "${archive}.sha256" >/dev/null)
+		fi
+	fi
+
+	zstd -dc "$tmpWork/$archive" | tar -xf - -C "$tmpWork"
+	extracted="$tmpWork/qs-vpets-macos-${arch}"
+	[ -x "$extracted/install" ] || die "macOS archive missing ./install"
+
+	if [ "$autostart" = "1" ]; then
+		QS_VPETS_PREFIX="$prefix" QS_VPETS_MACOS_APPS_DIR="$macAppsDir" "$extracted/install" --autostart
+	else
+		QS_VPETS_PREFIX="$prefix" QS_VPETS_MACOS_APPS_DIR="$macAppsDir" "$extracted/install" --no-autostart
+	fi
+	return 0
+}
+
+installMacosFromSource() {
+	local checkoutDir=""
+	local tmpWork=""
+	local scriptSource="${BASH_SOURCE[0]:-}"
+	local brewBin=""
+	local brewRoot=""
+	local qtPrefix=""
+
+	if command -v brew >/dev/null 2>&1; then
+		brewBin=$(command -v brew)
+	elif [ -x /opt/homebrew/bin/brew ]; then
+		brewBin=/opt/homebrew/bin/brew
+		export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:$PATH"
+	elif [ -x /usr/local/bin/brew ]; then
+		brewBin=/usr/local/bin/brew
+		export PATH="/usr/local/bin:/usr/local/sbin:$PATH"
+	fi
+
+	if ! command -v cmake >/dev/null 2>&1; then
+		if [ -n "$brewBin" ]; then
+			log "Installing cmake via Homebrew..."
+			"$brewBin" install cmake
+		else
+			die "'cmake' is required to build on macOS (install Homebrew and run 'brew install cmake qtbase qtdeclarative qtsvg qtimageformats')"
+		fi
+	fi
+
+	if [ -n "$brewBin" ]; then
+		brewRoot=$("$brewBin" --prefix)
+		if [ ! -f "$brewRoot/opt/qt/lib/cmake/Qt6Qml/Qt6QmlConfig.cmake" ]; then
+			if [ ! -f "$brewRoot/opt/qtbase/lib/cmake/Qt6/Qt6Config.cmake" ] ||
+				[ ! -f "$brewRoot/opt/qtdeclarative/lib/cmake/Qt6Qml/Qt6QmlConfig.cmake" ] ||
+				[ ! -d "$brewRoot/opt/qtsvg/lib" ] ||
+				[ ! -d "$brewRoot/opt/qtimageformats/share" ]; then
+				log "Installing Qt6 runtime modules via Homebrew..."
+				"$brewBin" install qtbase qtdeclarative qtsvg qtimageformats
+			fi
+		fi
+		local cand
+		for cand in \
+			"$brewRoot" \
+			"$brewRoot/opt/qt" \
+			"$brewRoot/opt/qtbase" \
+			"$brewRoot/opt/qtdeclarative" \
+			"$brewRoot/opt/qtsvg" \
+			"$brewRoot/opt/qtimageformats"; do
+			if [ -d "$cand" ]; then
+				qtPrefix="${qtPrefix:+${qtPrefix};}${cand}"
+			fi
+		done
+	fi
+
+	tmpWork=$(mktemp -d)
+	trap 'rm -rf "$tmpWork"' RETURN
+
+	if [ -n "$scriptSource" ] && [ -f "$(dirname "$scriptSource")/macos/CMakeLists.txt" ]; then
+		checkoutDir=$(cd "$(dirname "$scriptSource")" && pwd)
+	else
+		log "Fetching qs-vpets source (${repo}@${branch})..."
+		if command -v git >/dev/null 2>&1; then
+			git clone --depth 1 --branch "$branch" "https://github.com/${repo}.git" "$tmpWork/src" >/dev/null
+			checkoutDir="$tmpWork/src"
+		else
+			curl -fsSL "https://github.com/${repo}/archive/refs/heads/${branch}.tar.gz" | tar -xz -C "$tmpWork"
+			checkoutDir=$(find "$tmpWork" -maxdepth 1 -mindepth 1 -type d | head -n 1)
+		fi
+	fi
+
+	log "Building Pokemon Sanctuary.app for macOS ($(uname -m))..."
+	if [ -n "$qtPrefix" ]; then
+		cmake -S "$checkoutDir/macos" -B "$tmpWork/build" \
+			-DCMAKE_BUILD_TYPE=Release \
+			-DCMAKE_PREFIX_PATH="$qtPrefix" \
+			-DQT_ADDITIONAL_PACKAGES_PREFIX_PATH="$qtPrefix" >/dev/null
+	else
+		cmake -S "$checkoutDir/macos" -B "$tmpWork/build" -DCMAKE_BUILD_TYPE=Release >/dev/null
+	fi
+	cmake --build "$tmpWork/build" --config Release --parallel
+
+	if [ -x "$binDir/qs-vpets" ]; then
+		"$binDir/qs-vpets" stop >/dev/null 2>&1 || true
+	fi
+
+	mkdir -p "$macAppsDir" "$binDir"
+	rm -rf "$macAppsDir/Pokemon Sanctuary.app" "$macAppsDir/Pokémon Sanctuary.app"
+	cp -R "$tmpWork/build/Pokemon Sanctuary.app" "$macAppsDir/Pokemon Sanctuary.app"
+	install -m 0755 "$checkoutDir/scripts/qs-vpets-macos.sh" "$binDir/qs-vpets"
+
+	if [ "$autostart" = "1" ]; then
+		QS_VPETS_MACOS_BIN="$macAppsDir/Pokemon Sanctuary.app/Contents/MacOS/Pokemon Sanctuary" \
+			"$binDir/qs-vpets" autostart enable >/dev/null || true
+	fi
+
+	log "Installed Pokémon Sanctuary for macOS"
+	printf '  App: %s/Pokemon Sanctuary.app\n' "$macAppsDir"
+	printf '  CLI: %s/qs-vpets open\n' "$binDir"
+}
+
+if [ "$hostKernel" = "Darwin" ]; then
+	if [ "$mode" = "portable" ]; then
+		tryInstallMacosBundle || die "failed to download macOS release bundle from https://github.com/${repo}/releases"
+		exit 0
+	fi
+	if [ "$mode" = "native" ]; then
+		installMacosFromSource
+		exit 0
+	fi
+	if tryInstallMacosBundle; then
+		exit 0
+	fi
+	installMacosFromSource
+	exit 0
+fi
 
 if [ "$mode" = "portable" ]; then
 	tryInstallPortable || die "failed to download portable release bundle from https://github.com/${repo}/releases"
