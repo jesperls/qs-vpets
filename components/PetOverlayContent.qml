@@ -100,6 +100,48 @@ Item {
         onHeightChanged: root.hitRegionsUpdated()
     }
 
+    Item {
+        id: droppedBerry
+        visible: petItem.berryPresent && !dragArea.offScreenDragging
+        x: Math.round(petItem.berryGX - petItem.screenX() - width * 0.5)
+        y: Math.round(petItem.berryGY - petItem.screenY() - height * 0.85)
+        width: 11 * root.petScale
+        height: 11 * root.petScale
+        property real dropOffset: 0
+
+        onVisibleChanged: {
+            if (visible) berryDropAnim.restart();
+        }
+
+        NumberAnimation {
+            id: berryDropAnim
+            target: droppedBerry
+            property: "dropOffset"
+            from: -22
+            to: 0
+            duration: 340
+            easing.type: Easing.OutBounce
+        }
+
+        Rectangle {
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.bottom: parent.bottom
+            width: parent.width * 0.72
+            height: Math.max(3, parent.height * 0.24)
+            radius: height * 0.5
+            color: Qt.rgba(0, 0, 0, 0.28)
+        }
+
+        Image {
+            anchors.horizontalCenter: parent.horizontalCenter
+            y: droppedBerry.dropOffset
+            width: parent.width
+            height: parent.height
+            smooth: false
+            source: Qt.resolvedUrl("../assets/sanctuary/items/oran_berry.png")
+        }
+    }
+
     Pet {
         id: petItem
         x: petItem.worldX

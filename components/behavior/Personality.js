@@ -183,8 +183,9 @@ function shiftRecent(recentDrift, key, delta) {
     return next;
 }
 
-function consolidateCore(coreDrift, recentDrift, episodeSignals, maturity) {
+function consolidateCore(coreDrift, recentDrift, episodeSignals, maturity, batchWeight) {
     var rate = plasticityRate(maturity);
+    var bw = batchWeight !== undefined ? clamp(batchWeight, 0.15, 1.0) : 1.0;
     var nextCore = Object.assign({}, coreDrift || {});
     var nextRecent = Object.assign({}, recentDrift || {});
 
@@ -195,7 +196,7 @@ function consolidateCore(coreDrift, recentDrift, episodeSignals, maturity) {
         var delta = (sig + carry) * rate;
         var cur = nextCore[k] || 0;
         // Homeostatic pull preserves innate identity while letting sustained lifestyle differences stick.
-        var homeo = -cur * 0.062;
+        var homeo = -cur * 0.038 * rate * bw;
         var updated = clamp(cur + delta + homeo, -CORE_BOUND, CORE_BOUND);
         if (Math.abs(updated) < 0.003) delete nextCore[k];
         else nextCore[k] = Math.round(updated * 10000) / 10000;

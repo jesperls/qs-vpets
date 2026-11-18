@@ -72,6 +72,12 @@ function recordEpisode(pet, type, opts) {
         note: o.note || ""
     };
     pet.episodes.push(ep);
+    if (!pet.lifetimeCounts && ("lifetimeCounts" in pet || !pet.petWindow)) {
+        pet.lifetimeCounts = ({});
+    }
+    if (pet.lifetimeCounts) {
+        pet.lifetimeCounts[type] = (pet.lifetimeCounts[type] || 0) + 1;
+    }
     if (pet.episodes.length > EPISODES_LIMIT) {
         var dropIdx = 0;
         for (var i = 0; i < pet.episodes.length - 1; i++) {
@@ -98,6 +104,15 @@ function recent(pet, type, withinMs) {
 }
 
 function justWokeUp(pet) { return !!recent(pet, "well_rested", 22000); }
+
+function unconsolidatedCount(pet) {
+    if (!pet.episodes) return 0;
+    var n = 0;
+    for (var i = 0; i < pet.episodes.length; i++) {
+        if (!pet.episodes[i].consolidated) n++;
+    }
+    return n;
+}
 
 function addJournalEntry(pet, text, kind) {
     if (!pet.journal) pet.journal = [];
@@ -132,7 +147,25 @@ function consolidateSleep(pet) {
         quirkInc[k] = (quirkInc[k] || 0) + v * Personality.quirkAffinity(pet.basePersonality, k);
     }
 
+    var now = _now(pet);
     var dreamCandidate = batch[0];
+    var totalDreamW = 0;
+    var dreamWeights = [];
+    var dreamPoolLen = Math.min(6, batch.length);
+    for (var dw = 0; dw < dreamPoolLen; dw++) {
+        var dep = batch[dw];
+        var recBoost = (now - (dep.time || 0)) < 3600000 ? 0.25 : 0;
+        var w = 0.25 + (dep.salience || 0.3) * 0.75 + recBoost;
+        dreamWeights.push(w);
+        totalDreamW += w;
+    }
+    if (totalDreamW > 0) {
+        var pickR = Math.random() * totalDreamW;
+        for (var dp = 0; dp < dreamPoolLen; dp++) {
+            pickR -= dreamWeights[dp];
+            if (pickR <= 0) { dreamCandidate = batch[dp]; break; }
+        }
+    }
     var positiveCount = 0;
     var negativeCount = 0;
 
@@ -268,12 +301,12 @@ function consolidateSleep(pet) {
             signals.sleepiness += 0.005;
             signals.composure += 0.006;
             bumpQuirk("cozy_hermit", 0.075);
-            if (pet.personality.sleepiness > 0.52) bumpQuirk("daydreamer", 0.04);
+            if (pet.personality.sleepiness > 0.58) bumpQuirk("daydreamer", 0.038);
             break;
         case "resting":
             signals.sleepiness += 0.003;
             signals.energy -= 0.002;
-            if (pet.personality.sleepiness > 0.56) bumpQuirk("daydreamer", 0.045);
+            if (pet.personality.sleepiness > 0.60) bumpQuirk("daydreamer", 0.032);
             if (pet.personality.patience > 0.62 && pet.personality.energy < 0.44) bumpQuirk("cozy_hermit", 0.04);
             break;
         case "well_rested":
@@ -281,7 +314,7 @@ function consolidateSleep(pet) {
             signals.patience += 0.003;
             signals.sleepiness += 0.003;
             signals.energy -= 0.002;
-            if (pet.personality.sleepiness > 0.50) bumpQuirk("daydreamer", 0.065);
+            if (pet.personality.sleepiness > 0.58) bumpQuirk("daydreamer", 0.048);
             break;
         case "zoomies":
         case "played_solo":
@@ -331,8 +364,9 @@ function consolidateSleep(pet) {
     }
 
     var prevQuirks = (pet.quirks || []).slice();
+    var batchWeight = Math.min(1, batch.length / 8);
     var consolidated = Personality.consolidateCore(
-        pet.coreDrift, pet.recentDrift, signals, pet.maturity
+        pet.coreDrift, pet.recentDrift, signals, pet.maturity, batchWeight
     );
     pet.coreDrift = consolidated.core;
     pet.recentDrift = consolidated.recent;
@@ -516,7 +550,8 @@ function recordPlaceAffect(pet, valence) {
     var gx = Util.petGX(pet), gy = Util.petGY(pet);
     var key = _cellKey(gx, gy, PLACE_CELL_SIZE);
     var e = pet.placeMemory[key] || { affect: 0, visits: 0, lastVisit: 0, gx: Math.round(gx), gy: Math.round(gy) };
-    var weight = Math.min(0.32, 1.0 / (e.visits + 2));
+    var baseWeight = Math.min(0.32, 1.0 / (e.visits + 2));
+    var weight = valence < -0.15 ? Math.min(0.46, baseWeight * 1.45) : baseWeight;
     e.affect = Math.max(-1, Math.min(1, e.affect * (1 - weight) + valence * weight));
     e.gx = Math.round((e.gx !== undefined ? e.gx : gx) * (1 - weight) + gx * weight);
     e.gy = Math.round((e.gy !== undefined ? e.gy : gy) * (1 - weight) + gy * weight);

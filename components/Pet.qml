@@ -88,7 +88,19 @@ Item {
     property real comfortDrive: Persist.SOUL_DEFAULTS.comfortDrive
     property real playDrive: Persist.SOUL_DEFAULTS.playDrive
     property real alertness: Persist.SOUL_DEFAULTS.alertness
+    property real arousal: Persist.SOUL_DEFAULTS.arousal
+    property real sleepInertia: Persist.SOUL_DEFAULTS.sleepInertia
     property real boredom: Persist.SOUL_DEFAULTS.boredom
+    property real _careSatiation: 0
+    property bool _attentiveRest: false
+    property var _habituation: ({})
+    property var lifetimeCounts: ({})
+    property bool berryPresent: false
+    property real berryGX: 0
+    property real berryGY: 0
+    property double berryUntil: 0
+    property double _mealUntil: 0
+    property int _stuffedRefusals: 0
 
     property var thoughts: []
     property var episodes: []
@@ -241,12 +253,28 @@ Item {
     }
 
     function enterState(s: string): void {
-        if (state_ === s && SpriteSheet.isLoopingState(s)) return;
+        Drives.noteActivityState(root, s);
+        if (state_ === s && SpriteSheet.isLoopingState(s)) {
+            _attentiveRest = false;
+            planBeatTimer.stop();
+            actionFallbackTimer.stop();
+            fidgetRevert.stop();
+            if (spriteAnim.currentState !== s) spriteAnim.setState(s);
+            if (!Plans.hasActivePlan(root)) {
+                if (s === "idle" || s === "perch") {
+                    restartIdle(1.0);
+                } else if (s === "loaf" || s === "laying" || s === "sit" || s === "deepsleep") {
+                    sitTimer.interval = 65000 + Math.random() * 85000;
+                    sitTimer.restart();
+                }
+            }
+            return;
+        }
         const wasMoving = state_ === "walk" || state_ === "wander" || state_ === "zoomies";
         const wasResting = state_ === "loaf" || state_ === "laying" || state_ === "sit" || state_ === "deepsleep";
         const nextResting = s === "loaf" || s === "laying" || s === "sit" || s === "deepsleep";
         if (wasResting && !nextResting) {
-            if (_restEnteredMs > 0 && (Date.now() - _restEnteredMs) >= 25000) {
+            if (_restEnteredMs > 0 && (Date.now() - _restEnteredMs) >= 25000 && !_attentiveRest) {
                 PetManager.recordVacatedWarmSpot(root, _restEnteredGX, _restEnteredGY);
             }
             _restEnteredMs = 0;
@@ -255,11 +283,14 @@ Item {
             _restEnteredGX = screenX() + worldX;
             _restEnteredGY = screenY() + worldY;
         }
+        _attentiveRest = false;
         _stopAllTimers();
         if (s === "drag") {
             onJourney = false;
             _retiringToPen = false;
             _pendingReactions = [];
+            berryPresent = false;
+            berryUntil = 0;
             retireSafetyTimer.stop();
             Plans.clearPlan(root);
         } else if (s !== "perch") {
@@ -373,6 +404,8 @@ Item {
         zoomiesTimer.stop();
         zoomieStumbleTimer.stop();
         fidgetRevert.stop();
+        wakeDelayTimer.stop();
+        yawnCatchTimer.stop();
     }
 
     function cancelRetireIfInterrupted(): void {
@@ -416,6 +449,8 @@ Item {
             wakeDelayTimer.stop();
             yawnCatchTimer.stop();
             _pendingReactions = [];
+            berryPresent = false;
+            berryUntil = 0;
             if (activePlan) Plans.clearPlan(root);
             if (state_ === "walk" || state_ === "wander" || state_ === "zoomies" || state_ === "airborne") {
                 onJourney = false;
@@ -536,13 +571,13 @@ Item {
         running: root.activeOnDesktop
             && (root.state_ === "idle" || (root.state_ === "perch" && !root._perchRiding && !root._perchStrolling))
             && !fidgetRevert.running
+            && !planBeatTimer.running
         repeat: true
         onTriggered: {
+            if (Plans.hasActivePlan(root) || planBeatTimer.running) return;
             const act = Gestures.idleMicroAction(root);
             if (act) {
-                if (act.kind === "loaf" && !planBeatTimer.running && root.state_ === "idle") {
-                    root.enterState("loaf");
-                } else if (act.kind === "potter" && !planBeatTimer.running && root.state_ === "idle") {
+                if (act.kind === "potter" && root.state_ === "idle") {
                     root.startPotter(act.angle, act.durationMs);
                 } else if (act.kind === "ledge_shift" && root.state_ === "perch") {
                     root._perchTargetRelX = act.targetRelX;
@@ -628,11 +663,23 @@ Item {
         }
     }
 
+    Timer {
+        interval: 250
+        repeat: true
+        running: root.berryPresent
+        onTriggered: {
+            if (root.berryUntil > 0 && Date.now() >= root.berryUntil) {
+                root.berryPresent = false;
+                root.berryUntil = 0;
+            }
+        }
+    }
+
     property double _lastMetabolism: Date.now()
     property int _metabolismTicks: 0
     Timer {
         interval: 5000
-        running: root.activeOnDesktop
+        running: !PetManager.hidden
         repeat: true
         onRunningChanged: {
             if (running) root._lastMetabolism = Date.now();
@@ -653,6 +700,7 @@ Item {
             if (++root._metabolismTicks % 6 === 0) {
                 Memory.decayMemories(root);
             }
+            if (!root.activeOnDesktop) return;
             if (root.state_ === "idle" && !idleTimer.running && !planBeatTimer.running) {
                 root.restartIdle(0.6);
             } else if (root.state_ === "walk" && root.onJourney && root._journeyBeganMs > 0
@@ -664,16 +712,10 @@ Item {
         Component.onCompleted: interval = 4600 + Math.random() * 800
     }
 
-    Timer {
-        interval: 15 * 60000
-        running: root.activeOnDesktop
-        repeat: true
-        onTriggered: Brain.reflect(root)
-    }
-
     readonly property real targetSpeed: {
+        const inertiaScale = 1 - Math.min(0.30, root.sleepInertia * 0.35);
         if (state_ === "walk") {
-            let spd = Config.walkSpeed * SpeciesProfile.gaitMultiplier(root, gait);
+            let spd = Config.walkSpeed * SpeciesProfile.gaitMultiplier(root, gait) * inertiaScale;
             if (onJourney) {
                 const rem = Math.hypot((screenX() + worldX) - targetGX, (screenY() + worldY) - targetGY);
                 if (rem < 84) spd *= Math.max(0.28, rem / 84);
@@ -681,7 +723,7 @@ Item {
             return spd;
         }
         if (state_ === "wander") {
-            return Config.walkSpeed * SpeciesProfile.gaitMultiplier(root, "amble") * 0.72;
+            return Config.walkSpeed * SpeciesProfile.gaitMultiplier(root, "amble") * 0.72 * inertiaScale;
         }
         if (state_ === "zoomies") {
             return Config.walkSpeed * SpeciesProfile.gaitMultiplier(root, "scamper");
@@ -702,7 +744,7 @@ Item {
             return;
         }
         if (targetSpeed <= 0) {
-            _liveSpeed = 0;
+            _liveSpeed = _liveSpeed > 1 ? _liveSpeed * Math.exp(-dt * 14) : 0;
             return;
         }
 
@@ -754,6 +796,10 @@ Item {
     function onStroked(): void {
         spriteAnim.triggerSquash(1.10, 0.91);
         Brain.onEvent(root, "stroked", null, Nav);
+        if (!activeOnDesktop) {
+            _stopAllTimers();
+            if (!Util.isRestingState(state_) && state_ !== "perch") state_ = "idle";
+        }
     }
     function onClicked(): void {
         spriteAnim.triggerSquash(1.06, 0.95);
@@ -762,10 +808,20 @@ Item {
     function onFed(): void {
         spriteAnim.triggerSquash(1.10, 0.91);
         Brain.onEvent(root, "fed", null, Nav);
+        if (!activeOnDesktop) {
+            Plans.clearPlan(root);
+            _stopAllTimers();
+            state_ = "idle";
+        }
     }
     function onPlayTriggered(): void {
         spriteAnim.triggerSquash(0.92, 1.09);
         Brain.onEvent(root, "play_triggered", null, Nav);
+        if (!activeOnDesktop) {
+            Plans.clearPlan(root);
+            _stopAllTimers();
+            state_ = "idle";
+        }
     }
     function onWindowEvent(cls: string): void {
         const wp = WindowTracker.activeWindowPos;
@@ -835,6 +891,7 @@ Item {
     }
 
     function summonToCursor(): void {
+        if (PetManager.penVisible) PetManager.closePen();
         const travelStep = InputTracker.cursorKnown
             ? { kind: "travel", gait: "trot", label: "Trotting to cursor", dynamic: "cursor", offsetX: 0, offsetY: 0 }
             : { kind: "travel", gait: "trot", label: "Trotting to center", gx: screenX() + (screenW() - width) * 0.5, gy: screenY() + (screenH() - height) * 0.5 };
@@ -853,6 +910,18 @@ Item {
 
     function socialEvent(kind: string, fromPet: var, extra): void {
         const payload = Object.assign({ fromPet: fromPet }, extra || {});
+        const ambientBystander = kind === "friend_arrived" || kind === "friend_displaced"
+            || kind === "peer_pampered" || kind === "group_chase" || kind === "group_duet"
+            || kind === "group_spar" || kind === "alarm_ripple";
+        if (ambientBystander && activeOnDesktop) {
+            _queueAmbientEvent(
+                "pet_" + kind,
+                payload,
+                fromPet ? Util.petGX(fromPet) : null,
+                fromPet ? Util.petGY(fromPet) : null
+            );
+            return;
+        }
         Brain.onEvent(root, "pet_" + kind, payload, Nav);
     }
 

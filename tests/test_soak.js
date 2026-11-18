@@ -165,7 +165,10 @@ function createSoakPet(world, id, name, species, preset, startX, startY) {
         curWalkStreakSec: 0,
         maxAwakeIdleStreakSec: 0,
         curAwakeIdleStreakSec: 0,
-        maxPlanAgeSec: 0
+        maxPlanAgeSec: 0,
+        lastKineticMs: 0,
+        spinToSleepJank: 0,
+        sleepToSprintJank: 0
     };
 
     const raw = {
@@ -239,9 +242,21 @@ function createSoakPet(world, id, name, species, preset, startX, startY) {
         comfortDrive: 0.05,
         playDrive: 0.30,
         alertness: 0.74,
+        arousal: 0.30,
+        sleepInertia: 0,
         boredom: 0.08,
+        _careSatiation: 0,
+        _attentiveRest: false,
+        _habituation: {},
+        berryPresent: false,
+        berryGX: 0,
+        berryGY: 0,
+        berryUntil: 0,
+        _mealUntil: 0,
+        _stuffedRefusals: 0,
         thoughts: [],
         episodes: [],
+        lifetimeCounts: {},
         journal: [],
         lastThoughtText: "Observing the desktop",
         lastThoughtTime: 0,
@@ -361,11 +376,41 @@ function createSoakPet(world, id, name, species, preset, startX, startY) {
             timers.wanderEnd = world.now + Math.max(650, durationMs);
         },
         enterState(s) {
-            if (this.state_ === s && SpriteSheet.isLoopingState(s)) return;
-            const wasResting = Util.isRestingState(this.state_);
+            Drives.noteActivityState(proxy, s);
+            if (this.state_ === s && SpriteSheet.isLoopingState(s)) {
+                this._attentiveRest = false;
+                timers.planBeat = 0;
+                timers.action = 0;
+                timers.fidgetRevert = 0;
+                if (this.sprite.currentState !== s) this.sprite.setState(s);
+                if (!Plans.hasActivePlan(proxy)) {
+                    if (s === "idle" || s === "perch") this.restartIdle(1.0);
+                    else if (Util.isRestingState(s)) timers.sit = world.now + 65000 + Math.random() * 85000;
+                }
+                return;
+            }
+            const prev = this.state_;
+            const prevSprite = this.sprite.currentState;
+            const wasResting = Util.isRestingState(prev);
             const nextResting = Util.isRestingState(s);
+            const spinOrHigh = prev === "rotate" || prev === "twirl" || prev === "dance" || prev === "zoomies"
+                || prevSprite === "rotate" || prevSprite === "twirl" || prevSprite === "dance";
+            if (s === "rotate" || s === "twirl" || s === "dance" || s === "zoomies") {
+                stats.lastKineticMs = world.now;
+            }
+            const enteringTrueSleep = nextResting
+                && !(this.activePlan && this.activePlan.steps && this.activePlan.steps[this.activePlan.stepIndex]
+                    && this.activePlan.steps[this.activePlan.stepIndex].kind === "loaf_watch");
+            if (spinOrHigh && nextResting) {
+                stats.spinToSleepJank++;
+            } else if (enteringTrueSleep && stats.lastKineticMs > 0 && (world.now - stats.lastKineticMs) < 12000) {
+                stats.spinToSleepJank++;
+            }
+            if (wasResting && !this._attentiveRest && (s === "walk" || s === "zoomies")) {
+                stats.sleepToSprintJank++;
+            }
             if (wasResting && !nextResting) {
-                if (this._restEnteredMs > 0 && (world.now - this._restEnteredMs) >= 25000) {
+                if (this._restEnteredMs > 0 && (world.now - this._restEnteredMs) >= 25000 && !this._attentiveRest) {
                     world.petManager.recordVacatedWarmSpot(proxy, this._restEnteredGX, this._restEnteredGY);
                 }
                 this._restEnteredMs = 0;
@@ -374,6 +419,7 @@ function createSoakPet(world, id, name, species, preset, startX, startY) {
                 this._restEnteredGX = this.screenX() + this.worldX;
                 this._restEnteredGY = this.screenY() + this.worldY;
             }
+            this._attentiveRest = false;
             this._stopTimers();
             if (s !== "perch") {
                 this.perchedWindowAddr = "";
@@ -617,15 +663,16 @@ const SOCIAL_PLANS = new Set([
             if (world.now >= t.fidget) {
                 const hold0 = SpeciesProfile.standSpec(p.petData.sprite).mode === "hold0";
                 t.fidget = world.now + (hold0 ? (6500 + Math.random() * 5200) : (10000 + Math.random() * 11000));
-                if ((p.state_ === "idle" || (p.state_ === "perch" && !p._perchStrolling)) && t.fidgetRevert === 0) {
+                if ((p.state_ === "idle" || (p.state_ === "perch" && !p._perchStrolling))
+                        && t.fidgetRevert === 0 && t.planBeat === 0 && !Plans.hasActivePlan(p)) {
                     const act = Gestures.idleMicroAction(p);
                     if (act) {
-                        if (act.kind === "loaf" && t.planBeat === 0 && p.state_ === "idle") p.enterState("loaf");
-                        else if (act.kind === "potter" && t.planBeat === 0 && p.state_ === "idle") p.startPotter(act.angle, act.durationMs);
+                        if (act.kind === "potter" && p.state_ === "idle") p.startPotter(act.angle, act.durationMs);
                         else if (act.kind === "ledge_shift" && p.state_ === "perch") {
                             p._perchTargetRelX = act.targetRelX;
                             p._perchStrolling = true;
                         } else if (act.kind === "fidget") {
+                            assert.ok(act.state !== "rotate" && act.state !== "twirl", `Fidget never spins 360 degrees (${act.state})`);
                             p.sprite.setState(act.state);
                             t.fidgetRevert = world.now + 950;
                         }
@@ -653,9 +700,6 @@ const SOCIAL_PLANS = new Set([
                     p.onJourney = false;
                     Brain.onBlocked(p);
                 }
-            }
-            if (sec % 900 === 0) {
-                Brain.reflect(p);
             }
 
             // Record telemetry & assert strict invariants every single second
@@ -705,7 +749,7 @@ const SOCIAL_PLANS = new Set([
             assert.ok(Number.isFinite(p.worldX) && p.worldX >= 0 && p.worldX <= scr.width - p.width, `${p.petData.name} worldX in bounds`);
             assert.ok(Number.isFinite(p.worldY) && p.worldY >= 0 && p.worldY <= scr.height - p.height, `${p.petData.name} worldY in bounds`);
             assert.ok(Number.isFinite(p.altitude) && p.altitude >= 0 && p.altitude < 1200, `${p.petData.name} altitude valid`);
-            for (const k of ["happiness", "mood", "restDrive", "exploreDrive", "socialDrive", "comfortDrive", "playDrive", "alertness", "boredom", "bond", "trust"]) {
+            for (const k of ["happiness", "mood", "restDrive", "exploreDrive", "socialDrive", "comfortDrive", "playDrive", "alertness", "arousal", "sleepInertia", "boredom", "bond", "trust"]) {
                 assert.ok(Number.isFinite(p[k]) && p[k] >= 0 && p[k] <= 1, `${p.petData.name}.${k} bounded: ${p[k]}`);
             }
         }
@@ -736,6 +780,8 @@ const SOCIAL_PLANS = new Set([
         const st = p._stats;
         const idlePct = ((st.stateSec.idle || 0) / totalSteps) * 100;
         const unplannedIdlePct = (st.unplannedIdleSec / totalSteps) * 100;
+        assert.equal(st.spinToSleepJank, 0, `${p.petData.name} had zero spin/dance/zoomies -> sleep snaps`);
+        assert.equal(st.sleepToSprintJank, 0, `${p.petData.name} had zero sleep -> walk/zoomies snaps without waking`);
         assert.ok(st.maxWalkStreakSec <= 35, `${p.petData.name} never got stuck walking (${st.maxWalkStreakSec}s)`);
         assert.ok(st.maxPlanAgeSec <= 260, `${p.petData.name} never got stuck in an expired plan (${st.maxPlanAgeSec}s)`);
         assert.ok(st.maxAwakeIdleStreakSec <= 240, `${p.petData.name} never stagnated wide-awake in idle (${st.maxAwakeIdleStreakSec}s)`);

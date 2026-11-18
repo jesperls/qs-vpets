@@ -159,7 +159,36 @@ for (const species of SpriteSheet.SPECIES_LIST) {
             `${species} state '${calmState}' must not fall back to ${resolved}`
         );
     }
+
+    for (const calmGesture of prof.calmGestures) {
+        assert.ok(
+            calmGesture !== "rotate" && calmGesture !== "twirl",
+            `${species} calmGestures must not spin 360 degrees ('${calmGesture}')`
+        );
+    }
+    for (const settleGesture of prof.settleGestures) {
+        assert.ok(
+            settleGesture !== "rotate" && settleGesture !== "twirl",
+            `${species} settleGestures must not spin 360 degrees ('${settleGesture}')`
+        );
+    }
+    assert.ok(
+        prof.wakeState !== "rotate" && prof.wakeState !== "twirl",
+        `${species} wakeState must not spin 360 degrees ('${prof.wakeState}')`
+    );
 }
+
+assert.ok(
+    !SpriteSheet.FALLBACK_CHAINS.shake.includes("Rotate"),
+    "shake fallback chain must not fall back to 360-degree Rotate"
+);
+assert.equal(SpriteSheet.resolveClip("sitDown", eeveeAnims, {}, "eevee").fixedDirRow, -1, "sitDown preserves current direction row");
+assert.equal(SpriteSheet.resolveClip("lookUp", eeveeAnims, {}, "eevee").fixedDirRow, -1, "lookUp preserves current direction row");
+assert.equal(SpriteSheet.resolveClip("deepsleep", eeveeAnims, {}, "eevee").fixedDirRow, -1, "deepsleep preserves current direction row");
+assert.equal(SpriteSheet.resolveClip("sitNorth", eeveeAnims, {}, "eevee").fixedDirRow, 4, "sitNorth faces North row 4");
+assert.equal(SpriteSheet.resolveClip("lookUpNorth", eeveeAnims, {}, "eevee").fixedDirRow, 4, "lookUpNorth faces North row 4");
+SpriteSheet.storeDirCache("test://eevee", { anims: eeveeAnims, shadowSize: 2 });
+assert.equal(SpriteSheet.cachedForDir("test://eevee").anims, eeveeAnims, "SpriteSheet caches parsed AnimData by dir");
 
 assert.equal(SpriteSheet.angleToDirectionRow(0), 2);
 assert.equal(SpriteSheet.angleToDirectionRow(Math.PI / 2), 0);

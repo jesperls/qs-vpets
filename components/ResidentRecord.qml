@@ -55,6 +55,8 @@ Item {
     property real socialDrive: Persist.SOUL_DEFAULTS.socialDrive
     property real playDrive: Persist.SOUL_DEFAULTS.playDrive
     property real alertness: Persist.SOUL_DEFAULTS.alertness
+    property real arousal: Persist.SOUL_DEFAULTS.arousal
+    property real sleepInertia: Persist.SOUL_DEFAULTS.sleepInertia
     property real ageSeconds: 0
     property real maturity: 0
     property real homeGX: 0
@@ -130,6 +132,8 @@ Item {
         socialDrive = stateObj.socialDrive ?? 0.26;
         playDrive = stateObj.playDrive ?? 0.22;
         alertness = stateObj.alertness ?? 0.68;
+        arousal = stateObj.arousal ?? 0.30;
+        sleepInertia = stateObj.sleepInertia ?? 0;
         ageSeconds = stateObj.ageSeconds ?? 0;
         maturity = stateObj.maturity ?? 0;
         homeGX = stateObj.homeGX ?? 0;
@@ -178,6 +182,8 @@ Item {
         stateObj.comfortDrive = pet.comfortDrive;
         stateObj.playDrive = pet.playDrive;
         stateObj.alertness = pet.alertness;
+        stateObj.arousal = pet.arousal ?? 0.30;
+        stateObj.sleepInertia = pet.sleepInertia ?? 0;
         stateObj.boredom = pet.boredom;
         if (pet.basePersonality && typeof pet.basePersonality === "object") {
             stateObj.basePersonality = Object.assign({}, pet.basePersonality);
@@ -189,6 +195,7 @@ Item {
         stateObj.archetype = pet.archetype || "";
         stateObj.thoughts = (pet.thoughts || []).slice(-60);
         stateObj.episodes = (pet.episodes || []).slice(-120);
+        stateObj.lifetimeCounts = Object.assign({}, pet.lifetimeCounts || {});
         stateObj.journal = (pet.journal || []).slice(-24);
         stateObj.visitedCells = Object.assign({}, pet.visitedCells || {});
         stateObj.windowPrefs = Object.assign({}, pet.windowPrefs || {});
@@ -219,6 +226,9 @@ Item {
     function markEnteredPen(note: string): void {
         if (!stateObj || _released) return;
         stateObj.enteredPenAt = Date.now();
+        stateObj.penState = stateObj.restDrive > 0.52
+            ? "deepsleep"
+            : (stateObj.restDrive > 0.30 ? "loaf" : "idle");
         if (note) {
             Memory.thinkAloud(stateObj, "enter_pen", note, { minGapMs: 3000 });
             stateObj.sanctuaryActivity = note;
@@ -246,13 +256,14 @@ Item {
         saveNow();
     }
 
-    function feedInPen(): void {
-        if (!stateObj || _released) return;
-        Sanctuary.feedInPen(stateObj);
+    function feedInPen(): string {
+        if (!stateObj || _released) return "busy";
+        const res = Sanctuary.feedInPen(stateObj);
         hasSavedState = true;
         dirty = true;
         refreshView();
         saveNow();
+        return res || "ate";
     }
 
     function playInPen(): void {

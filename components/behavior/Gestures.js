@@ -2,6 +2,7 @@
 
 .import "../SpeciesProfile.js" as SpeciesProfile
 .import "../SpriteSheet.js" as SpriteSheet
+.import "Personality.js" as Personality
 .import "Perception.js" as Perception
 
 var HIDE_STATES = ["hide", "sink", "cringe", "trip"];
@@ -28,9 +29,13 @@ function ambientGlanceRow(pet, currentRow) {
         return toRow(Math.atan2(perc.cursor.gy - perc.petGY, perc.cursor.gx - perc.petGX));
     }
     if (perc.nearest && perc.nearest.sameScreen && perc.nearest.dist < 140) {
-        if (Math.random() < (perc.nearest.affinity < 0.40 ? 0.72 : 0.45)) {
+        if (perc.nearest.affinity < 0.40 && Math.random() < 0.72) {
             var awayPeer = Math.atan2(perc.petGY - perc.nearest.gy, perc.petGX - perc.nearest.gx) + (Math.random() - 0.5) * 0.9;
             return toRow(awayPeer);
+        }
+        if (perc.nearest.affinity >= 0.58 && Math.random() < 0.38) {
+            var nearFriend = Math.atan2(perc.nearest.gy - perc.petGY, perc.nearest.gx - perc.petGX) + (Math.random() - 0.5) * 0.7;
+            return toRow(nearFriend);
         }
     } else if (perc.nearest && perc.nearest.sameScreen && perc.nearest.dist < 480 && perc.nearest.affinity >= 0.38) {
         if (perc.nearest.attending && Math.random() < 0.18) {
@@ -83,18 +88,19 @@ function fidget(pet) {
 
     for (var i = 0; i < calm.length; i++) {
         if (SpriteSheet.hasDirectAnim(calm[i], animData, actionMap, sp)) {
-            pool.push(calm[i], calm[i], calm[i], calm[i]);
+            pool.push(calm[i], calm[i], calm[i]);
         }
     }
-    if (SpriteSheet.hasDirectAnim("rotate", animData, actionMap, sp)) {
-        pool.push("rotate");
+    if (Personality.hasQuirk(pet, "daydreamer")
+            && ((pet.sleepInertia || 0) > 0.15 || (pet.restDrive || 0) > 0.45)
+            && SpriteSheet.hasDirectAnim("deepBreath", animData, actionMap, sp)) {
+        pool.push("deepBreath");
     }
     if (pool.length === 0) return null;
     return pool[Math.floor(Math.random() * pool.length)];
 }
 
 function idleMicroAction(pet) {
-    var p = pet.personality;
     var perc = Perception.perceive(pet);
     if (pet.state_ === "perch" && !pet._perchRiding && Math.random() < 0.36) {
         var curRel = pet._perchRelX !== undefined ? pet._perchRelX : 0.5;
@@ -112,7 +118,9 @@ function idleMicroAction(pet) {
         }
     }
     if (pet.state_ === "idle" && perc.nearest && perc.nearest.sameScreen
-            && (perc.nearest.dist < 115 || (perc.nearest.dist < 190 && perc.nearest.affinity < 0.38))
+            && (perc.nearest.dist < 64
+                || (perc.nearest.dist < 125 && perc.nearest.affinity < 0.48)
+                || (perc.nearest.dist < 190 && perc.nearest.affinity < 0.36))
             && Math.random() < 0.58) {
         var away = Math.atan2(perc.petGY - perc.nearest.gy, perc.petGX - perc.nearest.gx) + (Math.random() - 0.5) * 1.0;
         return {
@@ -122,11 +130,9 @@ function idleMicroAction(pet) {
         };
     }
 
-    if (pet.state_ === "idle" && (p.sleepiness > 0.58 || pet.restDrive > 0.42) && Math.random() < 0.14) {
-        return { kind: "loaf" };
-    }
-
-    if (pet.state_ === "idle" && pet.alertness > 0.22 && Math.random() < 0.26) {
+    if (pet.state_ === "idle" && pet.alertness > 0.22
+            && (pet.restDrive || 0) < 0.68 && (pet.sleepInertia || 0) < 0.45
+            && Math.random() < 0.26) {
         var sw = pet.screenW ? pet.screenW() : 1920;
         var sh = pet.screenH ? pet.screenH() : 1080;
         var cx = sw * 0.5, cy = sh * 0.55;
@@ -178,6 +184,19 @@ function pickAvailable(pet, states) {
         for (var i = 0; i < states.length; i++) {
             if (SpriteSheet.hasDirectAnim(states[i], animData, actionMap, sp)) {
                 available.push(states[i]);
+            }
+        }
+        if (available.length > 1 && pet.sprite && pet.sprite._dirRow !== undefined) {
+            var curRow = pet.sprite._dirRow;
+            var facingNorthish = curRow === 3 || curRow === 4 || curRow === 5;
+            if (!facingNorthish) {
+                var dirSafe = [];
+                for (var j = 0; j < available.length; j++) {
+                    if (available[j] !== "lookUp" && available[j] !== "sitDown") {
+                        dirSafe.push(available[j]);
+                    }
+                }
+                if (dirSafe.length > 0) available = dirSafe;
             }
         }
         if (available.length > 0) return available[Math.floor(Math.random() * available.length)];

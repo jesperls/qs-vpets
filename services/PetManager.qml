@@ -388,7 +388,9 @@ Singleton {
                 bestFriend = p;
             }
         }
-        if (bestFriend && bestFriend.greetSanctuaryArrival) {
+        if (bestFriend && bestFriend.socialEvent) {
+            bestFriend.socialEvent("friend_arrived", arrivingPet);
+        } else if (bestFriend && bestFriend.greetSanctuaryArrival) {
             bestFriend.greetSanctuaryArrival(arrivingPet);
         }
     }
@@ -485,7 +487,9 @@ Singleton {
                 best = p;
             }
         }
-        if (best && best.checkOnDisplacedFriend) {
+        if (best && best.socialEvent) {
+            best.socialEvent("friend_displaced", refugeePet);
+        } else if (best && best.checkOnDisplacedFriend) {
             best.checkOnDisplacedFriend(refugeePet);
         }
     }
@@ -502,7 +506,8 @@ Singleton {
             if (!o || o === lp || !o.petData || o._retiringToPen) continue;
             if ((o.petData.roamMode || "auto") !== "auto") continue;
             if (o.screenX() !== sx || o.screenY() !== sy) continue;
-            if (o.restDrive < 0.46 || o.state_ === "drag" || o.state_ === "airborne") continue;
+            if (o.restDrive < 0.46 || o.state_ === "drag" || o.state_ === "airborne"
+                    || o.state_ === "deepsleep" || o.activePlan) continue;
             const rel = Memory.relationWith(lp, o.petData.name, o.personality, o.petData.sprite);
             if (rel.affinity >= bestAff && rel.familiarity >= 0.30) {
                 bestAff = rel.affinity;

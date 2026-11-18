@@ -553,7 +553,8 @@ function walkArrived(pet) {
         Brain.onArrived(pet, _navHandle());
         return;
     }
-    _setAngle(pet, Math.atan2(wp.gy - globalY(pet), wp.gx - globalX(pet)));
+    var desired = Math.atan2(wp.gy - globalY(pet), wp.gx - globalX(pet));
+    _setAngle(pet, _steerAngle(pet.moveAngle, desired, Math.PI * 0.45));
     pet.restartWalk();
 }
 

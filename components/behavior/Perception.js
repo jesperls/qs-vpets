@@ -81,6 +81,10 @@ function perceive(pet) {
                 watchBelowGY: watchBelowGY,
                 loafBesideGX: loafBesideGX,
                 loafBesideGY: loafBesideGY,
+                edgeDist: Math.hypot(
+                    Math.max(wp.x, Math.min(petGX, wp.x + wp.w)) - petGX,
+                    Math.max(wp.y, Math.min(petGY, wp.y + wp.h)) - petGY
+                ),
                 dist: Math.hypot(cx - petGX, cy - petGY)
             };
         }

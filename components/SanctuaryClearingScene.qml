@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import "../config"
 import "../services"
+import "SpeciesProfile.js" as SpeciesProfile
 import "ui/FriendAreas.js" as FriendAreas
 
 Item {
@@ -42,6 +43,37 @@ Item {
         void PetManager.roamingIds;
         return Config.pets.filter(p => !PetManager.isRoaming(p.id));
     }
+
+    ListModel {
+        id: campActorsModel
+    }
+
+    function _syncCampActors(): void {
+        const desired = root.campCompanions;
+        const desiredIds = {};
+        for (let i = 0; i < desired.length; i++) {
+            desiredIds[desired[i].id] = true;
+        }
+        for (let m = campActorsModel.count - 1; m >= 0; m--) {
+            const existingId = campActorsModel.get(m).petId;
+            if (!desiredIds[existingId]) {
+                campActorsModel.remove(m, 1);
+            }
+        }
+        const presentIds = {};
+        for (let m = 0; m < campActorsModel.count; m++) {
+            presentIds[campActorsModel.get(m).petId] = true;
+        }
+        for (let i = 0; i < desired.length; i++) {
+            const id = desired[i].id;
+            if (!presentIds[id]) {
+                campActorsModel.append({ petId: id });
+            }
+        }
+    }
+
+    onCampCompanionsChanged: _syncCampActors()
+    Component.onCompleted: _syncCampActors()
 
     property int animTick: 0
     property var _savedActorSpots: ({})
@@ -232,19 +264,19 @@ Item {
 
         Repeater {
             id: actorsRepeater
-            model: root.campCompanions
+            model: campActorsModel
 
             delegate: ClearingActor {
-                required property var modelData
+                required property string petId
                 required property int index
-                petConfig: modelData
+                actorId: petId
                 slotIndex: index
-                totalCount: root.campCompanions.length
+                totalCount: campActorsModel.count
                 pxScale: root.px
                 campKey: root.campId
                 bounds: root.campBounds
                 cardOpen: root.cardOpen
-                isSelected: root.cardOpen && root.selectedPetId === modelData.id
+                isSelected: root.cardOpen && root.selectedPetId === petId
                 onClickedActor: id => root.companionClicked(id)
             }
         }
@@ -314,7 +346,7 @@ Item {
     component ClearingActor: Item {
         id: actor
 
-        required property var petConfig
+        required property string actorId
         required property int slotIndex
         required property int totalCount
         required property int pxScale
@@ -325,7 +357,17 @@ Item {
 
         signal clickedActor(id: string)
 
-        readonly property string petId: petConfig.id
+        readonly property string petId: actorId
+        readonly property var petConfig: {
+            void Config.pets;
+            return Config.petById(actor.petId) ?? {
+                id: actor.petId,
+                name: actor.petId,
+                sprite: SpeciesProfile.DEFAULT_SPECIES
+            };
+        }
+        readonly property var speciesLoco: SpeciesProfile.locomotionFor(actor.petConfig.sprite)
+        readonly property real ambleMult: SpeciesProfile.gaitMultiplier({ petData: { sprite: actor.petConfig.sprite } }, "amble")
         readonly property var resRef: {
             void PetManager.residentRevision;
             return PetManager.residentFor(actor.petId);
@@ -342,7 +384,18 @@ Item {
         property real targetWorldX: 240
         property real targetWorldY: 160
         property bool walking: false
+        property real _stridePhase: 0
         property string overrideAnim: ""
+        property bool munchBerryVisible: false
+
+        onIsRestingChanged: {
+            if (isResting && walking) {
+                walking = false;
+                targetWorldX = worldX;
+                targetWorldY = worldY;
+                root._rememberSpot(campKey, petId, worldX, worldY, actorSprite._dirRow);
+            }
+        }
 
         readonly property real effMaxX: cardOpen ? bounds.cardMaxX : bounds.maxX
         readonly property real clampedWX: Math.max(bounds.minX, Math.min(bounds.maxX, worldX))
@@ -418,10 +471,18 @@ Item {
 
         function reactToCare(animState: string, emoteKind: string): void {
             actor.walking = false;
+            const sameOverride = actor.overrideAnim === animState && animState.length > 0;
             actor.overrideAnim = animState;
+            if (sameOverride) actorSprite.restartClip();
             actorSprite.setDirectionRow(0, false);
             actorSprite.triggerSquash(1.15, 0.86);
             actorBubble.showEmote(emoteKind);
+            if (animState === "eat") {
+                actor.munchBerryVisible = true;
+                actorBerryTimer.restart();
+            } else {
+                actor.munchBerryVisible = false;
+            }
             overrideResetTimer.restart();
         }
 
@@ -442,7 +503,7 @@ Item {
         }
 
         onCardOpenChanged: {
-            if (cardOpen && worldX > bounds.cardMaxX) {
+            if (cardOpen && worldX > bounds.cardMaxX + 8) {
                 const fallbackX = bounds.minX + ((slotIndex * 37) % Math.max(24, bounds.cardMaxX - bounds.minX));
                 const spot = _pickSafeSpot(fallbackX, worldY);
                 targetWorldX = spot.x;
@@ -461,6 +522,12 @@ Item {
             id: overrideResetTimer
             interval: 1650
             onTriggered: actor.overrideAnim = ""
+        }
+
+        Timer {
+            id: actorBerryTimer
+            interval: 1050
+            onTriggered: actor.munchBerryVisible = false
         }
 
         Timer {
@@ -486,26 +553,54 @@ Item {
         }
 
         Timer {
-            interval: 40
+            interval: 16
             running: actor.visible && actor.walking
             repeat: true
             onTriggered: {
+                if (actor.isResting) {
+                    actor.walking = false;
+                    return;
+                }
                 const dx = actor.targetWorldX - actor.worldX;
                 const dy = actor.targetWorldY - actor.worldY;
                 const dist = Math.hypot(dx, dy);
-                if (dist <= 1.6) {
+                if (dist <= 1.2) {
                     actor.worldX = actor.targetWorldX;
                     actor.worldY = actor.targetWorldY;
                     actor.walking = false;
-                    const settleRow = dx >= 0 ? 1 : 7;
+                    const curRow = actorSprite._dirRow;
+                    const settleRow = (curRow === 3 || curRow === 4 || curRow === 5)
+                        ? (dx >= 0 ? 1 : 7)
+                        : curRow;
                     actorSprite.setDirectionRow(settleRow, false);
                     root._rememberSpot(actor.campKey, actor.petId, actor.worldX, actor.worldY, settleRow);
                     return;
                 }
-                const step = 22 * 0.04;
-                actorSprite.setDirection(Math.atan2(dy, dx));
-                actor.worldX += (dx / dist) * step;
-                actor.worldY += (dy / dist) * step;
+                const step = 24 * actor.ambleMult * 0.016;
+                let baseAng = Math.atan2(dy, dx);
+                let nextX = actor.worldX + Math.cos(baseAng) * step;
+                let nextY = actor.worldY + Math.sin(baseAng) * step;
+                if (root._hitsPropObstacle(actor.worldX + Math.cos(baseAng) * step * 4, actor.worldY + Math.sin(baseAng) * step * 4)) {
+                    const leftAng = baseAng + Math.PI * 0.44;
+                    const rightAng = baseAng - Math.PI * 0.44;
+                    if (!root._hitsPropObstacle(actor.worldX + Math.cos(leftAng) * step * 4, actor.worldY + Math.sin(leftAng) * step * 4)) {
+                        baseAng = leftAng;
+                    } else if (!root._hitsPropObstacle(actor.worldX + Math.cos(rightAng) * step * 4, actor.worldY + Math.sin(rightAng) * step * 4)) {
+                        baseAng = rightAng;
+                    } else {
+                        actor.walking = false;
+                        actor.targetWorldX = actor.worldX;
+                        actor.targetWorldY = actor.worldY;
+                        root._rememberSpot(actor.campKey, actor.petId, actor.worldX, actor.worldY, actorSprite._dirRow);
+                        return;
+                    }
+                    nextX = actor.worldX + Math.cos(baseAng) * step;
+                    nextY = actor.worldY + Math.sin(baseAng) * step;
+                }
+                actor._stridePhase = (actor._stridePhase + 0.09) % (Math.PI * 4);
+                actorSprite.setDirection(baseAng);
+                actor.worldX = Math.max(actor.bounds.minX, Math.min(actor.effMaxX, nextX));
+                actor.worldY = Math.max(actor.bounds.minY, Math.min(actor.bounds.maxY, nextY));
             }
         }
 
@@ -528,7 +623,15 @@ Item {
             anchors.fill: parent
             speciesName: actor.petConfig.sprite
             showShadow: true
-            moveSpeed: actor.walking ? 52 : 0
+            moveSpeed: actor.walking ? (54 * actor.ambleMult) : 0
+            gaitOffsetY: {
+                if (actor.isResting) return 0;
+                const hb = actor.speciesLoco.hoverBob || 0;
+                if (hb <= 0) return 0;
+                return actor.walking
+                    ? (1.5 + Math.sin(actor._stridePhase * 0.65) * hb * 0.7)
+                    : 1.5;
+            }
             currentState: {
                 if (actor.overrideAnim.length > 0) return actor.overrideAnim;
                 if (actor.walking) return "walk";
@@ -543,8 +646,19 @@ Item {
             anchors.horizontalCenter: parent.horizontalCenter
             y: -14
             z: 10
-            sleeping: actor.isDeepSleeping
+            sleeping: actor.isDeepSleeping && !actor.walking && actor.overrideAnim.length === 0
             forceEnabled: true
+        }
+
+        Image {
+            visible: actor.munchBerryVisible
+            x: Math.round(parent.width * 0.56)
+            y: Math.round(parent.height - 16)
+            z: 9
+            width: 14
+            height: 14
+            smooth: false
+            source: Qt.resolvedUrl("../assets/sanctuary/items/oran_berry.png")
         }
 
         Rectangle {
@@ -576,11 +690,9 @@ Item {
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
             onClicked: {
-                if (!actor.isDeepSleeping) {
-                    if (actor.resRef) actor.resRef.patInPen();
+                if (!actor.isResting) {
                     actorSprite.setDirectionRow(0, false);
-                    actorSprite.triggerSquash(1.14, 0.87);
-                    actorBubble.showEmote("heart");
+                    actorSprite.triggerSquash(1.08, 0.93);
                 }
                 actor.clickedActor(actor.petId);
             }

@@ -336,9 +336,79 @@ function buildForagePlan(perc) {
         thought: "Sniffed out a berry and had a quiet snack",
         steps: [
             { kind: "travel", gait: "amble", label: "Sniffing around", gx: tx, gy: ty },
-            { kind: "act", label: "Found a berry", states: ["nod"] },
-            { kind: "act", label: "Nibbling berry", states: ["eat"] }
+            { kind: "act", label: "Found a berry", states: ["nod"], spawnForageBerry: true },
+            { kind: "eat_berry", label: "Nibbling berry", emote: "berry" }
         ]
+    };
+}
+
+function buildEatBerryPlan(pet, berrySpot, appetite) {
+    var steps = [];
+    if (berrySpot) {
+        steps.push({
+            kind: "travel",
+            gait: appetite > 0.52 ? "trot" : "amble",
+            label: "Trotting to Oran Berry",
+            gx: berrySpot.gx,
+            gy: berrySpot.gy
+        });
+        steps.push({
+            kind: "act",
+            label: "Sniffing Oran Berry",
+            states: ["head", "nod"],
+            facePoint: { gx: berrySpot.berryGX, gy: berrySpot.berryGY }
+        });
+    }
+    steps.push({
+        kind: "eat_berry",
+        label: "Munching Oran Berry",
+        emote: "berry",
+        directEmote: true,
+        facePoint: berrySpot ? { gx: berrySpot.berryGX, gy: berrySpot.berryGY } : null
+    });
+    if (appetite >= 0.45) {
+        steps.push({
+            kind: "act",
+            label: "Savoring the meal",
+            states: ["deepBreath", "pose"],
+            emote: appetite >= 0.72 ? "heart" : ""
+        });
+    }
+    return {
+        name: "eat_berry",
+        label: "Eating an Oran Berry",
+        reason: "Enjoying an Oran Berry",
+        urgency: 0.76,
+        durationMs: 18000,
+        steps: steps
+    };
+}
+
+function buildRefuseBerryPlan(berrySpot, annoyed) {
+    var fp = berrySpot ? { gx: berrySpot.berryGX, gy: berrySpot.berryGY } : null;
+    var steps = [];
+    if (!annoyed) {
+        steps.push({
+            kind: "act",
+            label: "Sniffing politely",
+            states: ["head", "nod"],
+            facePoint: fp,
+            emote: "ellipses",
+            directEmote: true
+        });
+    }
+    steps.push(annoyed
+        ? { kind: "act", label: "Too stuffed", states: ["cringe"], emote: "frustrated", directEmote: true }
+        : { kind: "face_away", label: "Turning away full" }
+    );
+    return {
+        name: "refuse_berry",
+        label: annoyed ? "Too Stuffed" : "Already Full",
+        reason: "Already well-fed",
+        urgency: 0.68,
+        durationMs: 9000,
+        keepBerryOnClear: true,
+        steps: steps
     };
 }
 
@@ -393,10 +463,10 @@ function buildWatchFullscreenPlan(corner) {
         label: "Quiet Fullscreen Watch",
         reason: "Loafing in a polite corner",
         urgency: 0.45,
-        thought: "Tucking into a quiet corner out of the way",
+        thought: "Tucked into a quiet corner out of the way",
         steps: [
             { kind: "travel", gait: "amble", label: "Moving to corner", gx: corner.gx, gy: corner.gy },
-            { kind: "rest", label: "Loafing quietly", deep: false }
+            { kind: "loaf_watch", label: "Loafing quietly", durationMs: 48000 }
         ]
     };
 }
@@ -445,24 +515,18 @@ function buildUserPlayPlan(pet) {
 }
 
 function buildZoomiesPlan(pet) {
-    var winded = (pet.restDrive || 0) > 0.50
-              || !!(pet.systemMonitor && (pet.systemMonitor.thermalWarmth || 0) > 0.56);
     var steps = [
         { kind: "zoomies", label: "Scampering around" },
-        { kind: "pant", label: "Catching breath" }
+        { kind: "pant", label: "Catching breath" },
+        { kind: "act", label: "Shaking off", states: SpeciesProfile.calmGesturesFor(pet) }
     ];
-    if (winded) {
-        steps.push({ kind: "rest", deep: false, postState: "laying", label: "Flopping flat after zoomies" });
-    } else {
-        steps.push({ kind: "act", label: "Shaking off", states: SpeciesProfile.calmGesturesFor(pet) });
-    }
     return {
         name: "zoomies",
         label: "Zoomies",
         reason: "Burst of playful zoomies",
         urgency: 0.85,
         durationMs: 28000,
-        thought: winded ? "Scampered in a burst of zoomies and flopped flat" : "Scampering in a burst of zoomies",
+        thought: "Scampered in a burst of playful zoomies",
         steps: steps
     };
 }
@@ -471,7 +535,7 @@ function buildZoomieStumblePlan(pet, nearestName) {
     var steps = [
         { kind: "act", label: "Tripped mid-sprint!", states: ["trip", "hitGround"] },
         { kind: "act", label: "Catching balance", states: ["lostBalance", "cringe"] },
-        { kind: "act", label: "Shaking it off", states: ["shake", "rotate"] }
+        { kind: "act", label: "Shaking it off", states: ["shake", "nod"] }
     ];
     if (nearestName) {
         steps.push({ kind: "act", label: "Checking if anyone saw", states: ["nod"], faceOther: true });

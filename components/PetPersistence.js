@@ -9,7 +9,7 @@ var SCHEMA = 3;
 var SOUL_DEFAULTS = {
     bond: 0.30,
     trust: 0.35,
-    satiety: 0.65,
+    satiety: 0.58,
     happiness: 0.56,
     mood: 0.56,
     restDrive: 0.14,
@@ -18,6 +18,8 @@ var SOUL_DEFAULTS = {
     comfortDrive: 0.0,
     playDrive: 0.22,
     alertness: 0.68,
+    arousal: 0.30,
+    sleepInertia: 0.0,
     boredom: 0.05
 };
 
@@ -43,6 +45,8 @@ function _buildStateObject(src, gx, gy, hasPos) {
         comfortDrive: Math.round(Util.clamp01(src.comfortDrive || 0, 0) * 1000) / 1000,
         playDrive: Math.round(Util.clamp01(src.playDrive, SOUL_DEFAULTS.playDrive) * 1000) / 1000,
         alertness: Math.round(Util.clamp01(src.alertness, SOUL_DEFAULTS.alertness) * 1000) / 1000,
+        arousal: Math.round(Util.clamp01(src.arousal === undefined ? SOUL_DEFAULTS.arousal : src.arousal, SOUL_DEFAULTS.arousal) * 1000) / 1000,
+        sleepInertia: Math.round(Util.clamp01(src.sleepInertia || 0, 0) * 1000) / 1000,
         boredom: Math.round(Util.clamp01(src.boredom || 0, 0) * 1000) / 1000,
         basePersonality: src.basePersonality || null,
         coreDrift: src.coreDrift || {},
@@ -52,12 +56,16 @@ function _buildStateObject(src, gx, gy, hasPos) {
         archetype: src.archetype || "",
         thoughts: (src.thoughts || []).slice(-60),
         episodes: (src.episodes || []).slice(-120),
+        lifetimeCounts: src.lifetimeCounts || {},
         journal: (src.journal || []).slice(-24),
         visitedCells: src.visitedCells || {},
         windowPrefs: src.windowPrefs || {},
         placeMemory: src.placeMemory || {},
         relationships: src.relationships || {},
         userRhythm: src.userRhythm || {},
+        penState: src.penState || "idle",
+        sanctuaryActivity: src.sanctuaryActivity || "",
+        careWakeUntil: src.careWakeUntil || 0,
         enteredPenAt: src.enteredPenAt || 0
     };
 }
@@ -113,8 +121,31 @@ function applySaved(pet, saved) {
     if (saved.playDrive !== undefined) pet.playDrive = c01(saved.playDrive, SOUL_DEFAULTS.playDrive);
     if (saved.boredom !== undefined) pet.boredom = c01(saved.boredom, 0);
     if (saved.alertness !== undefined) {
-        var rawAlert = c01(saved.alertness, SOUL_DEFAULTS.alertness);
-        pet.alertness = c01(rawAlert + (0.5 - rawAlert) * 0.35, SOUL_DEFAULTS.alertness);
+        pet.alertness = c01(saved.alertness, SOUL_DEFAULTS.alertness);
+    }
+    if (saved.arousal !== undefined && ("arousal" in pet || !pet.screenX)) {
+        pet.arousal = c01(saved.arousal, SOUL_DEFAULTS.arousal);
+    }
+    if (saved.sleepInertia !== undefined && ("sleepInertia" in pet || !pet.screenX)) {
+        pet.sleepInertia = c01(saved.sleepInertia, 0);
+    }
+
+    if (saved.savedAt !== undefined && !pet._simNow) {
+        var offlineSec = Math.min(43200, Math.max(0, (Date.now() - Number(saved.savedAt)) / 1000));
+        if (offlineSec >= 180) {
+            var restFrac = 1 - Math.exp(-offlineSec / 7200);
+            pet.restDrive = c01((pet.restDrive === undefined ? SOUL_DEFAULTS.restDrive : pet.restDrive) * (1 - restFrac * 0.82), SOUL_DEFAULTS.restDrive);
+            pet.alertness = c01((pet.alertness === undefined ? SOUL_DEFAULTS.alertness : pet.alertness) + (0.72 - (pet.alertness === undefined ? SOUL_DEFAULTS.alertness : pet.alertness)) * restFrac * 0.75, SOUL_DEFAULTS.alertness);
+            if ("arousal" in pet || !pet.screenX) {
+                var curAr = pet.arousal === undefined ? SOUL_DEFAULTS.arousal : pet.arousal;
+                pet.arousal = c01(curAr + (0.28 - curAr) * restFrac, SOUL_DEFAULTS.arousal);
+            }
+            if ("sleepInertia" in pet || !pet.screenX) {
+                pet.sleepInertia = c01((pet.sleepInertia || 0) * Math.exp(-offlineSec / 120), 0);
+            }
+            var curOffSat = pet.satiety === undefined ? SOUL_DEFAULTS.satiety : pet.satiety;
+            pet.satiety = c01(0.52 + (curOffSat - 0.52) * Math.exp(-offlineSec / 10800), SOUL_DEFAULTS.satiety);
+        }
     }
 
     if (saved.basePersonality && typeof saved.basePersonality === "object" && "basePersonality" in pet) {
@@ -134,6 +165,9 @@ function applySaved(pet, saved) {
     if (saved.relationships) pet.relationships = saved.relationships;
     if (saved.userRhythm) pet.userRhythm = saved.userRhythm;
     if (Array.isArray(saved.journal)) pet.journal = saved.journal;
+    if (saved.lifetimeCounts && typeof saved.lifetimeCounts === "object" && ("lifetimeCounts" in pet || !pet.screenX)) {
+        pet.lifetimeCounts = Object.assign({}, saved.lifetimeCounts);
+    }
 
     if (saved.schema >= 3) {
         if (Array.isArray(saved.thoughts)) pet.thoughts = saved.thoughts;
@@ -167,6 +201,15 @@ function applySaved(pet, saved) {
     // QML Pet QObject lacks ResidentRecord-only fields; guard writes so QObject meta-assignment never throws.
     if (saved.enteredPenAt !== undefined && "enteredPenAt" in pet) {
         pet.enteredPenAt = Number(saved.enteredPenAt) || 0;
+    }
+    if (saved.penState && "penState" in pet) {
+        pet.penState = String(saved.penState);
+    }
+    if (saved.sanctuaryActivity !== undefined && "sanctuaryActivity" in pet) {
+        pet.sanctuaryActivity = String(saved.sanctuaryActivity || "");
+    }
+    if (saved.careWakeUntil !== undefined && "careWakeUntil" in pet) {
+        pet.careWakeUntil = Number(saved.careWakeUntil) || 0;
     }
 
     if (saved.schema >= 2) {

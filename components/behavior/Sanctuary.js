@@ -61,9 +61,12 @@ function createDefaultResident(petCfg, nowMs) {
         comfortDrive: d.comfortDrive,
         playDrive: d.playDrive,
         alertness: d.alertness,
+        arousal: d.arousal,
+        sleepInertia: d.sleepInertia,
         boredom: d.boredom,
         thoughts: [],
         episodes: [],
+        lifetimeCounts: {},
         journal: [],
         visitedCells: {},
         windowPrefs: {},
@@ -72,6 +75,7 @@ function createDefaultResident(petCfg, nowMs) {
         userRhythm: {},
         penState: "idle",
         sanctuaryActivity: "",
+        careWakeUntil: 0,
         enteredPenAt: nowMs || Date.now()
     };
 }
@@ -89,29 +93,63 @@ function integrateResident(rec, dtSec, penMates, env, nowMs) {
     rec.ageSeconds = (rec.ageSeconds || 0) + dtSec;
     rec.maturity = clamp01(1 - Math.exp(-rec.ageSeconds / 86400));
 
-    var sleepingInPen = rec.restDrive > 0.30 || (isNight && !_isNocturnal(rec, prof, rec.sprite) && p.sleepiness > 0.32);
+    var careAwake = now < (rec.careWakeUntil || 0);
+    var sleepingInPen = !careAwake && (rec.restDrive > 0.30 || (isNight && !_isNocturnal(rec, prof, rec.sprite) && p.sleepiness > 0.32));
+    var curAr = rec.arousal === undefined ? 0.30 : rec.arousal;
+    var curInert = rec.sleepInertia || 0;
     if (sleepingInPen) {
         rec.restDrive = clamp01(rec.restDrive - (0.00018 + (1 - p.sleepiness) * 0.00006) * dtSec);
         rec.alertness = clamp01(rec.alertness + (0.00016 + p.energy * 0.00008) * dtSec);
+        rec.arousal = clamp01(curAr + (0.08 - curAr) * (1 - Math.exp(-dtSec / 45)));
+        rec.sleepInertia = clamp01(curInert + (0.45 - curInert) * (1 - Math.exp(-dtSec / 180)));
         rec.penState = rec.restDrive > 0.52 ? "deepsleep" : "loaf";
+        if (!Memory.recent(rec, "sanctuary_nap", 1500000) && Math.random() < 0.08) {
+            Memory.recordEpisode(rec, "sanctuary_nap", { valence: 0.32 });
+        }
     } else {
+        if (rec.penState === "deepsleep" || rec.penState === "loaf" || rec.penState === "laying") {
+            rec.penState = "idle";
+        }
         rec.restDrive = clamp01(rec.restDrive - 0.00005 * dtSec);
         rec.alertness = clamp01(rec.alertness + 0.00008 * dtSec);
+        rec.arousal = clamp01(curAr + ((0.24 + p.energy * 0.16) - curAr) * (1 - Math.exp(-dtSec / 75)));
+        rec.sleepInertia = clamp01(curInert * Math.exp(-dtSec / 45));
         rec.exploreDrive = clamp01(rec.exploreDrive + (0.00009 + p.curiosity * 0.00015) * dtSec);
         rec.playDrive = clamp01(rec.playDrive + (0.00006 + p.playfulness * 0.00012) * dtSec);
         rec.socialDrive = clamp01(rec.socialDrive + (0.00005 + p.sociability * 0.00012) * dtSec);
     }
 
-    if (rec.satiety < 0.72) {
-        rec.satiety = clamp01(rec.satiety + 0.00028 * dtSec);
-        if (rec.satiety < 0.50) rec.penState = "eat";
+    if (rec._careSatiation > 0) {
+        rec._careSatiation = Math.max(0, rec._careSatiation * Math.exp(-dtSec / 75));
+    }
+
+    var curPenSat = rec.satiety === undefined ? 0.58 : rec.satiety;
+    var penFullAt = (prof.abilities && prof.abilities.indexOf("forage_stash") !== -1) ? 0.88 : 0.82;
+    if (curPenSat > 0.62) {
+        rec.satiety = clamp01(curPenSat + (0.58 - curPenSat) * (1 - Math.exp(-dtSec / 5400)));
+        if (rec._stuffedRefusals > 0 && rec.satiety < penFullAt - 0.08) {
+            rec._stuffedRefusals = 0;
+        }
+        if (rec.penState === "eat") rec.penState = "idle";
+    } else if (curPenSat < 0.58) {
+        rec.satiety = clamp01(curPenSat + 0.00018 * dtSec);
+        if (!sleepingInPen && curPenSat < 0.50) {
+            rec.penState = "eat";
+            if (!Memory.recent(rec, "foraged", 1200000) && Math.random() < 0.15) {
+                Memory.recordEpisode(rec, "foraged", { valence: 0.25 });
+            }
+        } else if (rec.penState === "eat") {
+            rec.penState = "idle";
+        }
+    } else if (rec.penState === "eat") {
+        rec.penState = "idle";
     }
     var targetHappy = 0.54 + (rec.bond || 0.3) * 0.16;
     rec.happiness = clamp01(rec.happiness + (targetHappy - rec.happiness) * Math.min(1, dtSec / 3600));
     rec.mood = clamp01(rec.mood + (rec.happiness - rec.mood) * Math.min(1, dtSec / 420));
     rec.boredom = clamp01(rec.boredom - 0.00025 * dtSec);
 
-    if (rec.episodes && rec.episodes.some(function(e) { return !e.consolidated; })) {
+    if (sleepingInPen && rec.episodes && rec.episodes.some(function(e) { return !e.consolidated; })) {
         Memory.consolidateSleep(rec);
     }
 
@@ -130,35 +168,46 @@ function integrateResident(rec, dtSec, penMates, env, nowMs) {
             var myStyle = SpeciesProfile.socialStyleOf(rec.sprite);
             var mateStyle = SpeciesProfile.socialStyleOf(mate.sprite);
             var kin = SpeciesProfile.kinChemistry(rec.sprite, mate.sprite);
+            var baseAff = rel.initialAffinity !== undefined ? rel.initialAffinity : 0.48;
+            var eqPull = (baseAff - rel.affinity) * 0.05;
             if (rel.affinity < 0.36) {
                 if (p.patience < 0.38 && !sleepingInPen) {
-                    Memory.adjustRelation(rec, mate.name, -0.008, 0.015, "friction", { outcome: "squabble" });
+                    Memory.adjustRelation(rec, mate.name, -0.006 + eqPull, 0.015, "friction", { outcome: "squabble" });
                     rec.penState = "idle";
                     rec.sanctuaryActivity = "Grumbling over a sunny spot with " + mate.name;
                 } else {
-                    Memory.adjustRelation(rec, mate.name, 0.0, 0.012);
+                    Memory.adjustRelation(rec, mate.name, eqPull, 0.012);
                     rec.sanctuaryActivity = "Keeping distance from " + mate.name + " in " + prof.biome;
                 }
             } else if (rel.affinity < 0.48) {
-                Memory.adjustRelation(rec, mate.name, 0.002, 0.016);
+                Memory.adjustRelation(rec, mate.name, 0.002 + eqPull, 0.016);
                 rec.sanctuaryActivity = "Sharing the shade quietly near " + mate.name;
             } else if (sleepingInPen) {
-                Memory.adjustRelation(rec, mate.name, 0.009, 0.024, "nap");
+                Memory.adjustRelation(rec, mate.name, 0.007 * (1 - Math.max(0, rel.affinity - 0.5) * 1.4) + eqPull, 0.024, "nap");
+                if (!Memory.recent(rec, "rested_with", 1200000)) {
+                    Memory.recordEpisode(rec, "rested_with", { valence: 0.38, withPet: mate.name });
+                }
                 rec.sanctuaryActivity = Abilities.has(mate.sprite, "hearth_warmth")
                     ? ("Curled up in warm hearth glow beside " + mate.name)
                     : ("Napping in " + prof.biome + " beside " + mate.name);
             } else if ((myStyle === "brawler" || mateStyle === "brawler") && p.boldness > 0.50 && p.playfulness > 0.42) {
-                Memory.adjustRelation(rec, mate.name, 0.008, 0.024, "spar");
+                Memory.adjustRelation(rec, mate.name, 0.006 * (1 - Math.max(0, rel.affinity - 0.5) * 1.4) + eqPull, 0.024, "spar");
+                if (!Memory.recent(rec, "sparred", 1200000)) {
+                    Memory.recordEpisode(rec, "sparred", { valence: 0.42, withPet: mate.name });
+                }
                 rec.penState = "wander";
                 rec.sanctuaryActivity = "Practicing sparring footwork with " + mate.name;
             } else if (p.playfulness > 0.48) {
-                Memory.adjustRelation(rec, mate.name, 0.009, 0.024, "play");
+                Memory.adjustRelation(rec, mate.name, 0.007 * (1 - Math.max(0, rel.affinity - 0.5) * 1.4) + eqPull, 0.024, "play");
+                if (!Memory.recent(rec, "played_with", 1200000)) {
+                    Memory.recordEpisode(rec, "played_with", { valence: 0.42, withPet: mate.name });
+                }
                 rec.penState = "wander";
                 rec.sanctuaryActivity = kin.sameKin
                     ? ("Romping happily with fellow kin " + mate.name)
                     : ("Playing in " + prof.biome + " with " + mate.name);
             } else {
-                Memory.adjustRelation(rec, mate.name, 0.005, 0.018);
+                Memory.adjustRelation(rec, mate.name, 0.004 * (1 - Math.max(0, rel.affinity - 0.5) * 1.4) + eqPull, 0.018);
                 rec.penState = "idle";
                 rec.sanctuaryActivity = "Hanging out peacefully with " + mate.name;
             }
@@ -391,46 +440,106 @@ function _pickRetiringPet(activeAutoIds, livePetMap, hasWaiting, env, now, ignor
 }
 
 function patInPen(stateObj, nowMs) {
-    if (!stateObj) return;
+    if (!stateObj) return "busy";
+    var now = nowMs || Date.now();
     if (nowMs) stateObj._simNow = nowMs;
-    stateObj.happiness = Util.clamp01(stateObj.happiness + 0.12);
-    stateObj.mood = Util.clamp01(stateObj.mood + 0.18);
-    stateObj.bond = Util.clamp01((stateObj.bond || 0.3) + 0.015);
-    stateObj.trust = Util.clamp01((stateObj.trust || 0.35) + 0.025);
-    stateObj.socialDrive = Math.max(0, stateObj.socialDrive - 0.28);
+    var careSat = stateObj._careSatiation || 0;
+    var satMult = Math.max(0.15, 1 - careSat * 0.82);
+    stateObj._careSatiation = Math.min(1, careSat + 0.30);
+    var curBond = stateObj.bond === undefined ? 0.3 : stateObj.bond;
+    stateObj.happiness = Util.clamp01(stateObj.happiness + 0.12 * satMult * (1 - stateObj.happiness * 0.75));
+    stateObj.mood = Util.clamp01(stateObj.mood + 0.16 * satMult);
+    stateObj.bond = Util.clamp01(curBond + 0.015 * satMult * (1 - curBond * 0.80));
+    stateObj.trust = Util.clamp01((stateObj.trust || 0.35) + 0.025 * satMult);
+    stateObj.socialDrive = Math.max(0, stateObj.socialDrive - 0.28 * satMult);
+    stateObj.restDrive = Math.max(0, (stateObj.restDrive || 0) - 0.08 * satMult);
+    stateObj.alertness = Util.clamp01((stateObj.alertness === undefined ? 0.6 : stateObj.alertness) + 0.08 * satMult);
+    stateObj.arousal = Util.clamp01((stateObj.arousal === undefined ? 0.30 : stateObj.arousal) + 0.08 * satMult);
+    stateObj.careWakeUntil = now + 180000;
     stateObj.penState = "idle";
     stateObj.sanctuaryActivity = "Enjoying warm headpats in the Sanctuary";
-    Memory.recordEpisode(stateObj, "petted", { valence: 0.65, salience: 0.6 });
+    Memory.recordEpisode(stateObj, "petted", { valence: 0.65 * satMult, salience: 0.6 * satMult });
     Memory.thinkAloud(stateObj, "pen_pat", "Leaned into gentle headpats in the Sanctuary", { minGapMs: 2000 });
     if (nowMs) delete stateObj._simNow;
+    return "pat";
 }
 
 function feedInPen(stateObj, nowMs) {
-    if (!stateObj) return;
+    if (!stateObj) return "busy";
+    var now = nowMs || Date.now();
+    if (stateObj._lastFedAt && now >= stateObj._lastFedAt && (now - stateObj._lastFedAt) < 4500) {
+        return "busy";
+    }
     if (nowMs) stateObj._simNow = nowMs;
-    stateObj.satiety = Util.clamp01((stateObj.satiety === undefined ? 0.5 : stateObj.satiety) + 0.45);
-    stateObj.happiness = Util.clamp01(stateObj.happiness + 0.16);
-    stateObj.mood = Util.clamp01(stateObj.mood + 0.22);
-    stateObj.bond = Util.clamp01((stateObj.bond || 0.3) + 0.020);
-    stateObj.trust = Util.clamp01((stateObj.trust || 0.35) + 0.035);
+    var curSat = stateObj.satiety === undefined ? 0.58 : stateObj.satiety;
+    var curBond = stateObj.bond === undefined ? 0.3 : stateObj.bond;
+    var spProf = SpeciesProfile.profileFor(stateObj.sprite || "eevee");
+    var fullAt = (spProf.abilities && spProf.abilities.indexOf("forage_stash") !== -1) ? 0.88 : 0.82;
+    stateObj.careWakeUntil = now + 180000;
     stateObj.penState = "idle";
+    if (curSat >= fullAt) {
+        var refCount = (stateObj._stuffedRefusals || 0) + 1;
+        stateObj._stuffedRefusals = refCount;
+        if (refCount >= 2) {
+            stateObj.mood = Math.max(0, (stateObj.mood === undefined ? 0.56 : stateObj.mood) - 0.05);
+            stateObj.happiness = Math.max(0, (stateObj.happiness === undefined ? 0.56 : stateObj.happiness) - 0.02);
+            if (refCount >= 3) {
+                stateObj.trust = Math.max(0, (stateObj.trust === undefined ? 0.35 : stateObj.trust) - 0.018);
+                stateObj.bond = Math.max(0, curBond - 0.005);
+                Memory.recordEpisode(stateObj, "annoyed", { valence: -0.25, note: "overfed" });
+            }
+            stateObj.sanctuaryActivity = "Turned away uncomfortably, much too stuffed for another berry";
+            Memory.thinkAloud(stateObj, "pen_overfed", "Much too stuffed and turned away from another Oran Berry", { minGapMs: 2000 });
+            if (nowMs) delete stateObj._simNow;
+            return "annoyed";
+        }
+        stateObj.sanctuaryActivity = "Already well-fed, sniffed the Oran Berry and turned away";
+        Memory.thinkAloud(stateObj, "pen_full", "Already well-fed, sniffed the Oran Berry politely and left it", { minGapMs: 2000 });
+        if (nowMs) delete stateObj._simNow;
+        return "refused";
+    }
+    var appetite = Math.max(0.18, Util.clamp01((fullAt - curSat) / 0.44));
+    stateObj._stuffedRefusals = 0;
+    stateObj._lastFedAt = now;
+    stateObj.satiety = Util.clamp01(curSat + 0.40);
+    if (stateObj.satiety > 0.80) {
+        stateObj.restDrive = Util.clamp01((stateObj.restDrive || 0) + 0.03);
+    }
+    stateObj.alertness = Util.clamp01((stateObj.alertness === undefined ? 0.6 : stateObj.alertness) + 0.06 * appetite);
+    var prevAr = stateObj.arousal === undefined ? 0.30 : stateObj.arousal;
+    stateObj.arousal = Util.clamp01(prevAr + (0.24 - prevAr) * 0.25);
+    stateObj.happiness = Util.clamp01(stateObj.happiness + 0.14 * appetite * (1 - stateObj.happiness * 0.78));
+    stateObj.mood = Util.clamp01(stateObj.mood + 0.16 * appetite);
+    stateObj.bond = Util.clamp01(curBond + 0.015 * appetite * (1 - curBond * 0.82));
+    stateObj.trust = Util.clamp01((stateObj.trust || 0.35) + 0.026 * appetite);
     stateObj.sanctuaryActivity = "Happily munching an Oran Berry";
-    Memory.recordEpisode(stateObj, "fed_snack", { valence: 0.8, salience: 0.72 });
+    Memory.recordEpisode(stateObj, "fed_snack", { valence: 0.45 + 0.35 * appetite, salience: 0.55 + 0.20 * appetite });
     Memory.thinkAloud(stateObj, "pen_fed", "Happily ate an Oran Berry in the Sanctuary", { minGapMs: 2000 });
     if (nowMs) delete stateObj._simNow;
+    return "ate";
 }
 
 function playInPen(stateObj, nowMs) {
-    if (!stateObj) return;
+    if (!stateObj) return "busy";
+    var now = nowMs || Date.now();
     if (nowMs) stateObj._simNow = nowMs;
-    stateObj.happiness = Util.clamp01(stateObj.happiness + 0.10);
-    stateObj.mood = Util.clamp01(stateObj.mood + 0.16);
-    stateObj.bond = Util.clamp01((stateObj.bond || 0.3) + 0.012);
-    stateObj.trust = Util.clamp01((stateObj.trust || 0.35) + 0.02);
+    var careSat = stateObj._careSatiation || 0;
+    var satMult = Math.max(0.15, 1 - careSat * 0.82);
+    stateObj._careSatiation = Math.min(1, careSat + 0.32);
+    var curBond = stateObj.bond === undefined ? 0.3 : stateObj.bond;
+    stateObj.happiness = Util.clamp01(stateObj.happiness + 0.10 * satMult * (1 - stateObj.happiness * 0.75));
+    stateObj.mood = Util.clamp01(stateObj.mood + 0.16 * satMult);
+    stateObj.bond = Util.clamp01(curBond + 0.012 * satMult * (1 - curBond * 0.80));
+    stateObj.trust = Util.clamp01((stateObj.trust || 0.35) + 0.02 * satMult);
     stateObj.playDrive = Math.max(0, stateObj.playDrive - 0.25);
+    stateObj.restDrive = Math.max(0, (stateObj.restDrive || 0) - 0.06 * satMult);
+    stateObj.alertness = Util.clamp01((stateObj.alertness === undefined ? 0.6 : stateObj.alertness) + 0.14 * satMult);
+    stateObj.arousal = Util.clamp01((stateObj.arousal === undefined ? 0.30 : stateObj.arousal) + 0.24);
+    stateObj.careWakeUntil = now + 210000;
     stateObj.penState = "idle";
     stateObj.sanctuaryActivity = "Romping playfully across the Sanctuary clearing";
-    Memory.recordEpisode(stateObj, "played_solo", { valence: 0.6, salience: 0.55 });
+    Memory.recordEpisode(stateObj, "played_solo", { valence: 0.6 * satMult, salience: 0.55 * satMult });
     Memory.thinkAloud(stateObj, "pen_play", "Played a lively game in the Sanctuary", { minGapMs: 2000 });
     if (nowMs) delete stateObj._simNow;
+    return "play";
 }

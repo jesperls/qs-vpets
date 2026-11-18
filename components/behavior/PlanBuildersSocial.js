@@ -50,12 +50,10 @@ function buildSparBoutPlan(pet, otherName, alreadyClose, skipChallenge) {
         steps.push({ kind: "act", label: "Martial stance", states: stanceMoves, faceOther: true });
         steps.push({ kind: "social", interaction: "spar_challenge", label: "Challenging " + otherName });
     }
-    steps.push({ kind: "dash_relative", maneuver: "lunge", gait: "scamper", radius: 46, label: "Lunging in!" });
+    steps.push({ kind: "dash_relative", maneuver: "lunge", gait: "scamper", radius: 48, label: "Lunging in!" });
     steps.push({ kind: "act", label: "Opening strike!", states: sparMoves, faceOther: true });
-    steps.push({ kind: "dash_relative", maneuver: "sidestep", gait: "scamper", radius: 98, sideSign: 1, label: "Sidestepping counter!" });
-    steps.push({ kind: "act", label: "Agile evade", states: dodgeMoves, faceOther: true });
-    steps.push({ kind: "dash_relative", maneuver: "lunge", gait: "scamper", radius: 48, label: "Closing in!" });
-    steps.push({ kind: "act", label: "Combo finisher!", states: sparMoves, faceOther: true });
+    steps.push({ kind: "dash_relative", maneuver: "sidestep", gait: "scamper", radius: 92, sideSign: 1, label: "Sidestepping counter!" });
+    steps.push({ kind: "act", label: "Agile exchange!", states: dodgeMoves, faceOther: true });
     steps.push({ kind: "social", interaction: "spar_hit", label: "Sparring clash" });
     steps.push({ kind: "dash_relative", maneuver: "retreat", gait: "trot", dist: 105, label: "Springing back" });
     steps.push({ kind: "pant", label: "Catching breath" });
@@ -67,8 +65,8 @@ function buildSparBoutPlan(pet, otherName, alreadyClose, skipChallenge) {
         reason: "Friendly martial sparring with " + otherName,
         otherName: otherName,
         urgency: 0.78,
-        durationMs: 65000,
-        thought: "Trading playful sparring combos with " + otherName,
+        durationMs: 55000,
+        thought: "Traded playful sparring moves with " + otherName,
         steps: steps
     };
 }
@@ -84,15 +82,14 @@ function buildSparPartnerPlan(pet, challenger) {
         reason: "Trading sparring moves with " + cName,
         otherName: cName,
         urgency: 0.78,
-        durationMs: 65000,
+        durationMs: 55000,
         thought: "Accepted " + cName + "'s sparring challenge!",
         steps: [
             { kind: "act", label: "Ready stance", states: stanceMoves, faceOther: true },
-            { kind: "dash_relative", maneuver: "sidestep", gait: "scamper", radius: 94, sideSign: -1, label: "Weaving aside!" },
+            { kind: "dash_relative", maneuver: "sidestep", gait: "scamper", radius: 90, sideSign: -1, label: "Weaving aside!" },
             { kind: "act", label: "Dodging!", states: dodgeMoves, faceOther: true },
-            { kind: "dash_relative", maneuver: "lunge", gait: "scamper", radius: 46, label: "Counter-lunging!" },
+            { kind: "dash_relative", maneuver: "lunge", gait: "scamper", radius: 48, label: "Counter-lunging!" },
             { kind: "act", label: "Counter strike!", states: sparMoves, faceOther: true },
-            { kind: "act", label: "Parrying!", states: dodgeMoves, faceOther: true },
             { kind: "dash_relative", maneuver: "retreat", gait: "trot", dist: 105, label: "Hopping back" },
             { kind: "pant", label: "Catching breath" },
             { kind: "act", label: "Respectful nod", states: ["nod", "pose"], faceOther: true },
@@ -352,12 +349,8 @@ function buildBestFriendVisitPlan(pet, other) {
     steps.push({ kind: "travel", gait: "trot", label: "Joining " + other.name, dynamic: "other_pet", offsetX: off.offsetX, offsetY: off.offsetY });
     steps.push({ kind: "social", label: "Warm greeting", interaction: "greet" });
     steps.push({ kind: "act", label: "Happy greeting", states: SpeciesProfile.affectionGesturesFor(pet).concat(["hop"]), faceOther: true });
-    if (pet.restDrive > 0.34) {
-        steps.push({ kind: "social", label: "Curling up nearby", interaction: "rest" });
-        steps.push({ kind: "rest", label: "Resting near " + other.name, deep: pet.restDrive > 0.68, faceOther: true });
-    } else {
-        steps.push({ kind: "wander_apart", dist: 145, gait: "amble", label: "Continuing stroll" });
-    }
+    steps.push({ kind: "observe", durationMs: 3200, attend: "other", label: "Hanging out with " + other.name });
+    steps.push({ kind: "wander_apart", dist: 120, gait: "amble", label: "Continuing stroll" });
     return {
         name: "best_friend_checkin",
         label: "Checking In on " + other.name,
@@ -562,7 +555,7 @@ function buildRestWithPlan(pet, otherName, offX, offY, fireside) {
         steps: [
             { kind: "travel", gait: "amble", label: "Padding over to " + otherName, dynamic: "other_pet", offsetX: offX, offsetY: offY },
             { kind: "social", label: "Settling beside " + otherName, interaction: "rest" },
-            { kind: "rest", label: "Resting together", deep: pet.restDrive > 0.70, faceOther: true }
+            { kind: "rest", label: "Resting together", deep: false, faceOther: true }
         ]
     };
 }

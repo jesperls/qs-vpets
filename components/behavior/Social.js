@@ -299,7 +299,8 @@ function broadcastYawn(pet) {
         var d = Math.hypot((o.screenX() + o.worldX) - myGX, (o.screenY() + o.worldY) - myGY);
         if (d > 280) continue;
         var op = o.personality;
-        if (o.restDrive < 0.22 && op.sleepiness < 0.45) continue;
+        if ((o.restDrive < 0.22 && op.sleepiness < 0.45)
+                || (o.arousal !== undefined && o.arousal >= 0.50)) continue;
         if (Math.random() < 0.28 + op.sleepiness * 0.24) {
             if (typeof o.scheduleContagiousYawn === "function") {
                 o.scheduleContagiousYawn(Math.round(5000 + Math.random() * 4800), warmPeerName);

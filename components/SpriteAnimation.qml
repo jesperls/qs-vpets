@@ -96,6 +96,12 @@ Item {
         _applyState(name);
     }
 
+    function restartClip(): void {
+        if (!_animData) return;
+        _clip = null;
+        _applyState(currentState);
+    }
+
     onCurrentStateChanged: {
         if (!_inSetState && _animData) _applyState(currentState);
     }
@@ -131,11 +137,20 @@ Item {
     }
 
     onSpriteDirChanged: {
-        _animData = null;
-        _clip = null;
-        _frame = 0;
-        _tickAccum = 0;
-        shadowSize = 1;
+        if (!spriteDir) {
+            _animData = null;
+            _clip = null;
+            _frame = 0;
+            _tickAccum = 0;
+            shadowSize = 1;
+            return;
+        }
+        const cached = SpriteSheet.cachedForDir(spriteDir);
+        if (cached) {
+            shadowSize = Math.max(0, Math.min(2, cached.shadowSize ?? 1));
+            _animData = cached.anims;
+            _applyState(currentState);
+        }
     }
 
     FileView {
@@ -144,9 +159,10 @@ Item {
         printErrors: false
         onLoaded: {
             const parsed = SpriteSheet.parseAnimData(text());
+            if (root.spriteDir) SpriteSheet.storeDirCache(root.spriteDir, parsed);
             root.shadowSize = Math.max(0, Math.min(2, parsed.shadowSize ?? 1));
             root._animData = parsed.anims;
-            root.setState(root.currentState);
+            root._applyState(root.currentState);
         }
     }
 

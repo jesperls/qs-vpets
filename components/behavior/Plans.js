@@ -26,12 +26,26 @@ function currentStep(pet) {
     return pet.activePlan.steps[pet.activePlan.stepIndex] || null;
 }
 
-function clearPlan(pet) {
+function clearPlan(pet, keepIntention) {
+    var keepBerry = !!(pet.activePlan && pet.activePlan.keepBerryOnClear);
     pet.activePlan = null;
-    pet.intention = null;
+    if (!keepIntention) {
+        pet.intention = null;
+    } else if (pet.intention) {
+        if (pet.intention.name === "rest") {
+            pet.intention = null;
+        } else {
+            pet.intention.until = Math.min(pet.intention.until, Util.now(pet) + 90000);
+        }
+    }
     pet.perchedWindowAddr = "";
     pet.onJourney = false;
     pet.gait = "trot";
+    if ("_attentiveRest" in pet) pet._attentiveRest = false;
+    if (!keepBerry && ("berryPresent" in pet) && pet.berryPresent) {
+        pet.berryPresent = false;
+        pet.berryUntil = 0;
+    }
     if (pet.illusionSpecies) {
         pet.illusionSpecies = "";
         pet.illusionUntil = 0;
@@ -43,15 +57,46 @@ function startPlan(pet, plan, nav, pickFn) {
         pet.illusionSpecies = "";
         pet.illusionUntil = 0;
     }
+    if ("_attentiveRest" in pet) pet._attentiveRest = false;
     if (plan.name !== "retire_to_pen" && plan.name !== "joint_retire"
             && typeof pet.cancelRetireIfInterrupted === "function") {
         pet.cancelRetireIfInterrupted();
+    }
+    var rawSteps = (plan.steps || []).slice();
+    if (Util.isRestingState(pet.state_) && rawSteps.length > 0) {
+        var firstKind = rawSteps[0].kind;
+        if (firstKind !== "rest" && firstKind !== "loaf_watch") {
+            var wakeSt = SpeciesProfile.wakeStateFor(pet);
+            var alreadyWaking = firstKind === "act"
+                && Array.isArray(rawSteps[0].states)
+                && rawSteps[0].states.indexOf(wakeSt) !== -1;
+            if (!alreadyWaking) {
+                rawSteps.unshift({ kind: "act", label: "Stretching awake", states: [wakeSt] });
+            }
+        }
+    } else if (pet.state_ === "perch" && rawSteps.length > 0) {
+        var pFirst = rawSteps[0].kind;
+        if (pFirst !== "travel" && pFirst !== "jump_to" && pFirst !== "perch" && nav && nav.launchJumpTo) {
+            var pScr = Topology.currentScreen(pet);
+            var pFloorY = pScr.y + pScr.height - (pScr.bottomInset || 0) - (pet.height || 64) - 28;
+            var curPGX = Util.petGX(pet), curPGY = Util.petGY(pet);
+            if (curPGY < pFloorY - 48) {
+                rawSteps.unshift({
+                    kind: "jump_to",
+                    gx: curPGX,
+                    gy: Math.min(pFloorY, curPGY + 96),
+                    arcBoost: 14,
+                    label: "Hopping down from ledge"
+                });
+            }
+        }
     }
     var now = Util.now(pet);
     pet.activePlan = {
         name: plan.name,
         label: plan.label || plan.name,
         reason: plan.reason || plan.label || plan.name,
+        thought: plan.thought || "",
         urgency: Drives.clamp01(plan.urgency === undefined ? 0.5 : plan.urgency),
         otherName: plan.otherName || "",
         secondOtherName: plan.secondOtherName || "",
@@ -69,7 +114,7 @@ function startPlan(pet, plan, nav, pickFn) {
         started: now,
         until: now + (plan.durationMs || 150000),
         stepIndex: -1,
-        steps: plan.steps || []
+        steps: rawSteps
     };
     pet.intention = {
         name: plan.name,
@@ -80,9 +125,6 @@ function startPlan(pet, plan, nav, pickFn) {
         reason: pet.activePlan.reason,
         stepLabel: ""
     };
-    if (plan.thought) {
-        Memory.thinkAloud(pet, "plan_" + plan.name, plan.thought, { minGapMs: 25000 });
-    }
     advanceStep(pet, nav, pickFn);
 }
 
@@ -149,6 +191,10 @@ function advanceStep(pet, nav, pickFn) {
     }
 
     var prev = plan.stepIndex >= 0 ? plan.steps[plan.stepIndex] : null;
+    if (prev && prev.kind === "eat_berry" && ("berryPresent" in pet)) {
+        pet.berryPresent = false;
+        pet.berryUntil = 0;
+    }
     if (prev && prev.kind === "wait_bid" && plan.waitingForBid) {
         plan.waitingForBid = false;
         if (!prev.allowRetry) {
@@ -270,7 +316,7 @@ function advanceStep(pet, nav, pickFn) {
             if (plan.stalkFreezes > 3) {
                 Memory.thinkAloud(pet, "sneak_spotted", "Froze and played innocent when " + plan.otherName + " glanced over");
                 plan.steps = plan.steps.slice(0, plan.stepIndex + 1).concat([
-                    { kind: "act", label: "Playing innocent", states: ["nod", "rotate"] },
+                    { kind: "act", label: "Playing innocent", states: ["nod", "pose"] },
                     { kind: "wander_apart", dist: 140, gait: "amble", label: "Sauntering off casually" }
                 ]);
                 advanceStep(pet, nav, pickFn);
@@ -311,7 +357,10 @@ function advanceStep(pet, nav, pickFn) {
     case "dash_relative": {
         if (!nav) { finishPlan(pet, pickFn); return; }
         var relPet = Util.findPet(pet, step.otherName || plan.otherName);
-        if (!relPet) { finishPlan(pet, pickFn); return; }
+        if (!relPet || relPet.state_ === "drag" || Util.distBetween(pet, relPet) > 480) {
+            finishPlan(pet, pickFn);
+            return;
+        }
         var myGX = Util.petGX(pet), myGY = Util.petGY(pet);
         var oGX = Util.petGX(relPet), oGY = Util.petGY(relPet);
         var fromOther = Math.atan2(myGY - oGY, myGX - oGX);
@@ -386,10 +435,25 @@ function advanceStep(pet, nav, pickFn) {
     }
 
     case "act": {
+        if (step.spawnForageBerry && ("berryPresent" in pet)) {
+            var fgx = Util.petGX(pet), fgy = Util.petGY(pet);
+            var fpw = pet.width || 64, fph = pet.height || 64;
+            pet.berryGX = fgx + fpw * 0.5 + (pet.facingRight ? 18 : -18);
+            pet.berryGY = fgy + fph - 10;
+            pet.berryPresent = true;
+            pet.berryUntil = Util.now(pet) + 9000;
+        }
         if (step.emote && pet.emitEmote) pet.emitEmote(step.emote, !!step.directEmote);
         _orientForStep(pet, plan, step);
         var chosen = pickFn ? pickFn(pet, step.states || ["nod"]) : ((step.states && step.states[0]) || "nod");
         pet.enterState(chosen);
+        return;
+    }
+
+    case "eat_berry": {
+        if (step.emote && pet.emitEmote) pet.emitEmote(step.emote, !!step.directEmote);
+        _orientForStep(pet, plan, step);
+        pet.enterState("eat");
         return;
     }
 
@@ -441,6 +505,7 @@ function advanceStep(pet, nav, pickFn) {
         _orientForAttend(pet, plan, step.attend);
         _setStepAttention(pet, plan, step);
         pet.enterState("loaf");
+        if ("_attentiveRest" in pet) pet._attentiveRest = true;
         pet.schedulePlanBeat(step.durationMs || 36000);
         return;
     }
@@ -518,6 +583,9 @@ function advanceStep(pet, nav, pickFn) {
     }
 
     case "retire_finish": {
+        if (plan.thought) {
+            Memory.thinkAloud(pet, "plan_" + plan.name, plan.thought, { minGapMs: 25000 });
+        }
         clearPlan(pet);
         if (pet.petManager && pet.petManager.completeRetire && pet.petData) {
             pet.petManager.completeRetire(pet.petData.id);
@@ -537,6 +605,9 @@ function advanceStep(pet, nav, pickFn) {
         var deep = !!step.deep;
         var postState = deep ? "deepsleep" : (step.postState || "loaf");
         var reason = plan.reason || "resting";
+        if (plan.thought) {
+            Memory.thinkAloud(pet, "plan_" + plan.name, plan.thought, { minGapMs: 25000 });
+        }
         if (plan.name === "steal_warm_spot") {
             Memory.recordEpisode(pet, "warm_spot", { valence: 0.36, withPet: plan.otherName || "" });
             if (plan.otherName) {
@@ -564,6 +635,7 @@ function advanceStep(pet, nav, pickFn) {
             valence: 0.25,
             salience: step.sanctuary ? 0.45 : 0.25
         });
+        if ("_attentiveRest" in pet) pet._attentiveRest = false;
         pet.enterState(postState);
         return;
     }
@@ -691,8 +763,12 @@ function finishPlan(pet, pickFn) {
         return;
     }
     var now = Util.now(pet);
-    Drives.eventful(pet, 0.22);
+    var elapsedSec = Math.max(2, (now - (plan.started || now)) / 1000);
+    Drives.eventful(pet, Math.min(0.30, 0.08 + elapsedSec * 0.005));
     pet.calmUntil = now + 14000 + pet.personality.patience * 40000;
+    if (plan.thought) {
+        Memory.thinkAloud(pet, "plan_" + plan.name, plan.thought, { minGapMs: 25000 });
+    }
     if (plan.otherName) {
         pet.attentionUntil = 0;
     }
@@ -807,7 +883,7 @@ function finishPlan(pet, pickFn) {
         break;
 
     case "forage_snack":
-        pet.satiety = Drives.clamp01((pet.satiety === undefined ? 0.5 : pet.satiety) + 0.44);
+        pet.satiety = Drives.clamp01((pet.satiety === undefined ? 0.58 : pet.satiety) + 0.40);
         Drives.happier(pet, 0.03);
         Memory.recordEpisode(pet, "foraged", { valence: 0.25, salience: 0.30 });
         break;
@@ -835,7 +911,6 @@ function finishPlan(pet, pickFn) {
         break;
     }
 
-    Drives.eventful(pet, 0.10);
     var stayPerchedAddr = pet.state_ === "perch" ? (pet.perchedWindowAddr || "") : "";
     clearPlan(pet);
     if (stayPerchedAddr) {
@@ -871,8 +946,14 @@ function _onBidIgnored(pet, pickFn) {
     clearPlan(pet);
     if (p.patience >= 0.50 || p.composure >= 0.52) {
         pet.recentDrift = Personality.shiftRecent(pet.recentDrift, "patience", 0.006);
-        Memory.thinkAloud(pet, "bid_patient", "Settled down quietly nearby");
-        pet.enterState("loaf");
+        var perc = Perception.perceive(pet);
+        if (Drives.sleepPropensity(pet, perc) > 0.30) {
+            Memory.thinkAloud(pet, "bid_patient", "Settled down quietly nearby");
+            pet.enterState("loaf");
+        } else {
+            Memory.thinkAloud(pet, "bid_patient", "Waited politely, then went back to its own business");
+            pet.enterState(pickFn ? pickFn(pet, SpeciesProfile.calmGesturesFor(pet)) : "nod");
+        }
     } else {
         pet.mood = Math.max(0, pet.mood - 0.05);
         pet.recentDrift = Personality.shiftRecent(pet.recentDrift, "sociability", -0.006);
@@ -891,7 +972,7 @@ function abortPlan(pet, reason) {
     } else if (reason === "perch_lost") {
         Memory.thinkAloud(pet, "perch_lost", "Window perch moved away", { minGapMs: 8000 });
     }
-    clearPlan(pet);
+    clearPlan(pet, reason === "interrupted");
 }
 
 var buildSupervisePlan = PlanBuildersEnv.buildSupervisePlan;
@@ -907,6 +988,8 @@ var buildCursorChasePlan = PlanBuildersEnv.buildCursorChasePlan;
 var buildMusicGroovePlan = PlanBuildersEnv.buildMusicGroovePlan;
 var buildNightVigilPlan = PlanBuildersEnv.buildNightVigilPlan;
 var buildForagePlan = PlanBuildersEnv.buildForagePlan;
+var buildEatBerryPlan = PlanBuildersEnv.buildEatBerryPlan;
+var buildRefuseBerryPlan = PlanBuildersEnv.buildRefuseBerryPlan;
 var buildRestPlan = PlanBuildersEnv.buildRestPlan;
 var buildGoHomePlan = PlanBuildersEnv.buildGoHomePlan;
 var buildWatchFullscreenPlan = PlanBuildersEnv.buildWatchFullscreenPlan;

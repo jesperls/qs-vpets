@@ -245,11 +245,12 @@ Rectangle {
                         || root.pet.state_ === "laying"
                         || root.pet.state_ === "sit"
                         || root.pet.state_ === "deepsleep";
+                    const stuffed = (root.pet.satiety ?? 0.58) >= 0.82;
                     return [
-                        { label: "Pet", icon: "paw", act: "pat", tint: Theme.love },
-                        { label: "Berry", icon: "", act: "feed", tint: Theme.accent },
-                        { label: "Play", icon: "spark", act: "play", tint: Theme.positive },
-                        { label: resting ? "Wake" : "Nap", icon: resting ? "sun" : "moon", act: "rest", tint: Theme.warm }
+                        { label: "Pet", icon: "paw", act: "pat", tint: Theme.love, muted: false },
+                        { label: stuffed ? "Full" : "Berry", icon: "", act: "feed", tint: Theme.accent, muted: stuffed },
+                        { label: "Play", icon: "spark", act: "play", tint: Theme.positive, muted: false },
+                        { label: resting ? "Wake" : "Nap", icon: resting ? "sun" : "moon", act: "rest", tint: Theme.warm, muted: false }
                     ];
                 }
 
@@ -258,6 +259,7 @@ Rectangle {
                     required property var modelData
                     Layout.fillWidth: true
                     implicitHeight: 46
+                    opacity: careWrap.modelData.muted ? 0.68 : 1.0
 
                     Rectangle {
                         anchors.fill: parent

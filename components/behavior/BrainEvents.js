@@ -17,6 +17,30 @@ function _cooldown(pet, key, ms) {
     return false;
 }
 
+function _habituationFactor(pet, key, recoveryMs) {
+    if (!pet._habituation && ("_habituation" in pet || !pet.petWindow)) {
+        pet._habituation = ({});
+    }
+    if (!pet._habituation) return 1.0;
+    var now = Util.now(pet);
+    var rec = recoveryMs || 300000;
+    var entry = pet._habituation[key];
+    var level = 0;
+    if (entry) {
+        var dt = Math.max(0, now - (entry.time || 0));
+        level = (entry.level || 0) * Math.exp(-dt / rec);
+    }
+    var factor = Math.max(0.25, 1 / (1 + level * 0.55));
+    pet._habituation[key] = { level: Math.min(6, level + 1), time: now };
+    return factor;
+}
+
+function _canPreempt(pet, incomingUrgency) {
+    if (!Plans.hasActivePlan(pet)) return true;
+    var curUrg = (pet.activePlan && pet.activePlan.urgency !== undefined) ? pet.activePlan.urgency : 0.5;
+    return incomingUrgency > curUrg + 0.08;
+}
+
 function _findNearbyGuardian(pet, maxDist) {
     if (!pet.petManager || !pet.petManager.pets) return null;
     var all = pet.petManager.pets;
@@ -96,6 +120,8 @@ function handleEvent(pet, type, data, nav, pickFn) {
         resting: loafing || pet.state_ === "deepsleep",
         trust: pet.trust === undefined ? 0.35 : pet.trust,
         cooldown: _cooldown,
+        habituationFactor: _habituationFactor,
+        canPreempt: _canPreempt,
         findNearbyGuardian: _findNearbyGuardian,
         trySocialReference: _trySocialReference
     };

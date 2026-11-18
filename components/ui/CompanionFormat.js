@@ -94,11 +94,11 @@ function moodWord(src) {
 }
 
 function bellyWord(src) {
-    var s = (src && src.satiety !== undefined) ? Number(src.satiety) : 0.65;
-    if (s >= 0.76) return { label: "Full & happy", itemSprite: "oran_berry.png", icon: "", tone: "positive", notable: false };
-    if (s >= 0.50) return { label: "Satisfied", itemSprite: "oran_berry.png", icon: "", tone: "accent", notable: false };
-    if (s >= 0.30) return { label: "Peckish", itemSprite: "oran_berry.png", icon: "", tone: "warm", notable: true };
-    return { label: "Hungry", itemSprite: "oran_berry.png", icon: "", tone: "pokeball", notable: true };
+    var s = (src && src.satiety !== undefined) ? Number(src.satiety) : 0.58;
+    if (s >= 0.84) return { label: "Stuffed", itemSprite: "oran_berry.png", icon: "", tone: "warm", notable: false };
+    if (s >= 0.64) return { label: "Well-fed", itemSprite: "oran_berry.png", icon: "", tone: "positive", notable: false };
+    if (s >= 0.44) return { label: "Content", itemSprite: "oran_berry.png", icon: "", tone: "accent", notable: false };
+    return { label: "Light appetite", itemSprite: "oran_berry.png", icon: "", tone: "accent", notable: false };
 }
 
 function energyWord(src, stateStr) {
@@ -118,7 +118,6 @@ function dialogueLine(name, src, isRoaming) {
     var petName = name || "Your companion";
     if (!src) return petName + " is relaxing quietly.";
 
-    var satiety = src.satiety !== undefined ? Number(src.satiety) : 0.65;
     var restDrive = src.restDrive !== undefined ? Number(src.restDrive) : 0.18;
     var playDrive = src.playDrive !== undefined ? Number(src.playDrive) : 0.24;
     var mood = src.mood !== undefined ? Number(src.mood) : 0.56;
@@ -135,9 +134,10 @@ function dialogueLine(name, src, isRoaming) {
             return petName + " stretched out comfortably and is taking a quiet breather.";
         }
         if (st === "loaf" || st === "sit") {
-            return satiety < 0.34
-                ? (petName + " is resting politely nearby, hoping an Oran Berry might turn up!")
-                : (petName + " settled in closely to keep you cozy company.");
+            return petName + " settled in closely to keep you cozy company.";
+        }
+        if (planName === "eat_berry" || planName === "forage_snack" || st === "eat") {
+            return petName + " is happily munching on an Oran Berry!";
         }
         if (st === "perch" || planName === "window_perch" || planName === "ledge_parkour") {
             return petName + " hopped up onto a window ledge to watch over your desktop.";
@@ -161,9 +161,6 @@ function dialogueLine(name, src, isRoaming) {
             var pal = src.activePlan.otherName || "a friend";
             return petName + " is spending a sweet moment with " + pal + ".";
         }
-        if (satiety < 0.35) {
-            return petName + " comes closer with hopeful eyes, looking a little peckish!";
-        }
         if (restDrive > 0.64) {
             return petName + " blinks slowly and yawns, getting ready for a cozy nap.";
         }
@@ -182,9 +179,6 @@ function dialogueLine(name, src, isRoaming) {
     }
     if (penSt === "sit" || penSt === "loaf") {
         return petName + " is relaxing peacefully by the warm camp fire.";
-    }
-    if (satiety < 0.36) {
-        return petName + " is sniffing around the berry basket, looking a bit peckish!";
     }
     if (playDrive > 0.58) {
         return petName + " perks right up at you, ready to play or head out exploring!";

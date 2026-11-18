@@ -92,7 +92,7 @@ var FALLBACK_CHAINS = {
     appeal: ["Appeal", "Pose", "Nod", "Idle", "Walk"],
     tailWhip: ["TailWhip", "Rotate", "Nod", "Idle", "Walk"],
     dance: ["Dance", "Twirl", "Rotate", "Idle", "Walk"],
-    shake: ["Shake", "Nod", "Rotate", "Idle", "Walk"],
+    shake: ["Shake", "Nod", "Idle", "Walk"],
     emit: ["Emit", "Pose", "Nod", "Idle", "Walk"],
     shock: ["Shock", "Charge", "Pose", "Idle", "Walk"],
     lick: ["Lick", "Attack", "Pose", "Idle", "Walk"],
@@ -139,12 +139,12 @@ var STATE_CLIP_DEFAULTS = {
     sit: { anim: "EventSleep", loop: true, speed: 0.50, lockDirection: true },
     sitNorth: { anim: "Sit", loop: true, holdAtFrame: "last", speed: 0.65, fixedDirRow: 4, lockDirection: true }, // PMD Sit/LookUp face North (row 4)
     lookUpNorth: { anim: "LookUp", loop: false, speed: 0.58, endHoldTicks: 34, fixedDirRow: 4, lockDirection: true },
-    deepsleep: { anim: "Sleep", loop: true, speed: 0.38, fixedDirRow: 0, lockDirection: true },
+    deepsleep: { anim: "Sleep", loop: true, speed: 0.38, lockDirection: true },
     drag: { anim: "Float", loop: true, speed: 1.0 },
     airborne: { anim: "Tumble", loop: true, speed: 1.0 },
     leap: { anim: "Hop", loop: true, speed: 0.95 },
-    sitDown: { anim: "Sit", loop: false, speed: 0.58, endHoldTicks: 45, fixedDirRow: 4 },
-    lookUp: { anim: "LookUp", loop: false, speed: 0.58, endHoldTicks: 34, fixedDirRow: 4 },
+    sitDown: { anim: "Sit", loop: false, speed: 0.58, endHoldTicks: 45 },
+    lookUp: { anim: "LookUp", loop: false, speed: 0.58, endHoldTicks: 34 },
     head: { anim: "Head", loop: false, speed: 0.58, endHoldTicks: 22 },
     pull: { anim: "Pull", loop: false, speed: 0.65 },
     pose: { anim: "Pose", loop: false, speed: 0.58, endHoldTicks: 14 },
@@ -181,6 +181,17 @@ function isLoopingState(state) {
 }
 
 var _animParseCache = {};
+var _dirParseCache = {};
+
+function cachedForDir(dir) {
+    if (!dir) return null;
+    return _dirParseCache[dir] || null;
+}
+
+function storeDirCache(dir, parsed) {
+    if (!dir || !parsed) return;
+    _dirParseCache[dir] = parsed;
+}
 
 function _xmlCacheKey(xml) {
     var h = 2166136261;

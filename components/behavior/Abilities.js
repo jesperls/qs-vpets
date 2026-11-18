@@ -115,7 +115,7 @@ function has(petOrSpecies, id) {
 }
 
 function forageThreshold(pet) {
-    return has(pet, "forage_stash") ? 0.34 : 0.24;
+    return has(pet, "forage_stash") ? 0.52 : 0.44;
 }
 
 function perchBonus(pet) {
@@ -331,13 +331,16 @@ function _buildPhaseJauntPlan(pet, target) {
 }
 
 function _buildHearthBaskPlan(pet, perc, prof) {
-    var sigState = (prof.signature && prof.signature.state) ? prof.signature.state : "rotate";
+    var rawSig = (prof.signature && prof.signature.state) ? prof.signature.state : "pose";
+    var baskStates = (rawSig === "rotate" || rawSig === "twirl" || rawSig === "dance")
+        ? SpeciesProfile.calmGesturesFor(pet)
+        : [rawSig, "nod"];
     var steps = [];
     var warmMachine = (perc.thermalWarmth || 0) > 0.48 && perc.win && perc.win.onMyScreen;
     if (warmMachine) {
         steps.push({ kind: "travel", gait: "amble", label: "Padding near warm work", gx: perc.win.loafBesideGX, gy: perc.win.loafBesideGY });
     }
-    steps.push({ kind: "act", label: "Kindling warm embers", states: [sigState, "rotate"] });
+    steps.push({ kind: "act", label: "Kindling warm embers", states: baskStates });
     steps.push({ kind: "ability_effect", effect: "warmth_aura", label: "Sharing gentle warmth" });
     steps.push({ kind: "loaf_watch", label: "Resting in warm glow", attend: perc.win ? "window" : "", durationMs: 32000 });
     return {
@@ -352,12 +355,15 @@ function _buildHearthBaskPlan(pet, perc, prof) {
 }
 
 function _buildLunarVigilPlan(pet, perc, prof) {
-    var sigState = (prof.signature && prof.signature.state) ? prof.signature.state : "pose";
+    var rawSigL = (prof.signature && prof.signature.state) ? prof.signature.state : "pose";
+    var vigilStates = (rawSigL === "rotate" || rawSigL === "twirl" || rawSigL === "dance")
+        ? ["pose", "nod"]
+        : [rawSigL, "pose", "nod"];
     var steps = [];
     if (perc.win) {
         steps.push({ kind: "travel", gait: "amble", label: "Padding near night work", gx: perc.win.loafBesideGX, gy: perc.win.loafBesideGY });
     }
-    steps.push({ kind: "act", label: "Moonlit watch", states: [sigState, "pose", "nod"], attendWindow: !!perc.win });
+    steps.push({ kind: "act", label: "Moonlit watch", states: vigilStates, attendWindow: !!perc.win });
     steps.push({ kind: "ability_effect", effect: "lunar_glow", label: "Quiet night watch" });
     steps.push({ kind: "loaf_watch", label: "Keeping moonlit vigil", attend: perc.win ? "window" : "cursor", durationMs: 42000 });
     return {
@@ -449,16 +455,16 @@ function _buildPuddleSpinPlan(pet, prof) {
 function executeStep(pet, plan, step, nav, pickFn, advanceFn) {
     var eff = step.effect || "";
     if (eff === "illusion_shift") {
-        var sinkChoice = pickFn ? pickFn(pet, ["sink", "rotate"]) : "sink";
-        pet.enterState(sinkChoice);
         pet.illusionSpecies = step.targetSpecies || "";
         pet.illusionUntil = _now(pet) + 22000;
+        var sinkChoice = pickFn ? pickFn(pet, ["sink", "pose", "nod"]) : "sink";
+        pet.enterState(sinkChoice);
         return;
     }
     if (eff === "illusion_clear") {
         pet.illusionSpecies = "";
         pet.illusionUntil = 0;
-        var clearChoice = pickFn ? pickFn(pet, ["rotate", "hop"]) : "rotate";
+        var clearChoice = pickFn ? pickFn(pet, ["hop", "pose", "nod"]) : "hop";
         pet.enterState(clearChoice);
         return;
     }

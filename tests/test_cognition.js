@@ -140,9 +140,21 @@ function createSimPet(world, name, preset = "emergent", sx = 0, species = "zorua
         comfortDrive: 0,
         playDrive: 0.25,
         alertness: 0.65,
+        arousal: 0.30,
+        sleepInertia: 0,
         boredom: 0.1,
+        _careSatiation: 0,
+        _attentiveRest: false,
+        _habituation: {},
+        berryPresent: false,
+        berryGX: 0,
+        berryGY: 0,
+        berryUntil: 0,
+        _mealUntil: 0,
+        _stuffedRefusals: 0,
         thoughts: [],
         episodes: [],
+        lifetimeCounts: {},
         journal: [],
         visitedCells: {},
         windowPrefs: {},
@@ -181,7 +193,11 @@ function createSimPet(world, name, preset = "emergent", sx = 0, species = "zorua
         screenW() { return world.screens[this._screenIdx].width; },
         screenH() { return world.screens[this._screenIdx].height; },
         allScreens() { return world.screens; },
-        enterState(s) { this.state_ = s; },
+        enterState(s) {
+            Drives.noteActivityState(proxy, s);
+            this._attentiveRest = false;
+            this.state_ = s;
+        },
         restartIdle() {},
         restartWalk() {},
         continueResting(s) { this.state_ = s; },
@@ -2157,12 +2173,12 @@ function stepNavigationSim(world, pet, maxSeconds = 120) {
     assert.equal(Fmt.friendshipInfo(0.62).full, 4);
     assert.equal(Fmt.friendshipInfo(0.90).title, "Best Friends");
 
-    assert.equal(Fmt.bellyWord({ satiety: 0.25 }).notable, true);
-    assert.equal(Fmt.bellyWord({ satiety: 0.80 }).notable, false);
+    assert.equal(Fmt.bellyWord({ satiety: 0.25 }).notable, false, "Appetite never flashes nagging hunger alerts");
+    assert.equal(Fmt.bellyWord({ satiety: 0.90 }).label, "Stuffed");
     assert.equal(Fmt.energyWord({ restDrive: 0.2 }, "deepsleep").label, "Dreaming");
 
-    const hungryLine = Fmt.dialogueLine("Clover", { satiety: 0.24, penState: "idle" }, false);
-    assert.ok(hungryLine.includes("Clover") && hungryLine.includes("peckish"), "Camp hunger dialogue reads naturally");
+    const calmCampLine = Fmt.dialogueLine("Clover", { satiety: 0.24, penState: "idle" }, false);
+    assert.ok(!calmCampLine.includes("peckish") && !calmCampLine.includes("Hungry"), "Unfed camp dialogue never guilt-trips user");
     const perchLine = Fmt.dialogueLine("Lokke", { state_: "perch", satiety: 0.7 }, true);
     assert.ok(perchLine.includes("ledge"), "Roaming perch dialogue translates state into Pokémon narration");
 
@@ -2276,6 +2292,316 @@ function stepNavigationSim(world, pet, maxSeconds = 120) {
     const parsedSway = CompositorWindows.parseSwayTree(JSON.stringify(swayTree));
     assert.equal(parsedSway.wins.length, 1, "Visible window on DP-1 is still tracked");
     assert.equal(parsedSway.windowCount, 0, "Focused empty workspace on DP-2 reports windowCount = 0");
+}
+
+// 21. Test Emergent Physiology, Transition Continuity, Appraisal & Sanctuary Lifecycle
+{
+    const BrainEventsUser = loadQmlJs("components/behavior/BrainEventsUser.js");
+
+    // A. Sympathetic arousal blocks post-dance/spin/zoomies sleep until calm cooldown
+    const worldA = createSimWorld();
+    const dancer = createSimPet(worldA, "Melody", "playful", 0, "meloetta");
+    dancer.restDrive = 0.60;
+    dancer.arousal = 0.24;
+    dancer.enterState("dance");
+    dancer.enterState("twirl");
+    assert.ok(dancer.arousal >= 0.55, `Kinetic dance/twirl elevates arousal immediately (${dancer.arousal.toFixed(2)})`);
+    dancer.enterState("idle");
+
+    const postDanceCands = BrainCandidates.scoreCandidates(dancer, Perception.perceive(dancer), Nav, Gestures.pickAvailable);
+    const restCandNames = new Set(["rest", "go_home_rest", "sanctuary_rest", "rest_with", "steal_warm_spot"]);
+    assert.equal(
+        postDanceCands.filter(c => restCandNames.has(c.name)).length,
+        0,
+        "Elevated arousal physiologically inhibits sleep candidates right after dancing/spinning"
+    );
+
+    // Let dancer relax calmly so arousal decays and sleepPropensity emerges naturally
+    dancer.restDrive = 0.82;
+    advanceTime(worldA, 130);
+    assert.ok(dancer.arousal < 0.42, `Arousal relaxes naturally during calm idle (${dancer.arousal.toFixed(2)})`);
+    const cooledCands = BrainCandidates.scoreCandidates(dancer, Perception.perceive(dancer), Nav, Gestures.pickAvailable);
+    const cooledRestCands = cooledCands.filter(c => restCandNames.has(c.name));
+    assert.equal(cooledRestCands.length, 1, "Rest locations consolidate into at most one rest candidate");
+    cooledRestCands[0].exec();
+    while (dancer.activePlan) {
+        if (dancer.state_ === "walk") {
+            dancer.worldX = dancer.targetGX - dancer.screenX();
+            dancer.worldY = dancer.targetGY - dancer.screenY();
+            Nav.walkArrived(dancer);
+        } else {
+            Brain.onActionFinished(dancer, Nav);
+        }
+    }
+    assert.ok(
+        dancer.state_ === "loaf" || dancer.state_ === "laying",
+        `Companion settles into loaf/laying before deep sleep even at high restDrive (${dancer.state_})`
+    );
+
+    // B. Universal wake-before-locomotion & perch-dismount for non-travel floor plans
+    const worldW = createSimWorld();
+    const sleeper = createSimPet(worldW, "Doze", "chill", 0, "eevee");
+    sleeper.homeGX = 900;
+    sleeper.homeGY = 700;
+    sleeper.state_ = "deepsleep";
+    Plans.startPlan(sleeper, Plans.buildGoHomePlan(sleeper), Nav, Gestures.pickAvailable);
+    assert.equal(sleeper.state_, SpeciesProfile.wakeStateFor(sleeper), "Starting travel plan from deepsleep plays species wakeState before walking");
+    Brain.onActionFinished(sleeper, Nav);
+    assert.equal(sleeper.state_, "walk", "Companion begins walking only after wake gesture finishes");
+
+    sleeper.state_ = "deepsleep";
+    sleeper.satiety = 0.40;
+    Brain.onEvent(sleeper, "fed", null, Nav);
+    assert.equal(sleeper.state_, SpeciesProfile.wakeStateFor(sleeper), "Feeding a sleeping companion wakes it before eating");
+    Brain.onActionFinished(sleeper, Nav);
+    assert.equal(sleeper.state_, "eat", "Companion eats berry after waking");
+
+    const percher = createSimPet(worldW, "Ledge", "playful", 0, "eevee");
+    worldW.windowTracker.visibleWindows = [
+        { address: "0xhi", cls: "kitty", title: "nvim", x: 300, y: 260, w: 900, h: 600, focused: true, fullscreen: false }
+    ];
+    percher.worldX = 480;
+    percher.worldY = 260 - percher.height * 0.85;
+    percher.perchedWindowAddr = "0xhi";
+    percher.state_ = "perch";
+    Plans.startPlan(percher, Plans.buildPlaySoloPlan(percher, SpeciesProfile.profileFor("eevee").signature), Nav, Gestures.pickAvailable);
+    assert.equal(percher.state_, "airborne", "Starting a non-travel floor plan from an elevated perch dismounts via jump_to first");
+
+    // C. Nocturnal circadian vitality & _attentiveRest vs true sleep recovery
+    const worldN = createSimWorld();
+    worldN.now = Date.UTC(2026, 5, 10, 1, 0, 0); // 01:00 UTC night
+    const nightOwl = createSimPet(worldN, "Nyx", "emergent", 0, "umbreon");
+    const dayPup = createSimPet(worldN, "Sunny", "emergent", 0, "eevee");
+    nightOwl.basePersonality = Object.assign({}, dayPup.basePersonality);
+    nightOwl.restDrive = 0.20;
+    dayPup.restDrive = 0.20;
+    nightOwl.alertness = 0.70;
+    dayPup.alertness = 0.70;
+    advanceTime(worldN, 3600);
+    assert.ok(
+        (dayPup.restDrive - 0.20) > (nightOwl.restDrive - 0.20) * 2.0,
+        `Diurnal companion tires much faster at night (${dayPup.restDrive.toFixed(3)}) than nocturnal Umbreon (${nightOwl.restDrive.toFixed(3)})`
+    );
+    assert.ok(
+        nightOwl.alertness > dayPup.alertness + 0.10,
+        `Nocturnal Umbreon stays more alert at night (${nightOwl.alertness.toFixed(3)} vs ${dayPup.alertness.toFixed(3)})`
+    );
+
+    dayPup.restDrive = 0.60;
+    Plans.startPlan(dayPup, {
+        name: "quiet_watch",
+        urgency: 0.4,
+        steps: [{ kind: "loaf_watch", durationMs: 30000, label: "Keeping watch" }]
+    }, Nav, Gestures.pickAvailable);
+    assert.equal(dayPup.state_, "loaf");
+    assert.equal(dayPup._attentiveRest, true, "loaf_watch marks _attentiveRest = true");
+    const preWatchRest = dayPup.restDrive;
+    Drives.integrate(dayPup, Perception.perceive(dayPup), 300);
+    assert.ok(dayPup.restDrive >= preWatchRest, "Attentive loaf_watch does not drain restDrive like sleep");
+    Plans.startPlan(dayPup, {
+        name: "real_nap",
+        urgency: 0.7,
+        steps: [{ kind: "rest", deep: false, label: "Napping" }]
+    }, Nav, Gestures.pickAvailable);
+    assert.equal(dayPup._attentiveRest, false, "Transitioning from loaf_watch into real rest clears _attentiveRest");
+    const preNapRest = dayPup.restDrive;
+    Drives.integrate(dayPup, Perception.perceive(dayPup), 300);
+    assert.ok(dayPup.restDrive < preNapRest, "Real loaf sleep drains restDrive cleanly");
+
+    // D. Sensory appraisal, _careSatiation, stuffed refusal & negative spatial affect
+    const worldS = createSimWorld();
+    const timid = createSimPet(worldS, "Pip", "shy", 0, "phantump");
+    timid.basePersonality.boldness = 0.12;
+    timid.trust = 0.12;
+    worldS.inputTracker.cursorX = timid.worldX + 20;
+    worldS.inputTracker.cursorY = timid.worldY + 10;
+    worldS.inputTracker.cursorSpeed = 240; // gentle approach (< 420)
+    Brain.onEvent(timid, "cursor_near", null, Nav);
+    assert.ok(
+        !["shock", "hop", "cringe"].includes(timid.state_),
+        `Gentle cursor approach never startles even a timid companion (${timid.state_})`
+    );
+
+    timid.satiety = 0.95;
+    timid.state_ = "idle";
+    Brain.onEvent(timid, "fed", null, Nav);
+    assert.notEqual(timid.state_, "eat", "Stuffed companion politely declines extra berry instead of force-eating");
+    assert.equal(timid.satiety, 0.95, "Stuffed refusal leaves satiety unchanged");
+
+    timid.satiety = 0.55;
+    timid.happiness = 0.40;
+    const h0 = timid.happiness;
+    Brain.onEvent(timid, "stroked", null, Nav);
+    const gain1 = timid.happiness - h0;
+    timid._eventCooldowns = {};
+    const h1 = timid.happiness;
+    for (let i = 0; i < 4; i++) {
+        timid._eventCooldowns = {};
+        Brain.onEvent(timid, "stroked", null, Nav);
+    }
+    const h4 = timid.happiness;
+    timid._eventCooldowns = {};
+    Brain.onEvent(timid, "stroked", null, Nav);
+    const gain6 = timid.happiness - h4;
+    assert.ok(timid._careSatiation > 0.40 && gain6 < gain1, "Repeated stroking builds _careSatiation with diminishing returns");
+
+    timid.worldX = 1100;
+    timid.worldY = 750;
+    for (let i = 0; i < 3; i++) {
+        Memory.recordPlaceAffect(timid, -0.50);
+    }
+    assert.ok(
+        Memory.placeAffectAt(timid, 1100, 750) <= Memory.AVOID_AFFECT_MAX,
+        `Repeated unpleasant events push spatial affect (${Memory.placeAffectAt(timid, 1100, 750).toFixed(2)}) into avoidance`
+    );
+
+    // E. Sanctuary sleep-trap recovery, careWakeUntil & lifetimeCounts evolution durability
+    let simMs = 2_000_000_000;
+    const dayEnv = { hour: 14, isNight: false };
+    const campRes = Sanctuary.createDefaultResident({ id: "c1", name: "Fern", sprite: "leafeon", personality: "chill" }, simMs);
+    campRes.restDrive = 0.72;
+    Sanctuary.integrateResident(campRes, 30, [], dayEnv, simMs += 30000);
+    assert.equal(campRes.penState, "deepsleep", "Exhausted Sanctuary resident enters deepsleep");
+    for (let i = 0; i < 240 && campRes.penState !== "idle"; i++) {
+        Sanctuary.integrateResident(campRes, 30, [], dayEnv, simMs += 30000);
+    }
+    assert.equal(campRes.penState, "idle", "Solo Sanctuary resident wakes cleanly to idle once rested instead of staying trapped in sleep");
+
+    campRes.restDrive = 0.68;
+    campRes.penState = "deepsleep";
+    Sanctuary.patInPen(campRes, simMs);
+    assert.equal(campRes.penState, "idle", "patInPen wakes sleeping resident");
+    Sanctuary.integrateResident(campRes, 30, [], dayEnv, simMs + 30000);
+    assert.equal(campRes.penState, "idle", "careWakeUntil keeps cared-for resident awake across next camp tick");
+
+    const evoWorld = createSimWorld();
+    const riolu = createSimPet(evoWorld, "Aura", "playful", 0, "riolu");
+    riolu.ageSeconds = 80000;
+    riolu.maturity = 0.55;
+    riolu.bond = 0.85;
+    riolu.trust = 0.80;
+    for (let i = 0; i < 6; i++) {
+        Memory.recordEpisode(riolu, "aura_kata", { valence: 0.5 });
+        Memory.recordEpisode(riolu, "supervised_code", { valence: 0.4 });
+    }
+    assert.equal(Evolution.evaluate(riolu).ready, true, "Riolu meets Lucario evolution milestones");
+    for (let i = 0; i < 160; i++) {
+        Memory.recordEpisode(riolu, "petted", { valence: 0.3 });
+    }
+    assert.equal(riolu.episodes.some(e => e.type === "aura_kata"), false, "Ring buffer evicted older aura_kata episodes");
+    assert.ok(riolu.lifetimeCounts.aura_kata >= 6, "lifetimeCounts retains evicted episode totals");
+    assert.equal(Evolution.evaluate(riolu).ready, true, "Evolution readiness persists via lifetimeCounts after ring-buffer rollover");
+
+    // Offline persistence preserves recent alertness and recovers drives across multi-hour absence
+    const restoredRecent = createSimPet(evoWorld, "Aura", "playful", 0, "riolu");
+    restoredRecent._simNow = undefined;
+    riolu.alertness = 0.84;
+    const recentObj = JSON.parse(Persist.serialize(riolu));
+    recentObj.savedAt = Date.now() - 5000;
+    Persist.applySaved(restoredRecent, JSON.stringify(recentObj));
+    assert.ok(Math.abs(restoredRecent.alertness - 0.84) < 0.01, "Recent save preserves exact alertness without 35% load warp");
+
+    const restoredOffline = createSimPet(evoWorld, "Aura", "playful", 0, "riolu");
+    restoredOffline._simNow = undefined;
+    recentObj.restDrive = 0.75;
+    recentObj.alertness = 0.30;
+    recentObj.savedAt = Date.now() - 4 * 3600 * 1000;
+    Persist.applySaved(restoredOffline, JSON.stringify(recentObj));
+    assert.ok(restoredOffline.restDrive < 0.50 && restoredOffline.alertness > 0.55, "Multi-hour offline gap rests and refreshes companion naturally");
+
+    // F. Self-sustaining appetite (zero feeding required) & anti-spam meal weight / stuffed pushback
+    const worldM = createSimWorld();
+    const selfFed = createSimPet(worldM, "Clover", "chill", 0, "eevee");
+    selfFed.satiety = 0.58;
+    for (let h = 0; h < 48; h++) {
+        advanceTime(worldM, 3600);
+        if (!selfFed.activePlan) {
+            const cands = BrainCandidates.scoreCandidates(selfFed, Perception.perceive(selfFed), Nav, Gestures.pickAvailable);
+            const forage = cands.find(c => c.name === "forage_snack");
+            if (forage && h % 4 === 0) {
+                forage.exec();
+                while (selfFed.activePlan) {
+                    if (selfFed.state_ === "walk") {
+                        selfFed.worldX = selfFed.targetGX - selfFed.screenX();
+                        selfFed.worldY = selfFed.targetGY - selfFed.screenY();
+                        Nav.walkArrived(selfFed);
+                    } else {
+                        Brain.onActionFinished(selfFed, Nav);
+                    }
+                }
+            }
+        }
+    }
+    assert.ok(selfFed.satiety >= 0.35, `Unfed companion never starves over 48h (${selfFed.satiety.toFixed(2)})`);
+    assert.ok(selfFed.happiness >= 0.48 && selfFed.mood >= 0.48, "Unfed companion maintains full happiness and mood");
+    assert.ok(selfFed.bond >= 0.56, `Unfed companion naturally builds Evolution-ready bond via calm desktop co-presence (${selfFed.bond.toFixed(2)})`);
+    assert.ok(selfFed.episodes.some(e => e.type === "foraged"), "Autonomous foraging still exercises berry systems without user feeding");
+
+    // Physical dropped berry choreography + anti-spam / stuffed pushback on desktop
+    const worldB2 = createSimWorld();
+    const eater = createSimPet(worldB2, "Pebble", "playful", 0, "eevee");
+    eater.satiety = 0.48;
+    const bondStart = eater.bond;
+    Brain.onEvent(eater, "fed", null, Nav);
+    assert.equal(eater.berryPresent, true, "Feeding drops a physical Oran Berry onto the desktop");
+    assert.equal(eater.activePlan && eater.activePlan.name, "eat_berry", "Companion launches multi-step eat_berry plan");
+    assert.equal(eater.state_, "walk", "Awake companion trots over to the dropped berry");
+    const satAfterOne = eater.satiety;
+    const bondAfterOne = eater.bond;
+    assert.ok(satAfterOne >= 0.82, `One berry provides real meal fullness (${satAfterOne.toFixed(2)})`);
+    assert.ok(bondAfterOne > bondStart && bondAfterOne < bondStart + 0.03, "Single meal gives modest realistic warmth, not instant love");
+
+    // Clicking feed mid-meal is ignored
+    Brain.onEvent(eater, "fed", null, Nav);
+    assert.equal(eater.bond, bondAfterOne, "Mid-meal spam click grants zero extra bond");
+
+    // Walk to berry -> sniff -> eat -> berry disappears right when eaten!
+    eater.worldX = eater.targetGX - eater.screenX();
+    eater.worldY = eater.targetGY - eater.screenY();
+    Nav.walkArrived(eater); // sniff
+    assert.equal(eater.berryPresent, true, "Berry remains visible while sniffing");
+    Brain.onActionFinished(eater, Nav); // eat_berry
+    assert.equal(eater.state_, "eat", "Companion munches the dropped berry");
+    Brain.onActionFinished(eater, Nav); // finishes eating -> savor step
+    assert.equal(eater.berryPresent, false, "Dropped berry vanishes right as companion finishes eating it");
+    while (eater.activePlan) Brain.onActionFinished(eater, Nav);
+
+    // Advance past _mealUntil (8s), still stuffed (>= 0.82): spam-feeding yields zero love and then annoys!
+    worldB2.now += 8000;
+    eater._simNow = worldB2.now;
+    const bondWhenFull = eater.bond;
+    const trustWhenFull = eater.trust;
+    const moodWhenFull = eater.mood;
+    Brain.onEvent(eater, "fed", null, Nav); // 1st stuffed refusal (polite)
+    assert.equal(eater.bond, bondWhenFull, "Stuffed companion gains zero bond when offered extra berry");
+    assert.equal(eater.trust, trustWhenFull, "Stuffed companion gains zero trust when offered extra berry");
+    while (eater.activePlan) Brain.onActionFinished(eater, Nav);
+
+    for (let s = 0; s < 4; s++) {
+        worldB2.now += 6000;
+        eater._simNow = worldB2.now;
+        Brain.onEvent(eater, "fed", null, Nav);
+        while (eater.activePlan) Brain.onActionFinished(eater, Nav);
+    }
+    assert.ok(eater.mood < moodWhenFull, "Repeatedly pushing berries onto a stuffed companion lowers mood");
+    assert.ok(eater.trust < trustWhenFull && eater.bond <= bondWhenFull, "Spam-stuffing reduces trust instead of farming full love");
+
+    // Same anti-spam & stuffed pushback in Sanctuary feedInPen
+    let penNow = 3_000_000_000;
+    const penEater = Sanctuary.createDefaultResident({ id: "pe1", name: "Muffin", sprite: "eevee", personality: "playful" }, penNow);
+    penEater.satiety = 0.50;
+    assert.equal(Sanctuary.feedInPen(penEater, penNow), "ate");
+    assert.equal(Sanctuary.feedInPen(penEater, penNow + 1000), "busy", "Rapid repeat click while chewing is ignored");
+    const penBondFull = penEater.bond;
+    const penTrustFull = penEater.trust;
+    penNow += 6000;
+    assert.equal(Sanctuary.feedInPen(penEater, penNow), "refused", "Stuffed Sanctuary resident politely refuses extra berry");
+    assert.equal(penEater.bond, penBondFull, "Stuffed Sanctuary refusal grants zero bond");
+    penNow += 6000;
+    assert.equal(Sanctuary.feedInPen(penEater, penNow), "annoyed", "Repeated Sanctuary overfeeding annoys resident");
+    penNow += 6000;
+    Sanctuary.feedInPen(penEater, penNow);
+    assert.ok(penEater.trust < penTrustFull && penEater.bond < penBondFull, "Spamming feedInPen while stuffed lowers trust and bond");
 }
 
 console.log("All cognitive, developmental, social, Sanctuary rotation, physics, multi-monitor, species ethology, modular ability, and persistence tests passed!");

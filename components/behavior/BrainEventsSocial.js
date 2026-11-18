@@ -16,12 +16,16 @@ function handleSocialEvent(pet, type, data, nav, pickFn, ctx) {
     var loafing = ctx.loafing;
     var resting = ctx.resting;
     var cooldown = ctx.cooldown;
+    var canPreempt = ctx.canPreempt || function(t) { return !Plans.hasActivePlan(t); };
     var trySocialReference = ctx.trySocialReference;
 
     switch (type) {
     case "caught_yawn": {
-        if ((pet.state_ !== "idle" && pet.state_ !== "wander") || Plans.hasActivePlan(pet) || cooldown(pet, "caught_yawn", 240000)) return true;
-        pet.restDrive = Drives.clamp01(pet.restDrive + 0.14);
+        if ((pet.state_ !== "idle" && pet.state_ !== "wander")
+                || (pet.arousal !== undefined && pet.arousal >= 0.52)
+                || Plans.hasActivePlan(pet)
+                || cooldown(pet, "caught_yawn", 240000)) return true;
+        pet.restDrive = Drives.clamp01(pet.restDrive + 0.12);
         var yPerc = Perception.perceive(pet);
         var warmPeerName = (data && data.warmPeerName) || "";
         var warmPeer = warmPeerName ? Util.findPet(pet, warmPeerName) : null;
@@ -41,9 +45,12 @@ function handleSocialEvent(pet, type, data, nav, pickFn, ctx) {
                 return true;
             }
         }
-        if (nav) {
+        if (nav && Drives.sleepPropensity(pet, yPerc) > 0.26) {
             Memory.thinkAloud(pet, "caught_yawn", "Caught a sleepy yawn and curled down", { minGapMs: 120000 });
             Plans.startPlan(pet, Plans.buildRestPlan(pet, yPerc, false, null, false), nav, pickFn);
+        } else if (pet.state_ === "idle") {
+            Memory.thinkAloud(pet, "caught_yawn", "Caught a contagious yawn and stretched", { minGapMs: 120000 });
+            pet.enterState(pickFn(pet, ["deepBreath", "nod"]));
         }
         return true;
     }
@@ -64,7 +71,8 @@ function handleSocialEvent(pet, type, data, nav, pickFn, ctx) {
     case "pet_groove": {
         var fromM = data.fromPet;
         var relM = Memory.relationWith(pet, fromM.petData.name, fromM.personality);
-        if (!resting && relM.affinity > 0.38 && (p.playfulness > 0.35 || Personality.hasQuirk(pet, "melomaniac"))) {
+        if (!resting && canPreempt(pet, 0.60) && relM.affinity > 0.38
+                && (p.playfulness > 0.35 || Personality.hasQuirk(pet, "melomaniac"))) {
             Memory.adjustRelation(pet, fromM.petData.name, 0.014, 0.05, "play");
             Memory.recordEpisode(pet, "music_groove", { valence: 0.45, music: true, withPet: fromM.petData.name });
             Plans.startPlan(pet, Plans.buildSharedGroovePlan(pet, fromM.petData.name), nav, pickFn);
@@ -218,11 +226,11 @@ function handleSocialEvent(pet, type, data, nav, pickFn, ctx) {
         var fromShow = data.fromPet;
         if (resting) return true;
         var relShow = Memory.relationWith(pet, fromShow.petData.name, fromShow.personality, fromShow.petData.sprite);
-        if (relShow.affinity >= 0.50 && p.playfulness > 0.44 && pet.playDrive > 0.18 && nav) {
+        if (relShow.affinity >= 0.50 && p.playfulness > 0.44 && pet.playDrive > 0.18 && canPreempt(pet, 0.64) && nav) {
             Social.markPeerBout(pet, "duet");
             Memory.adjustRelation(pet, fromShow.petData.name, 0.016, 0.05, "play", { outcome: "duet" });
             Plans.startPlan(pet, Plans.buildSyncDancePlan(pet, fromShow.petData.name), nav, pickFn);
-        } else if (relShow.affinity < 0.36 && nav) {
+        } else if (relShow.affinity < 0.36 && canPreempt(pet, 0.55) && nav) {
             Memory.adjustRelation(pet, fromShow.petData.name, -0.006, 0.02, null, {
                 respectDelta: fromShow.personality.boldness > 0.6 ? 0.01 : -0.01
             });
@@ -245,6 +253,7 @@ function handleSocialEvent(pet, type, data, nav, pickFn, ctx) {
             respectDelta: p.boldness > 0.52 ? 0.015 : -0.01,
             outcome: "squabble"
         });
+        Memory.recordPlaceAffect(pet, -0.22);
         Memory.recordEpisode(pet, "squabbled", { valence: -0.36, salience: 0.58, withPet: fromSq.petData.name });
         pet.mood = Math.max(0, pet.mood - 0.05);
         if (p.boldness >= 0.48 && p.patience < 0.62 && !resting && nav) {
@@ -333,7 +342,23 @@ function handleSocialEvent(pet, type, data, nav, pickFn, ctx) {
 
     case "pet_illusion": {
         var fromIl = data.fromPet;
-        Memory.adjustRelation(pet, fromIl.petData.name, 0.012, 0.05, "play");
+        var relIl = Memory.relationWith(pet, fromIl.petData.name, fromIl.personality, fromIl.petData.sprite);
+        var effPatIl = Drives.effectivePatience(pet);
+        if (relIl.affinity < 0.30 && effPatIl < 0.36) {
+            Memory.adjustRelation(pet, fromIl.petData.name, -0.012, 0.03, "friction");
+            Memory.recordEpisode(pet, "annoyed_by", { valence: -0.25, withPet: fromIl.petData.name, note: "illusion" });
+            Memory.thinkAloud(pet, "annoyed_illusion", "Huffed unamused at " + fromIl.petData.name + "'s Illusion trick");
+            if (!resting) {
+                Util.faceGlobal(pet, Util.petGX(fromIl), Util.petGY(fromIl));
+                if (pet.emitEmote) pet.emitEmote("frustrated");
+                if (pet.state_ === "idle" && !Plans.hasActivePlan(pet)) {
+                    pet.enterState(pickFn(pet, SpeciesProfile.standoffMovesFor(pet)));
+                }
+            }
+            return true;
+        }
+        var ilGain = p.playfulness > 0.55 ? 0.016 : 0.010;
+        Memory.adjustRelation(pet, fromIl.petData.name, ilGain, 0.05, "play");
         Memory.recordEpisode(pet, "greeted", { valence: 0.35, withPet: fromIl.petData.name, note: "illusion" });
         Memory.thinkAloud(pet, "saw_illusion", "Did a double-take at " + fromIl.petData.name + "'s Illusion");
         if (!resting) {
@@ -348,7 +373,23 @@ function handleSocialEvent(pet, type, data, nav, pickFn, ctx) {
 
     case "pet_sneak_boop": {
         var fromSb = data.fromPet;
-        Memory.adjustRelation(pet, fromSb.petData.name, 0.012, 0.05, "play");
+        var relSb = Memory.relationWith(pet, fromSb.petData.name, fromSb.personality, fromSb.petData.sprite);
+        var effPatSb = Drives.effectivePatience(pet);
+        if (relSb.affinity < 0.30 && effPatSb < 0.36) {
+            Memory.adjustRelation(pet, fromSb.petData.name, -0.014, 0.03, "friction");
+            Memory.recordEpisode(pet, "annoyed_by", { valence: -0.28, withPet: fromSb.petData.name, note: "sneak_boop" });
+            Memory.thinkAloud(pet, "booped_mad", "Bristled after " + fromSb.petData.name + " snuck up uninvited");
+            if (!resting) {
+                Util.faceGlobal(pet, Util.petGX(fromSb), Util.petGY(fromSb));
+                if (pet.emitEmote) pet.emitEmote("frustrated");
+                if (pet.state_ === "idle" && !Plans.hasActivePlan(pet)) {
+                    pet.enterState(pickFn(pet, SpeciesProfile.standoffMovesFor(pet)));
+                }
+            }
+            return true;
+        }
+        var sbGain = p.playfulness > 0.55 ? 0.016 : 0.012;
+        Memory.adjustRelation(pet, fromSb.petData.name, sbGain, 0.05, "play");
         Memory.recordEpisode(pet, "greeted", { valence: 0.36, withPet: fromSb.petData.name, note: "sneak_boop" });
         Memory.thinkAloud(pet, "booped", "Whirled around after " + fromSb.petData.name + " snuck up from behind");
         if (!resting) {
@@ -363,10 +404,28 @@ function handleSocialEvent(pet, type, data, nav, pickFn, ctx) {
 
     case "pet_mentor_patrol": {
         var fromMp = data.fromPet;
-        if (!resting && !Plans.hasActivePlan(pet) && nav) {
+        var relMp = Memory.relationWith(pet, fromMp.petData.name, fromMp.personality, fromMp.petData.sprite);
+        if (!resting && canPreempt(pet, 0.64) && nav
+                && relMp.affinity >= 0.40 && (pet.restDrive || 0) < 0.68) {
             Social.markPeerBout(pet, "greet");
             Plans.startPlan(pet, Plans.buildCopycatTrailPlan(pet, fromMp), nav, pickFn);
         }
+        return true;
+    }
+
+    case "pet_friend_arrived": {
+        var arriving = data.fromPet;
+        if (!arriving || resting || !canPreempt(pet, 0.66) || (pet.restDrive || 0) >= 0.68 || !nav) return true;
+        if (cooldown(pet, "friend_arrived", 90000)) return true;
+        Plans.startPlan(pet, Plans.buildWelcomeFriendPlan(pet, arriving), nav, pickFn);
+        return true;
+    }
+
+    case "pet_friend_displaced": {
+        var refugee = data.fromPet;
+        if (!refugee || resting || !canPreempt(pet, 0.70) || (pet.restDrive || 0) >= 0.72 || !nav) return true;
+        if (cooldown(pet, "friend_displaced", 60000)) return true;
+        Plans.startPlan(pet, Plans.buildCheckDisplacedFriendPlan(pet, refugee), nav, pickFn);
         return true;
     }
 

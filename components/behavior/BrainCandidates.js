@@ -49,10 +49,18 @@ function scoreCandidates(pet, perc, nav, pickFn) {
     var cands = [];
     var now = Util.now(pet);
     var justWoke = Memory.justWokeUp(pet);
+    var inertia = pet.sleepInertia || 0;
+    var arousal = pet.arousal === undefined ? 0.30 : pet.arousal;
+    var wakeEase = Math.max(0.20, 1 - inertia * 0.80);
     var settled = now < (pet.calmUntil || 0);
     var quietHour = 1 - Memory.usualUserActivity(pet, perc.hour);
+    var isNocturnal = spProf.nocturnalAffinity
+                   || Personality.hasQuirk(pet, "night_watch")
+                   || Abilities.has(pet, "lunar_pulse");
     var active = Math.max(0.28, 1 - (Math.max(0, p.sleepiness - 0.45) * 0.62 + (1 - p.energy) * 0.24));
-    var nightMult = perc.isNight ? (0.42 + p.energy * 0.25) : 1;
+    var nightMult = perc.isNight
+        ? (isNocturnal ? 1.06 : (0.38 + p.energy * 0.22))
+        : (spProf.nocturnalAffinity && !perc.isDusk && !perc.isDawn ? 0.88 : 1);
     var fsCalm = perc.fullscreen ? 0.45 : 1;
     var boredomBoost = 1 + pet.boredom * 0.85;
     var moodMult = 0.62 + pet.mood * 0.76;
@@ -64,85 +72,120 @@ function scoreCandidates(pet, perc, nav, pickFn) {
         score: 0.16 + p.patience * 0.12 + p.composure * 0.05 - pet.boredom * 0.46
              - Math.max(0, pet.playDrive - 0.40) * 0.18
              - Math.max(0, pet.exploreDrive - 0.35) * 0.16
-             + (justWoke ? 0.24 : 0) + (settled ? 0.20 : 0) + (perc.micActive ? 0.22 : 0),
+             + (justWoke ? 0.24 : 0) + inertia * 0.30
+             + (settled ? 0.20 : 0) + (settled && arousal > 0.45 ? 0.14 : 0)
+             + (perc.micActive ? 0.22 : 0),
         exec: function() {
             _attendToSomething(pet, perc);
             pet.restartIdle(0.80 + p.patience * 0.42);
         }
     });
 
-    var isNocturnal = spProf.nocturnalAffinity
-                   || Personality.hasQuirk(pet, "night_watch")
-                   || Abilities.has(pet, "lunar_pulse");
     var shyAtHome = perc.atHome && (p.boldness < 0.34 || Personality.hasQuirk(pet, "cozy_hermit"));
+    var sleepProp = Drives.sleepPropensity(pet, perc);
     var restThreshold = (perc.isNight && !isNocturnal)
-        ? 0.12
-        : (shyAtHome ? 0.08 : Math.max(0.14, 0.34 - p.sleepiness * 0.16));
-    if (pet.restDrive > restThreshold || pet.alertness < 0.24 || (perc.isNight && !isNocturnal && perc.userIdle)) {
-        var restScore = pet.restDrive * (0.76 + p.sleepiness * 0.94)
-                      + p.sleepiness * 0.18
-                      + Math.max(0, 0.75 - pet.alertness) * 0.32
-                      + perc.placeAffectHere * 0.24
-                      + (perc.atHome ? 0.12 : 0)
-                      + ((perc.isNight && !isNocturnal) ? 0.26 : 0)
-                      + (p.boldness < 0.30 && perc.atHome ? 0.10 : 0);
-        if (perc.isNight) restScore *= isNocturnal && !perc.userIdle ? 0.78 : 1.38;
-        if (perc.micActive) restScore *= 1.16;
+        ? 0.20
+        : Math.max(0.22, 0.34 - p.sleepiness * 0.14);
+
+    var bestRestCand = null;
+    var effectiveRestThreshold = (perc.isNight && !isNocturnal && perc.userIdle) ? 0.12 : restThreshold;
+    if (!justWoke && arousal < 0.50 && sleepProp > effectiveRestThreshold) {
+        var restScore = sleepProp * (0.74 + p.sleepiness * 0.68)
+                      + Math.max(0, perc.placeAffectHere) * 0.14
+                      + (perc.atHome ? 0.08 : 0)
+                      + (p.boldness < 0.30 && perc.atHome ? 0.08 : 0);
+        if (perc.isNight) restScore *= isNocturnal && !perc.userIdle ? 0.72 : 1.28;
+        if (perc.micActive) restScore *= 1.14;
         var thermalPreferred = SpeciesProfile.hasThermalAffinity(pet);
-        if (perc.isRaining && thermalPreferred) restScore *= 1.15;
-        restScore *= 1 + (quietHour - 0.5) * 0.48;
-        if (justWoke) restScore *= 0.2;
+        if (perc.isRaining && thermalPreferred) restScore *= 1.14;
+        restScore *= 1 + (quietHour - 0.5) * 0.42;
 
-        var deep = pet.restDrive > 0.68 || (perc.isNight && pet.restDrive > 0.44);
-        var wantSploot = !deep && (((perc.thermalWarmth || 0) > 0.54 && (thermalPreferred || p.sleepiness > 0.52))
-                                   || pet.restDrive > 0.60);
-        var favSpot = Memory.favoriteSpot(pet);
-
-        cands.push({
+        bestRestCand = {
             name: "rest",
             score: restScore,
             exec: function() {
-                Plans.startPlan(pet, Plans.buildRestPlan(pet, perc, false, null, deep, wantSploot), nav, pickFn);
+                Plans.startPlan(pet, Plans.buildRestPlan(pet, perc, false, null, false, false), nav, pickFn);
             }
-        });
+        };
 
-        if (!perc.atHome && perc.homeReachable && pet.restDrive > 0.38) {
-            cands.push({
-                name: "go_home_rest",
-                score: restScore * 0.88 + pet.comfortDrive * 0.32 - _distCost(pet, perc.distFromHome),
-                exec: function() {
-                    Plans.startPlan(pet, Plans.buildRestPlan(pet, perc, true, null, deep, wantSploot), nav, pickFn);
-                }
-            });
+        if (!perc.atHome && perc.homeReachable && pet.restDrive > 0.36) {
+            var homeRestScore = restScore * 0.90 + pet.comfortDrive * 0.34 - _distCost(pet, perc.distFromHome);
+            if (homeRestScore > bestRestCand.score) {
+                bestRestCand = {
+                    name: "go_home_rest",
+                    score: homeRestScore,
+                    exec: function() {
+                        Plans.startPlan(pet, Plans.buildRestPlan(pet, perc, true, null, false, false), nav, pickFn);
+                    }
+                };
+            }
         }
 
+        var favSpot = Memory.favoriteSpot(pet);
         if (favSpot && Math.hypot(favSpot.gx - perc.petGX, favSpot.gy - perc.petGY) > 180) {
             var dSanct = Math.hypot(favSpot.gx - perc.petGX, favSpot.gy - perc.petGY);
-            cands.push({
-                name: "sanctuary_rest",
-                score: restScore * (Personality.hasQuirk(pet, "cozy_hermit") ? 1.15 : 0.92)
-                     + favSpot.affect * 0.25 - _distCost(pet, dSanct),
-                exec: function() {
-                    Plans.startPlan(pet, Plans.buildRestPlan(pet, perc, false, favSpot, deep, wantSploot), nav, pickFn);
+            var sanctScore = restScore * (Personality.hasQuirk(pet, "cozy_hermit") ? 1.14 : 0.92)
+                           + favSpot.affect * 0.22 - _distCost(pet, dSanct);
+            if (sanctScore > bestRestCand.score) {
+                bestRestCand = {
+                    name: "sanctuary_rest",
+                    score: sanctScore,
+                    exec: function() {
+                        Plans.startPlan(pet, Plans.buildRestPlan(pet, perc, false, favSpot, false, false), nav, pickFn);
+                    }
+                };
+            }
+        }
+
+        if (!perc.fullscreen && Social.canInitiatePeerBout(pet, 135000)) {
+            for (var ri = 0; ri < Math.min(3, perc.others.length); ri++) {
+                var ro = perc.others[ri];
+                if (ro.busySocial || !ro.resting || ro.dist <= 64 || ro.dist > 380) continue;
+                if (ro.affinity < 0.54 || ro.sinceInteract <= 180000) continue;
+                var rwScore = restScore * (0.68 + ro.affinity * 0.48)
+                            + ro.familiarity * 0.10
+                            + Abilities.restWithBonus(pet, ro.pet)
+                            - _distCost(pet, ro.dist);
+                if (rwScore > bestRestCand.score) {
+                    (function(napBuddy, sc) {
+                        var ang = Math.atan2(perc.petGY - napBuddy.gy, perc.petGX - napBuddy.gx) + (Math.random() - 0.5) * 0.6;
+                        var offX = Math.round(Math.cos(ang) * 68);
+                        var offY = Math.round(Math.sin(ang) * 52);
+                        bestRestCand = {
+                            name: "rest_with",
+                            otherName: napBuddy.name,
+                            score: sc,
+                            exec: function() {
+                                Social.claimPeerBout(pet, "nap", 135000);
+                                Plans.startPlan(pet, Plans.buildRestWithPlan(pet, napBuddy.name, offX, offY, false), nav, pickFn);
+                            }
+                        };
+                    })(ro, rwScore);
                 }
-            });
+            }
         }
     }
 
-    if (perc.warmSpot && !justWoke && !perc.fullscreen && pet.alertness < 0.82
-            && (pet.restDrive > 0.18 || p.sleepiness > 0.48 || spProf.socialStyle === "trickster")) {
-        var wsScore = (0.34 + pet.restDrive * 0.55 + p.sleepiness * 0.32)
+    if (perc.warmSpot && !justWoke && !perc.fullscreen && arousal < 0.48 && inertia < 0.38
+            && (pet.restDrive > 0.20 || p.sleepiness > 0.48 || spProf.socialStyle === "trickster")) {
+        var wsScore = (0.32 + pet.restDrive * 0.52 + p.sleepiness * 0.28)
                     + (spProf.socialStyle === "trickster" ? 0.18 : 0)
                     + (Abilities.has(pet, "hearth_warmth") ? 0.12 : 0)
                     - _distCost(pet, perc.warmSpot.dist);
-        cands.push({
-            name: "steal_warm_spot",
-            otherName: perc.warmSpot.petName,
-            score: wsScore,
-            exec: function() {
-                Plans.startPlan(pet, Plans.buildStealWarmSpotPlan(perc.warmSpot, pet), nav, pickFn);
-            }
-        });
+        if (!bestRestCand || wsScore > bestRestCand.score) {
+            bestRestCand = {
+                name: "steal_warm_spot",
+                otherName: perc.warmSpot.petName,
+                score: wsScore,
+                exec: function() {
+                    Plans.startPlan(pet, Plans.buildStealWarmSpotPlan(perc.warmSpot, pet), nav, pickFn);
+                }
+            };
+        }
+    }
+
+    if (bestRestCand) {
+        cands.push(bestRestCand);
     }
 
     if (perc.userBusy && !perc.fullscreen && !justWoke && pet.alertness > 0.24
@@ -350,36 +393,33 @@ function scoreCandidates(pet, perc, nav, pickFn) {
         });
     }
 
-    var satiety = pet.satiety === undefined ? 0.55 : pet.satiety;
+    var satiety = pet.satiety === undefined ? 0.58 : pet.satiety;
     var forageAt = Abilities.forageThreshold(pet);
-    if (satiety < forageAt && pet.alertness > 0.22 && !justWoke && !Memory.recent(pet, "foraged", 600000)) {
+    if (satiety < forageAt && pet.alertness > 0.24 && !justWoke
+            && !Memory.recent(pet, "foraged", 900000)) {
         cands.push({
             name: "forage_snack",
-            score: (0.36 + (forageAt - satiety) * 2.2) * fsCalm,
+            score: (0.24 + (forageAt - satiety) * 1.35) * fsCalm * active,
             exec: function() {
                 Plans.startPlan(pet, Plans.buildForagePlan(perc), nav, pickFn);
             }
         });
     }
 
-    var askSnack = satiety < 0.22 && bond > 0.45 && p.sociability > 0.40
-                && !Memory.recent(pet, "bid_ignored", 900000)
-                && !Memory.recent(pet, "foraged", 600000);
-    if ((pet.socialDrive > 0.38 || askSnack) && !justWoke && trust > 0.22) {
+    if (pet.socialDrive > 0.38 && !justWoke && trust > 0.22) {
         if (perc.cursor.active && perc.cursor.reachable && perc.cursor.dist > 115
                 && !perc.fullscreen && !perc.micActive
                 && !Memory.recent(pet, "bid_ignored", 420000)
                 && !Memory.recent(pet, "bid_answered", 300000)) {
             var velcro = Personality.hasQuirk(pet, "velcro_companion") ? 0.22 : 0;
-            var hungerDrive = askSnack ? 0.20 : 0;
             cands.push({
                 name: "bid_attention",
-                score: (pet.socialDrive + hungerDrive) * (0.48 + p.sociability * 0.82)
+                score: pet.socialDrive * (0.48 + p.sociability * 0.82)
                      * (0.45 + bond * 0.65) * (0.42 + p.boldness * 0.58)
                      * moodMult * active * nightMult + velcro
                      - _distCost(pet, perc.cursor.dist),
                 exec: function() {
-                    Plans.startPlan(pet, Plans.buildAttentionBidPlan(perc, p.boldness > 0.58, askSnack), nav, pickFn);
+                    Plans.startPlan(pet, Plans.buildAttentionBidPlan(perc, p.boldness > 0.58, false), nav, pickFn);
                 }
             });
         }
@@ -402,28 +442,31 @@ function scoreCandidates(pet, perc, nav, pickFn) {
 
     var sig = spProf.signature;
     var effMinPlay = sig.minPlay + Math.max(0, 0.48 - p.playfulness) * 0.25;
-    if (pet.playDrive > effMinPlay && pet.alertness > 0.34 && !justWoke) {
-        var soloScore = pet.playDrive * (0.26 + p.playfulness * 0.78 + p.energy * 0.22) * moodMult * active * fsCalm * nightMult;
+    if (pet.playDrive > effMinPlay && pet.alertness > 0.34 && !justWoke && inertia < 0.42) {
+        var soloScore = pet.playDrive * (0.26 + p.playfulness * 0.78 + p.energy * 0.22)
+                      * moodMult * active * fsCalm * nightMult * wakeEase;
         if (Memory.recent(pet, "played_solo", 165000)) soloScore *= 0.25;
         cands.push({
             name: "play_solo",
             score: soloScore,
             exec: function() {
                 pet.playDrive = Math.max(0, pet.playDrive - 0.24);
+                Drives.stimulate(pet, 0.14);
                 Memory.recordEpisode(pet, "played_solo", { valence: 0.3 });
                 Plans.startPlan(pet, Plans.buildPlaySoloPlan(pet, sig), nav, pickFn);
             }
         });
 
         var zoomAt = Math.max(0.52, 0.76 - p.playfulness * 0.14 - p.energy * 0.10);
-        if (!perc.micActive && pet.playDrive > zoomAt && pet.alertness > 0.50 && !Memory.recent(pet, "zoomies", 240000)) {
+        if (!perc.micActive && pet.playDrive > zoomAt && pet.alertness > 0.50 && inertia < 0.25 && !Memory.recent(pet, "zoomies", 240000)) {
             cands.push({
                 name: "zoomies",
                 score: Math.pow(pet.playDrive, 1.45) * (0.40 + p.playfulness * 0.75)
-                     * (0.32 + p.energy * 0.68) * moodMult * boredomBoost
+                     * (0.32 + p.energy * 0.68) * moodMult * boredomBoost * wakeEase
                      * (perc.fullscreen ? 0.25 : 1) * (perc.isNight ? 0.35 : 1) - 0.08,
                 exec: function() {
                     pet.playDrive = Math.max(0, pet.playDrive - 0.28);
+                    Drives.stimulate(pet, 0.26);
                     Memory.recordEpisode(pet, "zoomies", { valence: 0.35 });
                     Plans.startPlan(pet, Plans.buildZoomiesPlan(pet), nav, pickFn);
                 }
@@ -657,25 +700,6 @@ function _socialCandidates(pet, perc, nav, pickFn, cands, m) {
                     exec: function() {
                         Social.claimPeerBout(pet, "show_off", 135000);
                         Plans.startPlan(pet, Plans.buildShowOffPlan(pet, o), nav, pickFn);
-                    }
-                });
-            }
-
-            if (o.resting && o.dist > 64 && o.affinity >= 0.54
-                    && pet.restDrive > 0.32 && pet.alertness < 0.72 && o.sinceInteract > 180000) {
-                var ang = Math.atan2(perc.petGY - o.gy, perc.petGX - o.gx) + (Math.random() - 0.5) * 0.6;
-                var offX = Math.round(Math.cos(ang) * 68);
-                var offY = Math.round(Math.sin(ang) * 52);
-                cands.push({
-                    name: "rest_with",
-                    otherName: o.name,
-                    score: pet.restDrive * (0.50 + p.sleepiness * 0.52)
-                         * (0.36 + o.affinity * 0.80) + o.familiarity * 0.12
-                         + Abilities.restWithBonus(pet, o.pet)
-                         - _distCost(pet, o.dist),
-                    exec: function() {
-                        Social.claimPeerBout(pet, "nap", 135000);
-                        Plans.startPlan(pet, Plans.buildRestWithPlan(pet, o.name, offX, offY, false), nav, pickFn);
                     }
                 });
             }

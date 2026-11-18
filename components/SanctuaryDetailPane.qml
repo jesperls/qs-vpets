@@ -132,34 +132,97 @@ Rectangle {
         renameInput.focus = false;
     }
 
+    property bool stageBerryVisible: false
+    property real stageBerryDrop: 0
+
+    Timer {
+        id: stageBerryTimer
+        interval: 1050
+        onTriggered: root.stageBerryVisible = false
+    }
+
+    NumberAnimation {
+        id: stageBerryBounce
+        target: root
+        property: "stageBerryDrop"
+        from: -16
+        to: 0
+        duration: 300
+        easing.type: Easing.OutBounce
+    }
+
     function triggerCareAction(act: string): void {
         if (!root.selectedConfig) return;
         const prof = root.speciesProf;
+        const prevRaw = root.rawActivityState;
+        const wasSleeping = prevRaw === "deepsleep" || prevRaw === "loaf" || prevRaw === "laying" || prevRaw === "sit";
+        let feedOutcome = "ate";
+
         if (root.selectedIsRoaming && root.selectedLivePet) {
-            if (act === "pat") root.selectedLivePet.onStroked();
-            else if (act === "feed") root.selectedLivePet.onFed();
-            else if (act === "play") root.selectedLivePet.onPlayTriggered();
-            else if (act === "summon") root.selectedLivePet.summonToCursor();
+            const lp = root.selectedLivePet;
+            if (act === "pat") lp.onStroked();
+            else if (act === "feed") {
+                if ((lp.activePlan && lp.activePlan.name === "eat_berry") || (lp._mealUntil > Date.now())) {
+                    return;
+                }
+                const prevSat = lp.satiety ?? 0.58;
+                lp.onFed();
+                if ((lp.satiety ?? 0.58) > prevSat + 0.01) {
+                    feedOutcome = "ate";
+                } else {
+                    feedOutcome = (lp._stuffedRefusals || 0) >= 2 ? "annoyed" : "refused";
+                }
+            }
+            else if (act === "play") lp.onPlayTriggered();
+            else if (act === "summon") lp.summonToCursor();
         } else if (root.selectedResident) {
             if (act === "pat") root.selectedResident.patInPen();
-            else if (act === "feed") root.selectedResident.feedInPen();
+            else if (act === "feed") {
+                feedOutcome = root.selectedResident.feedInPen();
+                if (feedOutcome === "busy") return;
+            }
             else if (act === "play") root.selectedResident.playInPen();
         }
 
         let anim = "nod";
         let emote = "heart";
         if (act === "pat") {
-            anim = (prof.affectionGestures && prof.affectionGestures.length > 0)
-                ? prof.affectionGestures[0]
-                : "nod";
+            if (wasSleeping) {
+                anim = SpeciesProfile.wakeStateFor({ petData: { sprite: root.selectedConfig.sprite } });
+            } else {
+                anim = (prof.affectionGestures && prof.affectionGestures.length > 0)
+                    ? prof.affectionGestures[0]
+                    : "nod";
+            }
             emote = "heart";
             stageSprite.triggerSquash(1.15, 0.86);
         } else if (act === "feed") {
-            anim = "eat";
-            emote = "berry";
-            stageSprite.triggerSquash(1.12, 0.88);
+            if (feedOutcome === "annoyed") {
+                anim = "cringe";
+                emote = "frustrated";
+                root.stageBerryVisible = false;
+                stageSprite.triggerSquash(0.92, 1.08);
+            } else if (feedOutcome === "refused") {
+                anim = "nod";
+                emote = "ellipses";
+                root.stageBerryVisible = true;
+                stageBerryBounce.restart();
+                stageBerryTimer.interval = 1450;
+                stageBerryTimer.restart();
+                stageSprite.triggerSquash(1.04, 0.96);
+            } else {
+                anim = "eat";
+                emote = "berry";
+                root.stageBerryVisible = true;
+                stageBerryBounce.restart();
+                stageBerryTimer.interval = 1050;
+                stageBerryTimer.restart();
+                stageSprite.triggerSquash(1.12, 0.88);
+            }
         } else if (act === "play") {
-            anim = (prof.signature && prof.signature.state) ? prof.signature.state : "hop";
+            anim = wasSleeping
+                ? SpeciesProfile.wakeStateFor({ petData: { sprite: root.selectedConfig.sprite } })
+                : ((prof.signature && prof.signature.state) ? prof.signature.state : "hop");
             emote = "note";
             stageSprite.triggerSquash(0.88, 1.16);
         } else if (act === "summon") {
@@ -167,7 +230,9 @@ Rectangle {
             emote = "exclaim";
             stageSprite.triggerSquash(0.90, 1.12);
         }
+        const sameOverride = root.stageOverrideState === anim && anim.length > 0;
         root.stageOverrideState = anim;
+        if (sameOverride) stageSprite.restartClip();
         stageBubble.showEmote(emote);
         stageOverrideTimer.restart();
         root.careTriggered(root.selectedConfig.id, anim, emote);
@@ -307,6 +372,17 @@ Rectangle {
                         z: 10
                         sleeping: root.rawActivityState === "deepsleep"
                         forceEnabled: true
+                    }
+
+                    Image {
+                        visible: root.stageBerryVisible
+                        x: parent.width - 20
+                        y: parent.height - 20 + root.stageBerryDrop
+                        z: 8
+                        width: 16
+                        height: 16
+                        smooth: false
+                        source: Qt.resolvedUrl("../assets/sanctuary/items/oran_berry.png")
                     }
 
                     MouseArea {

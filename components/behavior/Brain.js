@@ -125,7 +125,7 @@ function checkMidJourneyDistraction(pet, nav) {
 function onActionFinished(pet, nav) {
     if (Plans.hasActivePlan(pet)) {
         var step = Plans.currentStep(pet);
-        if (step && (step.kind === "act" || step.kind === "vocal" || step.kind === "pant"
+        if (step && (step.kind === "act" || step.kind === "eat_berry" || step.kind === "vocal" || step.kind === "pant"
                 || step.kind === "face_away" || step.kind === "zoomies"
                 || step.kind === "ability_effect")) {
             Plans.advanceStep(pet, nav, _pick);
@@ -140,8 +140,9 @@ function restTick(pet) {
     var p = pet.personality;
     var deep = pet.state_ === "deepsleep";
     var quietHour = 1 - Memory.usualUserActivity(pet, perc.hour);
+    var uncons = Memory.unconsolidatedCount(pet);
 
-    if (deep || (pet.episodes && pet.episodes.length >= 4)) {
+    if ((deep && uncons >= 1) || uncons >= 5) {
         var dream = Memory.consolidateSleep(pet);
         syncArchetype(pet);
         if (deep && dream && pet.emitEmote) {
@@ -149,30 +150,30 @@ function restTick(pet) {
         }
     }
 
-    var stay = pet.restDrive * 1.12
-             + p.sleepiness * 0.48
-             - pet.alertness * 0.40
-             + (perc.isNight ? 0.36 + p.sleepiness * 0.34 : 0)
-             + quietHour * 0.16
-             + (deep ? 0.16 : 0)
-             + (perc.userIdle ? 0.10 : 0);
+    var prop = Drives.sleepPropensity(pet, perc);
+    var stay = prop * 0.95
+             + p.sleepiness * 0.36
+             - pet.alertness * 0.28
+             + quietHour * 0.14
+             + (deep ? 0.14 : 0)
+             + (perc.userIdle ? 0.08 : 0);
 
-    if (stay > 0.52 + Math.random() * 0.28) {
-        var wantDeep = pet.restDrive > 0.56
+    if (stay > 0.50 + Math.random() * 0.26) {
+        var wantDeep = pet.restDrive > 0.52
                     || (perc.isNight && p.sleepiness > 0.25)
-                    || (!deep && pet.restDrive > 0.42 && p.sleepiness > 0.48);
-        var restContinue;
-        if (wantDeep) {
-            restContinue = "deepsleep";
-        } else if (Math.random() < 0.28 && pet.sprite && pet.sprite._animData && pet.sprite._animData.Laying) {
-            restContinue = pet.state_ === "laying" ? "loaf" : "laying";
-        } else {
-            restContinue = pet.state_ === "laying" ? "laying" : "loaf";
-        }
+                    || (!deep && pet.restDrive > 0.38 && p.sleepiness > 0.48);
+        var restContinue = wantDeep
+            ? "deepsleep"
+            : (pet.state_ === "laying" ? "laying" : "loaf");
         pet.continueResting(restContinue);
         return;
     }
 
+    if (Personality.hasQuirk(pet, "daydreamer")) {
+        Drives.happier(pet, 0.025);
+        pet.mood = Drives.clamp01(pet.mood + 0.05);
+    }
+    pet.sleepInertia = Math.max(pet.sleepInertia || 0, deep ? 0.38 : 0.22);
     Memory.recordEpisode(pet, "well_rested", { valence: 0.3 });
     Memory.thinkAloud(pet, "woke_up", "Stretched awake refreshed");
     Plans.clearPlan(pet);

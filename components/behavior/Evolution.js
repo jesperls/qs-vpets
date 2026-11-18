@@ -6,12 +6,19 @@
 
 function _countEpisodes(target, types) {
     var eps = (target && target.episodes) ? target.episodes : [];
+    var life = (target && target.lifetimeCounts) ? target.lifetimeCounts : null;
     var set = Array.isArray(types) ? types : [types];
-    var count = 0;
+    var ringCount = 0;
     for (var i = 0; i < eps.length; i++) {
-        if (eps[i] && set.indexOf(eps[i].type) !== -1) count++;
+        if (eps[i] && set.indexOf(eps[i].type) !== -1) ringCount++;
     }
-    return count;
+    var lifeCount = 0;
+    if (life) {
+        for (var j = 0; j < set.length; j++) {
+            lifeCount += (life[set[j]] || 0);
+        }
+    }
+    return Math.max(ringCount, lifeCount);
 }
 
 function _traitsOf(target) {

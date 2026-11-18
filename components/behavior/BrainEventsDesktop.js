@@ -66,10 +66,11 @@ function handleDesktopEvent(pet, type, data, nav, pickFn, ctx) {
 
     case "window_opened": {
         if (cooldown(pet, "window_opened", 60000)) return true;
-        Drives.stimulate(pet, 0.03 + p.curiosity * 0.05);
+        var habOpen = ctx.habituationFactor ? ctx.habituationFactor(pet, "window_opened", 300000) : 1.0;
+        Drives.stimulate(pet, (0.03 + p.curiosity * 0.05) * habOpen);
         var oPerc = Perception.perceive(pet);
         if (!resting && pet.state_ === "idle" && !Plans.hasActivePlan(pet) && oPerc.win && !oPerc.fullscreen) {
-            if (nav && p.curiosity > 0.52 && pet.alertness > 0.36 && Math.random() < 0.28 + p.curiosity * 0.35) {
+            if (nav && p.curiosity > 0.52 && pet.alertness > 0.36 && Math.random() < (0.28 + p.curiosity * 0.35) * habOpen) {
                 Plans.startPlan(pet, Plans.buildInspectWindowPlan(oPerc, pet), nav, pickFn);
                 return true;
             }
@@ -97,7 +98,14 @@ function handleDesktopEvent(pet, type, data, nav, pickFn, ctx) {
         var cPerc = Perception.perceive(pet);
         var cDist = Math.hypot((data.gx || 0) - cPerc.petGX, (data.gy || 0) - cPerc.petGY);
         if (cDist >= 320) return true;
-        Drives.stimulate(pet, 0.06);
+        var habClose = ctx.habituationFactor ? ctx.habituationFactor(pet, "window_closed", 360000) : 1.0;
+        Drives.stimulate(pet, 0.06 * habClose);
+        if (habClose < 0.45 && p.boldness >= 0.24) {
+            if (pet.state_ === "idle" && !Plans.hasActivePlan(pet)) {
+                Util.faceGlobal(pet, data.gx || 0, data.gy || 0);
+            }
+            return true;
+        }
         if (p.boldness < 0.36) {
             var guardC = findNearbyGuardian(pet, 380);
             if (guardC && nav) {
@@ -294,12 +302,22 @@ function handleDesktopEvent(pet, type, data, nav, pickFn, ctx) {
     }
 
     case "displaced_monitor": {
-        Plans.clearPlan(pet);
-        pet.alertness = Drives.clamp01(pet.alertness + 0.18);
+        Drives.stimulate(pet, 0.18);
         Memory.recordEpisode(pet, "displaced_monitor", { valence: -0.18 });
         Memory.thinkAloud(pet, "displaced_mon", "Tumbled back onto the main screen when the display disconnected", { minGapMs: 10000 });
         if (pet.emitEmote) pet.emitEmote("question");
-        pet.enterState(pickFn(pet, ["lostBalance", "cringe", "shake"]));
+        if (resting && nav) {
+            Plans.startPlan(pet, {
+                name: "displaced_recover",
+                label: "Catching Balance",
+                urgency: 0.74,
+                durationMs: 12000,
+                steps: [{ kind: "act", label: "Catching balance", states: ["lostBalance", "cringe", "shake"] }]
+            }, nav, pickFn);
+        } else {
+            Plans.clearPlan(pet);
+            pet.enterState(pickFn(pet, ["lostBalance", "cringe", "shake"]));
+        }
         if (pet.petManager && pet.petManager.notifyDisplacedCompanion) {
             pet.petManager.notifyDisplacedCompanion(pet);
         }
@@ -392,13 +410,16 @@ function handleDesktopEvent(pet, type, data, nav, pickFn, ctx) {
 
     case "audio_spiked": {
         if (pet.state_ === "deepsleep" || cooldown(pet, "audio_spiked", 45000)) return true;
+        var habAudio = ctx.habituationFactor ? ctx.habituationFactor(pet, "audio_spiked", 240000) : 1.0;
+        if (habAudio < 0.45 && p.composure >= 0.35) return true;
         if (trySocialReference(pet, pickFn)) return true;
         if (loafing && p.composure < 0.65) {
-            pet.alertness = Drives.clamp01(pet.alertness + 0.14);
+            Drives.stimulate(pet, 0.14 * habAudio);
             Plans.clearPlan(pet);
             Memory.thinkAloud(pet, "audio_stir", "Ears flicked awake at a sudden jump in volume", { minGapMs: 45000 });
             pet.enterState(SpeciesProfile.wakeStateFor(pet));
         } else if (pet.state_ === "idle" && !Plans.hasActivePlan(pet) && p.composure < 0.55) {
+            Drives.stimulate(pet, 0.10 * habAudio);
             if (pet.emitEmote) pet.emitEmote("exclaim");
             pet.enterState(pickFn(pet, ["hop", "cringe", "lookUp"]));
         }
