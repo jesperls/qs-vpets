@@ -1,6 +1,6 @@
-# qs-vpets - Pokémon Sanctuary for Wayland & macOS
+# qs-vpets - Pokémon Sanctuary for Wayland, macOS & Windows
 
-Interactive pixel-art Pokémon companions for **`wlr-layer-shell` Wayland desktops** and **Apple Silicon macOS**, built on [Quickshell](https://quickshell.outfoxxed.me/) (Linux) and a native **Qt6 Metal + AppKit/Quartz host** (macOS) with persistent personalities, sleep memory consolidation, inter-Pokémon social bonds, modular species abilities, a **Pokémon Sanctuary** camp clearing app, and 56 pixel-verified [PMD Collab](https://sprites.pmdcollab.org/#/) species.
+Interactive pixel-art Pokémon companions for **`wlr-layer-shell` Wayland desktops**, **Apple Silicon macOS**, and **Windows 10/11**, built on [Quickshell](https://quickshell.outfoxxed.me/) (Linux) and native **Qt6** desktop hosts (Metal + AppKit/Quartz on macOS; Direct3D11 + Win32/DWM/WinRT on Windows) with persistent personalities, sleep memory consolidation, inter-Pokémon social bonds, modular species abilities, a **Pokémon Sanctuary** camp clearing app, and 56 pixel-verified [PMD Collab](https://sprites.pmdcollab.org/#/) species.
 
 | Desktop Companions | Pokémon Sanctuary |
 | :---: | :---: |
@@ -20,20 +20,22 @@ Interactive pixel-art Pokémon companions for **`wlr-layer-shell` Wayland deskto
 - **56 PMD Collab Species, Modular Abilities & Lifestyle Evolution**:
   - Declarative habitat catalogs (`components/species/*.js`), frame-slice clip playback (`SpriteSheet.resolveClip`), kin-group chemistry, lifestyle-based opt-in evolution (`components/behavior/Evolution.js`), and 14 composable abilities (`components/behavior/Abilities.js`).
   - Spontaneous social moments on the desktop: tag games with role reversal, play-sparring, side-by-side naps, synchronized music dancing, unrequited play bids, personal-space squabbles, and peacekeeper mediation.
-- **Broad Wayland & Native macOS Support**:
+- **Broad Wayland, macOS & Windows Support**:
   - **Linux Wayland**: Runs on **KDE Plasma Wayland (including SteamOS Desktop Mode)**, **Hyprland**, **Sway / Scroll**, **Niri**, **COSMIC**, **River**, **Wayfire**, **Labwc**, and **MangoWC** via `Quickshell.Wayland` (`wlr-layer-shell`, `ToplevelManager`, `IdleMonitor`) plus compositor IPC window-ledge perching.
   - **macOS (Apple Silicon / MacBook)**: Native Qt6 Metal + Objective-C++ host (`Pokemon Sanctuary.app` + Menu Bar Pokéball icon) with click-through multi-Space desktop overlays, MacBook camera-notch & Dock inset awareness, `CGWindowListCopyWindowInfo` window-ledge perching (requiring zero Screen Recording or Accessibility permissions), `IOKit` MagSafe/battery reactivity, Apple Silicon thermal/CPU warmth, CoreAudio volume/mute/mic detection, and Spotify/Apple Music Now Playing.
+  - **Windows 10/11 (x64, Experimental)**: Native Qt6 + Win32/DWM/WinRT host (`Pokemon Sanctuary.exe` + System Tray Pokéball icon) with click-through multi-monitor Per-Monitor DPI v2 overlays, `DWMWA_EXTENDED_FRAME_BOUNDS` window-ledge perching, `GetLastInputInfo` idle detection, Core Audio volume/mute/mic detection, WinRT System Media Transport Controls Now Playing, and battery/sleep-wake reactivity.
 
 ---
 
 ## Installation
 
-> **Platform Status:** **NixOS** (flake / Home Manager) and **macOS (Apple Silicon)** are currently the only platforms 100% verified working end-to-end. Other Linux distributions (SteamOS, Arch, Fedora, Ubuntu) and the portable Linux bundle are **experimental / community-tested**.
+> **Platform Status:** **NixOS** (flake / Home Manager) and **macOS (Apple Silicon)** are currently the only platforms 100% verified working end-to-end. **Windows 10/11** and other Linux distributions (SteamOS, Arch, Fedora, Ubuntu) are **experimental / community-tested**.
 
 | Platform / Distro | Status | Notes |
 | :--- | :--- | :--- |
 | **NixOS (Home Manager / flake)** | Verified | First-class package, systemd user service, and CI-checked module |
 | **macOS 13+ (Apple Silicon)** | Verified | Native Qt6 Metal + AppKit `.app` and prebuilt bundle, smoke-tested in CI |
+| **Windows 10/11 (x64)** | Experimental | Native Qt6 + Win32/DWM/WinRT `.exe` and prebuilt `.zip`, built & smoke-tested in CI (not yet verified on real hardware) |
 | **SteamOS / Immutable Linux** | Experimental | Portable bundle runs without `sudo` in Desktop Mode (KDE Plasma Wayland) |
 | **Arch / CachyOS / EndeavourOS** | Experimental | Native `PKGBUILD` using `quickshell` from `[extra]` |
 | **Fedora** | Experimental | Native mode uses COPR `errornointernet/quickshell` (not CI-verified) |
@@ -86,6 +88,35 @@ cd qs-vpets-macos-arm64
 ```
 
 On macOS, click the Pokéball icon in your **Menu Bar** to open **Pokémon Sanctuary**, summon a companion, or hide desktop pets. Right-click or `Ctrl+Click` any roaming Pokémon to open its interactive partner card.
+
+---
+
+### Windows 10/11 (x64, Experimental)
+
+Installs `Pokemon Sanctuary.exe` into `%LOCALAPPDATA%\Programs\qs-vpets`, adds a **Pokémon Sanctuary** Start Menu shortcut, adds `qs-vpets` to your user `PATH`, and configures login autostart (`HKCU\...\Run`):
+
+```powershell
+irm https://raw.githubusercontent.com/jesperls/qs-vpets/main/install.ps1 | iex
+```
+
+Or download `qs-vpets-windows-x86_64.zip` from [GitHub Releases](https://github.com/jesperls/qs-vpets/releases), extract it, and run `Pokemon Sanctuary.exe` directly.
+
+To build from source with CMake + MSVC + Qt6 (`qtbase`, `qtdeclarative`, `qtsvg`, `qtimageformats`):
+
+```powershell
+git clone https://github.com/jesperls/qs-vpets.git
+cd qs-vpets
+.\install.ps1 -Native
+qs-vpets open
+```
+
+Uninstall cleanly at any time (preserving companion memories in `%APPDATA%\qs-vpets` and `%LOCALAPPDATA%\qs-vpets`):
+
+```powershell
+.\install.ps1 -Uninstall
+```
+
+On Windows, click the Pokéball icon in the **System Tray** to open **Pokémon Sanctuary**, or right-click it to summon a companion, hide desktop pets, or quit. Unsigned builds will trigger a Windows SmartScreen prompt on first launch (*More info → Run anyway*).
 
 ---
 
@@ -194,6 +225,7 @@ Leave `programs.qs-vpets.pets = null` (the default) to welcome, nickname, and ma
 | Desktop / Compositor | Overlay & Input | Fullscreen & Active App | Idle Detection | Window Ledge Perching |
 | :--- | :---: | :---: | :---: | :---: |
 | **macOS 13+ (Apple Silicon)** | Yes (AppKit + Metal) | Yes (Quartz + NSWorkspace) | Yes (CoreGraphics) | Yes (Quartz `CGWindowList`) |
+| **Windows 10/11 (x64)** | Yes (Win32 + D3D11) | Yes (DWM + `SHQueryUserNotificationState`) | Yes (`GetLastInputInfo`) | Yes (DWM `ExtendedFrameBounds`) |
 | **Hyprland** | Yes | Yes | Yes | Yes (Hyprland IPC) |
 | **Sway / Scroll** | Yes | Yes | Yes | Yes (Sway IPC) |
 | **Niri** | Yes | Yes | Yes | Yes (Niri IPC) |

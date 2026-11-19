@@ -42,7 +42,7 @@ Singleton {
 
     property color lavender: "#b89ef0"
 
-    property string uiFont: Qt.platform.os === "osx" ? ".AppleSystemUIFont" : "Noto Sans"
+    property string uiFont: Qt.platform.os === "osx" ? ".AppleSystemUIFont" : (Qt.platform.os === "windows" ? "Segoe UI" : "Noto Sans")
     property int roundness: 16
     property int animMs: 180
     property bool specularRim: true

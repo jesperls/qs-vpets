@@ -123,6 +123,14 @@ in
               cat "$TMPDIR/qmllint.log" >&2
               exit 1
             fi
+            qmllint --bare \
+              -I "${qs-vpets.qmlEnv}/lib/qt-6/qml" \
+              macos/qml/shell.qml macos/qml/services/*.qml macos/qml/components/*.qml \
+              windows/qml/shell.qml windows/qml/services/*.qml windows/qml/components/*.qml >"$TMPDIR/qmllint-native.log" 2>&1 || true
+            if grep -E '\[(syntax)\]' "$TMPDIR/qmllint-native.log"; then
+              cat "$TMPDIR/qmllint-native.log" >&2
+              exit 1
+            fi
             touch "$out"
           ''
         else

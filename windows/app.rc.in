@@ -1,0 +1,31 @@
+#include <winver.h>
+
+101 ICON "@APP_ICON_PATH@"
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION @QS_VPETS_VER_MAJOR@,@QS_VPETS_VER_MINOR@,@QS_VPETS_VER_PATCH@,0
+ PRODUCTVERSION @QS_VPETS_VER_MAJOR@,@QS_VPETS_VER_MINOR@,@QS_VPETS_VER_PATCH@,0
+ FILEFLAGSMASK 0x3fL
+ FILEFLAGS 0x0L
+ FILEOS VOS_NT_WINDOWS32
+ FILETYPE VFT_APP
+ FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "CompanyName", "jesperls\0"
+            VALUE "FileDescription", "Pokemon Sanctuary (qs-vpets)\0"
+            VALUE "FileVersion", "@QS_VPETS_VERSION@\0"
+            VALUE "InternalName", "Pokemon Sanctuary\0"
+            VALUE "OriginalFilename", "Pokemon Sanctuary.exe\0"
+            VALUE "ProductName", "Pokemon Sanctuary\0"
+            VALUE "ProductVersion", "@QS_VPETS_VERSION@\0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 1200
+    END
+END

@@ -37,11 +37,22 @@ replaceInFile "$repoRoot/macos/CMakeLists.txt" \
 replaceInFile "$repoRoot/macos/src/main.mm" \
 	"s|#define QS_VPETS_VERSION_STR \"[^\"]+\"|#define QS_VPETS_VERSION_STR \"${ver}\"|g"
 
+replaceInFile "$repoRoot/windows/CMakeLists.txt" \
+	"s|set\\(QS_VPETS_VERSION \"[^\"]+\"\\)|set(QS_VPETS_VERSION \"${ver}\")|g"
+replaceInFile "$repoRoot/windows/CMakeLists.txt" \
+	"s|set\\(QS_VPETS_CMAKE_VERSION \"[^\"]+\"\\)|set(QS_VPETS_CMAKE_VERSION \"${cmakeVer}\")|g"
+
+replaceInFile "$repoRoot/windows/src/main.cpp" \
+	"s|#define QS_VPETS_VERSION_STR \"[^\"]+\"|#define QS_VPETS_VERSION_STR \"${ver}\"|g"
+
 replaceInFile "$repoRoot/scripts/qs-vpets.sh" \
 	"s|^([[:space:]]*)version=\"[0-9]+\\.[0-9]+\\.[0-9]+[^\"]*\"|\\1version=\"${ver}\"|"
 
 replaceInFile "$repoRoot/scripts/qs-vpets-macos.sh" \
 	"s|^([[:space:]]*)version=\"[0-9]+\\.[0-9]+\\.[0-9]+[^\"]*\"|\\1version=\"${ver}\"|"
+
+replaceInFile "$repoRoot/scripts/qs-vpets.ps1" \
+	"s|^\\\$Version = \"[0-9]+\\.[0-9]+\\.[0-9]+[^\"]*\"|\\\$Version = \"${ver}\"|"
 
 replaceInFile "$repoRoot/packaging/aur/PKGBUILD" \
 	"s|^pkgver=[^[:space:]]+|pkgver=${ver}.r0.g0000000|"

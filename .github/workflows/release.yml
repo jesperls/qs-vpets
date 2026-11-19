@@ -257,9 +257,186 @@ jobs:
           path: dist/qs-vpets-macos-arm64.tar.zst*
           if-no-files-found: error
 
+  check-and-bundle-windows:
+    name: Check & Build Windows (x86_64-windows)
+    runs-on: windows-2025
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Sync version from release tag
+        shell: bash
+        run: |
+          tag="${{ inputs.release_tag }}"
+          if [ -z "$tag" ] && [ "${{ github.ref_type }}" = "tag" ]; then
+            tag="${{ github.ref_name }}"
+          fi
+          if [ -n "$tag" ]; then
+            ./scripts/bump-version.sh "$tag"
+          fi
+
+      - name: Install Qt6 (MSVC x64)
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.8.3"
+          host: "windows"
+          target: "desktop"
+          arch: "win64_msvc2022_64"
+          modules: "qtimageformats qtsvg"
+          cache: true
+
+      - name: Unit, cognition, soak tests & PowerShell/QML lint
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          node tests/test_sprites.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node tests/test_cognition.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node tests/test_soak.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          foreach ($ps in @("install.ps1", "scripts/qs-vpets.ps1")) {
+            $tokens = $null
+            $errs = $null
+            [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $ps).Path, [ref]$tokens, [ref]$errs) | Out-Null
+            if ($errs -and $errs.Count -gt 0) {
+              $errs | ForEach-Object { Write-Error "$ps`: $_" }
+              exit 1
+            }
+          }
+
+          $qmlFiles = @(
+            "windows/qml/shell.qml",
+            "windows/qml/services/WindowTracker.qml",
+            "windows/qml/services/InputTracker.qml",
+            "windows/qml/services/MediaTracker.qml",
+            "windows/qml/services/SystemMonitor.qml",
+            "windows/qml/components/PetWindow.qml",
+            "windows/qml/components/SanctuaryWindow.qml"
+          )
+          $lintOut = & qmllint --bare @qmlFiles 2>&1
+          if ($lintOut -match '\[syntax\]') {
+            $lintOut | Write-Error
+            exit 1
+          }
+
+      - name: Build & bundle Windows app (CMake + MSVC + windeployqt)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          cmake -S windows -B build-windows -A x64 -DCMAKE_PREFIX_PATH="$env:Qt6_DIR"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build build-windows --config Release --parallel
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $stageDir = "dist-stage\qs-vpets-windows-x86_64"
+          Remove-Item -Recurse -Force dist-stage, dist -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Path "$stageDir\bin", "dist" -Force | Out-Null
+
+          Copy-Item -LiteralPath "build-windows\Release\Pokemon Sanctuary.exe" -Destination $stageDir -Force
+          Copy-Item -Path "build-windows\Release\qml" -Destination $stageDir -Recurse -Force
+          Copy-Item -LiteralPath "scripts\qs-vpets.ps1" -Destination "$stageDir\bin\qs-vpets.ps1" -Force
+          Copy-Item -LiteralPath "scripts\qs-vpets.cmd" -Destination "$stageDir\bin\qs-vpets.cmd" -Force
+          Copy-Item -LiteralPath "VERSION" -Destination "$stageDir\VERSION" -Force
+
+          & windeployqt --release --no-translations --compiler-runtime --qmldir "$stageDir\qml" "$stageDir\Pokemon Sanctuary.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          if (-not (Test-Path "$stageDir\platforms\qwindows.dll")) {
+            Write-Error "windeployqt did not deploy platforms\qwindows.dll"
+            exit 1
+          }
+          if (-not (Test-Path "$stageDir\imageformats\qsvg.dll")) {
+            Write-Error "windeployqt did not deploy imageformats\qsvg.dll"
+            exit 1
+          }
+
+          Compress-Archive -Path $stageDir -DestinationPath "dist\qs-vpets-windows-x86_64.zip" -CompressionLevel Optimal -Force
+          $hash = (Get-FileHash -LiteralPath "dist\qs-vpets-windows-x86_64.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  qs-vpets-windows-x86_64.zip" | Set-Content -LiteralPath "dist\qs-vpets-windows-x86_64.zip.sha256" -Encoding Ascii
+          Get-ChildItem dist
+
+      - name: Smoke-test live Windows app & IPC
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $tmpRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("qs-vpets-ci-" + [Guid]::NewGuid().ToString("N"))
+          $installDir = Join-Path $tmpRoot "install"
+          $cfgDir = Join-Path $tmpRoot "cfg"
+          $stateDir = Join-Path $tmpRoot "state"
+          New-Item -ItemType Directory -Path $cfgDir, $stateDir -Force | Out-Null
+
+          $env:QS_VPETS_INSTALL_DIR = $installDir
+          $env:QS_VPETS_CONFIG_DIR = $cfgDir
+          $env:QS_VPETS_STATE_DIR = $stateDir
+          $env:QS_VPETS_SOCKET = "qs-vpets-ci-" + $PID
+          $env:QS_VPETS_PORTABLE_URL = "file:///" + ((Resolve-Path "dist\qs-vpets-windows-x86_64.zip").Path -replace '\\', '/')
+
+          try {
+            & .\install.ps1 -Portable -NoAutostart
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+            $cli = Join-Path $installDir "bin\qs-vpets.ps1"
+            $exe = Join-Path $installDir "Pokemon Sanctuary.exe"
+            $env:QS_VPETS_WIN_BIN = $exe
+
+            $verOut = & $cli --version
+            Write-Host "Version: $verOut"
+            if ($verOut -notmatch "qs-vpets") { throw "Unexpected version output: $verOut" }
+
+            & $cli start
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            Start-Sleep -Seconds 1
+
+            $statusJson = (& $cli status) -join "`n"
+            Write-Host $statusJson
+            $statusObj = $statusJson | ConvertFrom-Json
+            if ($statusObj.totalCount -lt 2 -or $statusObj.roamingCount -lt 1) {
+              throw "Unexpected status counts: $statusJson"
+            }
+
+            $roamWinJson = (& $exe --ipc win_debug) -join "`n"
+            Write-Host $roamWinJson
+            $roamWin = $roamWinJson | ConvertFrom-Json
+            if ($roamWin.visibleWindows -lt 1) {
+              throw "Expected visible roaming overlay windows, got: $roamWinJson"
+            }
+
+            & $cli open
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            Start-Sleep -Milliseconds 600
+
+            $penWinJson = (& $exe --ipc win_debug) -join "`n"
+            Write-Host $penWinJson
+            $penWin = $penWinJson | ConvertFrom-Json
+            $hasSanctuary = @($penWin.windows | Where-Object { $_.visible -and $_.visibility -ne 0 -and $_.title -like "*Sanctuary*" }).Count -gt 0
+            if (-not $hasSanctuary) {
+              throw "Expected visible SanctuaryWindow, got: $penWinJson"
+            }
+
+            & $cli pet
+            & $cli flush
+            & $cli stop
+            & .\install.ps1 -Uninstall
+            if (Test-Path -LiteralPath $installDir) {
+              throw "Uninstall did not remove $installDir"
+            }
+          } finally {
+            Get-Process -Name "Pokemon Sanctuary" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $tmpRoot -Recurse -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: portable-x86_64-windows
+          path: dist/qs-vpets-windows-x86_64.zip*
+          if-no-files-found: error
+
   publish-release:
     name: Publish GitHub Release
-    needs: [check-and-bundle, check-and-bundle-macos]
+    needs: [check-and-bundle, check-and-bundle-macos, check-and-bundle-windows]
     if: startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/tags/V') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
     runs-on: ubuntu-24.04
     permissions:
@@ -278,7 +455,7 @@ jobs:
           if ! git diff --quiet; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add VERSION macos/CMakeLists.txt macos/src/main.mm scripts/qs-vpets.sh scripts/qs-vpets-macos.sh packaging/aur/PKGBUILD packaging/desktop/io.github.jesperls.qs_vpets.metainfo.xml
+            git add VERSION macos/CMakeLists.txt macos/src/main.mm windows/CMakeLists.txt windows/src/main.cpp scripts/qs-vpets.sh scripts/qs-vpets-macos.sh scripts/qs-vpets.ps1 packaging/aur/PKGBUILD packaging/desktop/io.github.jesperls.qs_vpets.metainfo.xml
             git commit -m "chore(release): bump version to ${tag} [skip ci]"
             git push origin HEAD:main
           fi
@@ -300,3 +477,5 @@ jobs:
             release-assets/qs-vpets-portable-*.tar.zst.sha256
             release-assets/qs-vpets-macos-*.tar.zst
             release-assets/qs-vpets-macos-*.tar.zst.sha256
+            release-assets/qs-vpets-windows-*.zip
+            release-assets/qs-vpets-windows-*.zip.sha256
