@@ -1,5 +1,5 @@
 {
-  description = "Interactive pixel-art Pokémon companions for Wayland and macOS desktops";
+  description = "Interactive pixel-art Pokémon companions for Wayland, macOS, and Windows desktops";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";

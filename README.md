@@ -23,7 +23,7 @@ Interactive pixel-art Pokémon companions for **`wlr-layer-shell` Wayland deskto
 - **Broad Wayland, macOS & Windows Support**:
   - **Linux Wayland**: Runs on **KDE Plasma Wayland (including SteamOS Desktop Mode)**, **Hyprland**, **Sway / Scroll**, **Niri**, **COSMIC**, **River**, **Wayfire**, **Labwc**, and **MangoWC** via `Quickshell.Wayland` (`wlr-layer-shell`, `ToplevelManager`, `IdleMonitor`) plus compositor IPC window-ledge perching.
   - **macOS (Apple Silicon / MacBook)**: Native Qt6 Metal + Objective-C++ host (`Pokemon Sanctuary.app` + Menu Bar Pokéball icon) with click-through multi-Space desktop overlays, MacBook camera-notch & Dock inset awareness, `CGWindowListCopyWindowInfo` window-ledge perching (requiring zero Screen Recording or Accessibility permissions), `IOKit` MagSafe/battery reactivity, Apple Silicon thermal/CPU warmth, CoreAudio volume/mute/mic detection, and Spotify/Apple Music Now Playing.
-  - **Windows 10/11 (x64, Experimental)**: Native Qt6 + Win32/DWM/WinRT host (`Pokemon Sanctuary.exe` + System Tray Pokéball icon) with click-through multi-monitor Per-Monitor DPI v2 overlays, `DWMWA_EXTENDED_FRAME_BOUNDS` window-ledge perching, `GetLastInputInfo` idle detection, Core Audio volume/mute/mic detection, WinRT System Media Transport Controls Now Playing, and battery/sleep-wake reactivity.
+  - **Windows 10/11 (x64 & ARM64 via Prism, Experimental)**: Native Qt6 + Win32/DWM/WinRT host (`Pokemon Sanctuary.exe` + System Tray Pokéball icon + Inno Setup installer with login autostart) with click-through multi-monitor Per-Monitor DPI v2 overlays, `DWMWA_EXTENDED_FRAME_BOUNDS` window-ledge perching, `GetLastInputInfo` idle detection, Core Audio volume/mute/mic detection, WinRT System Media Transport Controls Now Playing, and battery/sleep-wake reactivity.
 
 ---
 
@@ -35,7 +35,7 @@ Interactive pixel-art Pokémon companions for **`wlr-layer-shell` Wayland deskto
 | :--- | :--- | :--- |
 | **NixOS (Home Manager / flake)** | Verified | First-class package, systemd user service, and CI-checked module |
 | **macOS 13+ (Apple Silicon)** | Verified | Native Qt6 Metal + AppKit `.app` and prebuilt bundle, smoke-tested in CI |
-| **Windows 10/11 (x64)** | Experimental | Native Qt6 + Win32/DWM/WinRT `.exe` and prebuilt `.zip`, built & smoke-tested in CI (not yet verified on real hardware) |
+| **Windows 10/11 (x64 & ARM64)** | Experimental | Native Qt6 + Win32/DWM/WinRT installer (`-setup.exe`) and portable `.zip`, tested on ARM64 via Prism & smoke-tested in CI |
 | **SteamOS / Immutable Linux** | Experimental | Portable bundle runs without `sudo` in Desktop Mode (KDE Plasma Wayland) |
 | **Arch / CachyOS / EndeavourOS** | Experimental | Native `PKGBUILD` using `quickshell` from `[extra]` |
 | **Fedora** | Experimental | Native mode uses COPR `errornointernet/quickshell` (not CI-verified) |
@@ -225,7 +225,7 @@ Leave `programs.qs-vpets.pets = null` (the default) to welcome, nickname, and ma
 | Desktop / Compositor | Overlay & Input | Fullscreen & Active App | Idle Detection | Window Ledge Perching |
 | :--- | :---: | :---: | :---: | :---: |
 | **macOS 13+ (Apple Silicon)** | Yes (AppKit + Metal) | Yes (Quartz + NSWorkspace) | Yes (CoreGraphics) | Yes (Quartz `CGWindowList`) |
-| **Windows 10/11 (x64)** | Yes (Win32 + D3D11) | Yes (DWM + `SHQueryUserNotificationState`) | Yes (`GetLastInputInfo`) | Yes (DWM `ExtendedFrameBounds`) |
+| **Windows 10/11 (x64 & ARM64)** | Yes (Win32 + D3D11) | Yes (DWM + `SHQueryUserNotificationState`) | Yes (`GetLastInputInfo`) | Yes (DWM `ExtendedFrameBounds`) |
 | **Hyprland** | Yes | Yes | Yes | Yes (Hyprland IPC) |
 | **Sway / Scroll** | Yes | Yes | Yes | Yes (Sway IPC) |
 | **Niri** | Yes | Yes | Yes | Yes (Niri IPC) |
@@ -273,7 +273,7 @@ qs-vpets pen                     # Toggle the floating Pokémon Sanctuary GUI
 qs-vpets start                   # Start background overlay if not already running
 qs-vpets stop                    # Save companion memories and stop overlay
 qs-vpets flush                   # Save all companion memories and config immediately
-qs-vpets autostart enable        # Start automatically on Wayland login (systemd / XDG autostart)
+qs-vpets autostart enable        # Start automatically on login (systemd / XDG / launchd / Windows Run)
 qs-vpets status                  # Live JSON status of roaming & Sanctuary companions
 qs-vpets roam <name> <mode>      # Set routine: auto | always | penned | out | in
 qs-vpets rename <old> <new>      # Rename a companion (preserves memories & friendships)
