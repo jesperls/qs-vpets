@@ -405,6 +405,9 @@ jobs:
             if ($roamWin.visibleWindows -lt 1) {
               throw "Expected visible roaming overlay windows, got: $roamWinJson"
             }
+            if ($roamWin.loadedSprites -lt 1) {
+              throw "Expected loaded sprite sheets (not fallback placeholders), got: $roamWinJson"
+            }
 
             & $cli open
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

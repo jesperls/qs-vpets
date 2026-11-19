@@ -155,7 +155,9 @@ Item {
 
     FileView {
         id: animFile
-        path: root.spriteDir ? (decodeURIComponent(root.spriteDir.replace(/^file:\/\//, "")) + "/AnimData.xml") : ""
+        path: root.spriteDir
+            ? (decodeURIComponent(root.spriteDir.replace(/^file:\/\/\/(?=[A-Za-z]:)/, "").replace(/^file:\/\//, "")) + "/AnimData.xml")
+            : ""
         printErrors: false
         onLoaded: {
             const parsed = SpriteSheet.parseAnimData(text());

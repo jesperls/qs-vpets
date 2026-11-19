@@ -98,10 +98,16 @@ QsFileView::QsFileView(QObject *parent)
     : QObject(parent) {}
 
 QString QsFileView::normalizePath(const QString &raw) {
+    QString norm;
     if (raw.startsWith(QLatin1String("file://"))) {
-        return QUrl(raw).toLocalFile();
+        norm = QUrl(raw).toLocalFile();
+    } else {
+        norm = QDir::fromNativeSeparators(raw);
     }
-    return QDir::fromNativeSeparators(raw);
+    if (norm.size() >= 3 && norm.at(0) == QLatin1Char('/') && norm.at(1).isLetter() && norm.at(2) == QLatin1Char(':')) {
+        norm = norm.mid(1);
+    }
+    return norm;
 }
 
 void QsFileView::setPath(const QString &p) {
@@ -419,10 +425,21 @@ QString QsIpcServer::invokeLocal(const QString &target, const QString &method, c
     if (method == QLatin1String("win_debug")) {
         QJsonArray winArr;
         int visCount = 0;
+        int totalSprites = 0;
+        int loadedSprites = 0;
         for (QWindow *w : QGuiApplication::topLevelWindows()) {
             if (!w) continue;
             const bool vis = w->isVisible() && w->visibility() != QWindow::Hidden;
             if (vis) ++visCount;
+            const QList<QObject *> children = w->findChildren<QObject *>();
+            for (QObject *child : children) {
+                if (!child) continue;
+                const QVariant useProp = child->property("useSpriteSheet");
+                if (useProp.isValid()) {
+                    ++totalSprites;
+                    if (useProp.toBool()) ++loadedSprites;
+                }
+            }
             QJsonObject wo;
             wo.insert(QStringLiteral("title"), w->title());
             wo.insert(QStringLiteral("visible"), w->isVisible());
@@ -435,6 +452,8 @@ QString QsIpcServer::invokeLocal(const QString &target, const QString &method, c
         }
         QJsonObject out;
         out.insert(QStringLiteral("visibleWindows"), visCount);
+        out.insert(QStringLiteral("totalSprites"), totalSprites);
+        out.insert(QStringLiteral("loadedSprites"), loadedSprites);
         out.insert(QStringLiteral("windows"), winArr);
         if (okOut) *okOut = true;
         return QString::fromUtf8(QJsonDocument(out).toJson(QJsonDocument::Indented)).trimmed();
