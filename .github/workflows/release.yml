@@ -367,6 +367,9 @@ jobs:
           $stateDir = Join-Path $tmpRoot "state"
           New-Item -ItemType Directory -Path $cfgDir, $stateDir -Force | Out-Null
 
+          # Unset build-time Qt env vars so the smoke test proves the deployed bundle is self-contained
+          Remove-Item Env:QT_PLUGIN_PATH, Env:QML2_IMPORT_PATH, Env:QT_ROOT_DIR, Env:Qt6_DIR -ErrorAction SilentlyContinue
+
           $env:QS_VPETS_INSTALL_DIR = $installDir
           $env:QS_VPETS_CONFIG_DIR = $cfgDir
           $env:QS_VPETS_STATE_DIR = $stateDir
@@ -396,7 +399,7 @@ jobs:
               throw "Unexpected status counts: $statusJson"
             }
 
-            $roamWinJson = (& $exe --ipc win_debug) -join "`n"
+            $roamWinJson = (& $exe --ipc win_debug | Out-String).Trim()
             Write-Host $roamWinJson
             $roamWin = $roamWinJson | ConvertFrom-Json
             if ($roamWin.visibleWindows -lt 1) {
@@ -407,7 +410,7 @@ jobs:
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             Start-Sleep -Milliseconds 600
 
-            $penWinJson = (& $exe --ipc win_debug) -join "`n"
+            $penWinJson = (& $exe --ipc win_debug | Out-String).Trim()
             Write-Host $penWinJson
             $penWin = $penWinJson | ConvertFrom-Json
             $hasSanctuary = @($penWin.windows | Where-Object { $_.visible -and $_.visibility -ne 0 -and $_.title -like "*Sanctuary*" }).Count -gt 0

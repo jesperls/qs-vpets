@@ -51,15 +51,44 @@ function Invoke-Ipc {
         [switch]$Quiet
     )
     $bin = Find-AppBin
-    $argList = @("--ipc", $Method) + $CallArgs
-    if ($Quiet) {
-        $null = & $bin @argList 2>$null
-        return ($LASTEXITCODE -eq 0)
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $bin
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.StandardOutputEncoding = [System.Text.Encoding]::UTF8
+    $psi.StandardErrorEncoding = [System.Text.Encoding]::UTF8
+
+    $allArgs = @("--ipc", $Method) + @($CallArgs)
+    $escaped = foreach ($a in $allArgs) {
+        if ($a -match '[\s"]') {
+            '"' + ($a -replace '(\\*)"', '$1$1\"' -replace '(\\+)$', '$1$1') + '"'
+        } elseif ($a -eq "") {
+            '""'
+        } else {
+            $a
+        }
     }
-    $out = & $bin @argList
-    $rc = $LASTEXITCODE
-    if ($out) {
-        $out | ForEach-Object { Write-Output $_ }
+    $psi.Arguments = $escaped -join " "
+
+    $proc = [System.Diagnostics.Process]::Start($psi)
+    $stdoutTask = $proc.StandardOutput.ReadToEndAsync()
+    $stderrTask = $proc.StandardError.ReadToEndAsync()
+    $proc.WaitForExit()
+    $stdout = $stdoutTask.GetAwaiter().GetResult()
+    $stderr = $stderrTask.GetAwaiter().GetResult()
+    $rc = $proc.ExitCode
+    $proc.Dispose()
+
+    if ($Quiet) {
+        return ($rc -eq 0)
+    }
+    if ($stdout) {
+        Write-Output ($stdout.TrimEnd("`r", "`n"))
+    }
+    if ($stderr) {
+        [Console]::Error.Write($stderr)
     }
     if ($rc -ne 0) {
         exit $rc
