@@ -4,8 +4,7 @@ Interactive pixel-art Pokémon companions for **`wlr-layer-shell` Wayland deskto
 
 | Desktop Companions | Pokémon Sanctuary |
 | :---: | :---: |
-| [![Desktop companions perched on windows with partner card](docs/media/desktop.png)](docs/media/desktop-showcase.mp4) | [![Pokémon Sanctuary Friend Area clearing with campmates and party belt](docs/media/sanctuary.png)](docs/media/sanctuary-showcase.mp4) |
-| [Watch 60fps desktop demo (MP4)](docs/media/desktop-showcase.mp4) | [Watch 60fps Sanctuary tour (MP4)](docs/media/sanctuary-showcase.mp4) |
+| [Watch 60fps desktop demo (MP4)]( https://github.com/user-attachments/assets/118d0a16-2d41-40fc-885d-7a243f59eb8b ) | [Watch 60fps Sanctuary tour (MP4)]( https://github.com/user-attachments/assets/f18ce38a-09e3-4235-a9e6-15ac13c1cf93 ) |
 
 ---
 
