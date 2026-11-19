@@ -355,6 +355,29 @@ jobs:
           Compress-Archive -Path $stageDir -DestinationPath "dist\qs-vpets-windows-x86_64.zip" -CompressionLevel Optimal -Force
           $hash = (Get-FileHash -LiteralPath "dist\qs-vpets-windows-x86_64.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  qs-vpets-windows-x86_64.zip" | Set-Content -LiteralPath "dist\qs-vpets-windows-x86_64.zip.sha256" -Encoding Ascii
+
+          $iscc = (Get-Command iscc -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -First 1)
+          if (-not $iscc -and (Test-Path "C:\Program Files (x86)\Inno Setup 6\ISCC.exe")) {
+            $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          }
+          if (-not $iscc) {
+            choco install innosetup --no-progress -y
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          }
+          $appVer = (Get-Content -LiteralPath "VERSION" -Raw).Trim()
+          $absStage = (Resolve-Path $stageDir).Path
+          $absDist = (Resolve-Path "dist").Path
+          & $iscc "/DMyAppVersion=$appVer" "/DStageDir=$absStage" "/DOutputDir=$absDist" "windows\installer.iss"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $setupExe = "dist\qs-vpets-windows-x86_64-setup.exe"
+          if (-not (Test-Path -LiteralPath $setupExe)) {
+            Write-Error "Inno Setup did not produce $setupExe"
+            exit 1
+          }
+          $setupHash = (Get-FileHash -LiteralPath $setupExe -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$setupHash  qs-vpets-windows-x86_64-setup.exe" | Set-Content -LiteralPath "$setupExe.sha256" -Encoding Ascii
           Get-ChildItem dist
 
       - name: Smoke-test live Windows app & IPC
@@ -428,6 +451,26 @@ jobs:
             if (Test-Path -LiteralPath $installDir) {
               throw "Uninstall did not remove $installDir"
             }
+
+            # Verify Inno Setup installer + autostart registry entry + silent uninstaller
+            $setupDir = Join-Path $tmpRoot "setup-install"
+            $setupExe = (Resolve-Path "dist\qs-vpets-windows-x86_64-setup.exe").Path
+            $p = Start-Process -FilePath $setupExe -ArgumentList @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/DIR=$setupDir") -Wait -PassThru
+            if ($p.ExitCode -ne 0) { throw "Inno Setup install exited with $($p.ExitCode)" }
+            if (-not (Test-Path -LiteralPath (Join-Path $setupDir "Pokemon Sanctuary.exe"))) {
+              throw "Inno Setup did not install Pokemon Sanctuary.exe into $setupDir"
+            }
+            $runVal = (Get-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "PokemonSanctuary" -ErrorAction Stop).PokemonSanctuary
+            if ($runVal -notlike "*Pokemon Sanctuary.exe*--background*") {
+              throw "Unexpected autostart registry value: $runVal"
+            }
+            $unins = Join-Path $setupDir "unins000.exe"
+            $u = Start-Process -FilePath $unins -ArgumentList @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART") -Wait -PassThru
+            if ($u.ExitCode -ne 0) { throw "Inno Setup uninstall exited with $($u.ExitCode)" }
+            Start-Sleep -Milliseconds 500
+            if (Get-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "PokemonSanctuary" -ErrorAction SilentlyContinue) {
+              throw "Inno Setup uninstall did not remove autostart registry entry"
+            }
           } finally {
             Get-Process -Name "Pokemon Sanctuary" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath $tmpRoot -Recurse -Force -ErrorAction SilentlyContinue
@@ -437,7 +480,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: portable-x86_64-windows
-          path: dist/qs-vpets-windows-x86_64.zip*
+          path: |
+            dist/qs-vpets-windows-x86_64.zip*
+            dist/qs-vpets-windows-x86_64-setup.exe*
           if-no-files-found: error
 
   publish-release:
@@ -461,7 +506,7 @@ jobs:
           if ! git diff --quiet; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add VERSION macos/CMakeLists.txt macos/src/main.mm windows/CMakeLists.txt windows/src/main.cpp scripts/qs-vpets.sh scripts/qs-vpets-macos.sh scripts/qs-vpets.ps1 packaging/aur/PKGBUILD packaging/desktop/io.github.jesperls.qs_vpets.metainfo.xml
+            git add VERSION macos/CMakeLists.txt macos/src/main.mm windows/CMakeLists.txt windows/src/main.cpp windows/installer.iss scripts/qs-vpets.sh scripts/qs-vpets-macos.sh scripts/qs-vpets.ps1 packaging/aur/PKGBUILD packaging/desktop/io.github.jesperls.qs_vpets.metainfo.xml
             git commit -m "chore(release): bump version to ${tag} [skip ci]"
             git push origin HEAD:main
           fi
@@ -485,3 +530,5 @@ jobs:
             release-assets/qs-vpets-macos-*.tar.zst.sha256
             release-assets/qs-vpets-windows-*.zip
             release-assets/qs-vpets-windows-*.zip.sha256
+            release-assets/qs-vpets-windows-*-setup.exe
+            release-assets/qs-vpets-windows-*-setup.exe.sha256

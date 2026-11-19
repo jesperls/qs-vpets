@@ -45,6 +45,9 @@ replaceInFile "$repoRoot/windows/CMakeLists.txt" \
 replaceInFile "$repoRoot/windows/src/main.cpp" \
 	"s|#define QS_VPETS_VERSION_STR \"[^\"]+\"|#define QS_VPETS_VERSION_STR \"${ver}\"|g"
 
+replaceInFile "$repoRoot/windows/installer.iss" \
+	"s|#define MyAppVersion \"[^\"]+\"|#define MyAppVersion \"${ver}\"|g"
+
 replaceInFile "$repoRoot/scripts/qs-vpets.sh" \
 	"s|^([[:space:]]*)version=\"[0-9]+\\.[0-9]+\\.[0-9]+[^\"]*\"|\\1version=\"${ver}\"|"
 

@@ -91,9 +91,13 @@ On macOS, click the Pokéball icon in your **Menu Bar** to open **Pokémon Sanct
 
 ---
 
-### Windows 10/11 (x64, Experimental)
+### Windows 10/11 (x64 & ARM64 via Prism)
 
-Installs `Pokemon Sanctuary.exe` into `%LOCALAPPDATA%\Programs\qs-vpets`, adds a **Pokémon Sanctuary** Start Menu shortcut, adds `qs-vpets` to your user `PATH`, and configures login autostart (`HKCU\...\Run`):
+#### Option 1: Windows Installer (Recommended)
+
+Download and run **`qs-vpets-windows-x86_64-setup.exe`** from [GitHub Releases](https://github.com/jesperls/qs-vpets/releases). Installs into `%LOCALAPPDATA%\Programs\qs-vpets` (no admin required), creates a **Pokémon Sanctuary** Start Menu shortcut and Installed Apps uninstaller, adds `qs-vpets` to your user `PATH`, and optionally enables login autostart (`HKCU\...\Run`).
+
+#### Option 2: PowerShell One-Liner or Portable Zip
 
 ```powershell
 irm https://raw.githubusercontent.com/jesperls/qs-vpets/main/install.ps1 | iex
@@ -110,11 +114,7 @@ cd qs-vpets
 qs-vpets open
 ```
 
-Uninstall cleanly at any time (preserving companion memories in `%APPDATA%\qs-vpets` and `%LOCALAPPDATA%\qs-vpets`):
-
-```powershell
-.\install.ps1 -Uninstall
-```
+Uninstall cleanly via **Settings → Apps → Installed apps → Pokémon Sanctuary** or `.\install.ps1 -Uninstall` (preserving companion memories in `%APPDATA%\qs-vpets` and `%LOCALAPPDATA%\qs-vpets`).
 
 On Windows, click the Pokéball icon in the **System Tray** to open **Pokémon Sanctuary**, or right-click it to summon a companion, hide desktop pets, or quit. Unsigned builds will trigger a Windows SmartScreen prompt on first launch (*More info → Run anyway*).
 
