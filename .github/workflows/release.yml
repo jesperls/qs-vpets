@@ -282,7 +282,7 @@ jobs:
           host: "windows"
           target: "desktop"
           arch: "win64_msvc2022_64"
-          modules: "qtimageformats qtsvg"
+          modules: "qtimageformats"
           cache: true
 
       - name: Unit, cognition, soak tests & PowerShell/QML lint
