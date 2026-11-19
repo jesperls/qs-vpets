@@ -14,7 +14,13 @@ else
 	shellRoot="$scriptDir/../share/qs-vpets"
 fi
 
-version="${QS_VPETS_VERSION:-0.5.0}"
+if [ -n "${QS_VPETS_VERSION:-}" ]; then
+	version="$QS_VPETS_VERSION"
+elif [ -f "$shellRoot/VERSION" ]; then
+	version=$(tr -d '[:space:]' <"$shellRoot/VERSION")
+else
+	version="0.8.0"
+fi
 
 die() {
 	echo "qs-vpets: $*" >&2

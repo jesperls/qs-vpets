@@ -22,6 +22,10 @@ log() {
 	printf '==> %s\n' "$*"
 }
 
+warn() {
+	printf 'qs-vpets installer: warning: %s\n' "$*" >&2
+}
+
 die() {
 	printf 'qs-vpets installer: %s\n' "$*" >&2
 	exit 1
@@ -125,6 +129,51 @@ hasQuickshell() {
 	command -v qs >/dev/null 2>&1 || command -v quickshell >/dev/null 2>&1
 }
 
+isUsernsRestricted() {
+	[ -r /proc/sys/kernel/apparmor_restrict_unprivileged_userns ] &&
+		[ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)" = "1" ]
+}
+
+warnUnsupportedLinuxSession() {
+	local desktop="${XDG_CURRENT_DESKTOP:-}"
+	local desktopLower
+	desktopLower=$(printf '%s' "$desktop" | tr '[:upper:]' '[:lower:]')
+	if [[ "$desktopLower" == *"gnome"* ]] &&
+		[[ "$desktopLower" != *"hyprland"* ]] &&
+		[[ "$desktopLower" != *"sway"* ]] &&
+		[[ "$desktopLower" != *"niri"* ]] &&
+		[[ "$desktopLower" != *"kde"* ]] &&
+		[[ "$desktopLower" != *"cosmic"* ]] &&
+		[[ "$desktopLower" != *"river"* ]] &&
+		[[ "$desktopLower" != *"wayfire"* ]] &&
+		[[ "$desktopLower" != *"labwc"* ]]; then
+		warn "GNOME (Mutter) does not support wlr-layer-shell; qs-vpets requires a wlr-layer-shell Wayland compositor (KDE Plasma Wayland, Hyprland, Sway, Niri, COSMIC, River, Wayfire, Labwc)."
+	elif [ "${XDG_SESSION_TYPE:-}" = "x11" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then
+		warn "X11 sessions are not supported; qs-vpets requires a wlr-layer-shell Wayland session."
+	fi
+}
+
+runSudo() {
+	if [ "$(id -u)" -eq 0 ]; then
+		"$@"
+		return $?
+	fi
+	if ! command -v sudo >/dev/null 2>&1; then
+		warn "'sudo' is required to install system packages"
+		return 1
+	fi
+	if [ -t 0 ] || sudo -n true 2>/dev/null; then
+		sudo "$@"
+		return $?
+	fi
+	if [ -r /dev/tty ]; then
+		{ sudo "$@"; } </dev/tty
+		return $?
+	fi
+	warn "cannot prompt for sudo password from a non-interactive shell; download install.sh and run it from a terminal"
+	return 1
+}
+
 detectArchSystem() {
 	case "$(uname -m)" in
 	x86_64 | amd64) printf 'x86_64-linux' ;;
@@ -148,25 +197,28 @@ installSystemQuickshell() {
 
 	if command -v pacman >/dev/null 2>&1 || [[ " $osId $osLike " == *" arch "* ]]; then
 		log "Installing Quickshell & Qt6 dependencies via pacman..."
-		sudo pacman -S --needed quickshell qt6-declarative qt6-svg qt6-imageformats procps-ng
-		return 0
+		runSudo pacman -S --needed quickshell qt6-declarative qt6-svg qt6-imageformats procps-ng || return 1
+		hasQuickshell
+		return $?
 	fi
 
 	if command -v dnf >/dev/null 2>&1 || [[ " $osId $osLike " == *" fedora "* ]]; then
 		log "Enabling COPR errornointernet/quickshell and installing Quickshell..."
-		sudo dnf copr enable -y errornointernet/quickshell
-		sudo dnf install -y quickshell qt6-qtdeclarative qt6-qtsvg qt6-qtimageformats procps-ng
-		return 0
+		runSudo dnf copr enable -y errornointernet/quickshell || return 1
+		runSudo dnf install -y quickshell qt6-qtdeclarative qt6-qtsvg qt6-qtimageformats procps-ng || return 1
+		hasQuickshell
+		return $?
 	fi
 
 	if command -v apt-get >/dev/null 2>&1 && [[ " $osId $osLike " == *" ubuntu "* ]]; then
 		log "Adding PPA ppa:avengemedia/danklinux and installing Quickshell..."
-		sudo apt-get update
-		sudo apt-get install -y software-properties-common
-		sudo add-apt-repository -y ppa:avengemedia/danklinux
-		sudo apt-get update
-		sudo apt-get install -y quickshell qt6-declarative-dev qml6-module-qtquick qml6-module-qtquick-layouts libqt6svg6 qt6-image-formats-plugins procps
-		return 0
+		runSudo apt-get update || return 1
+		runSudo env DEBIAN_FRONTEND=noninteractive apt-get install -y software-properties-common || return 1
+		runSudo add-apt-repository -y ppa:avengemedia/danklinux || return 1
+		runSudo apt-get update || return 1
+		runSudo env DEBIAN_FRONTEND=noninteractive apt-get install -y quickshell qt6-declarative-dev qml6-module-qtquick qml6-module-qtquick-layouts libqt6svg6 qt6-image-formats-plugins procps || return 1
+		hasQuickshell
+		return $?
 	fi
 
 	return 1
@@ -201,6 +253,10 @@ tryInstallPortable() {
 		QS_VPETS_PREFIX="$prefix" QS_VPETS_OPT_DIR="$optDir" "$extracted/install" --autostart
 	else
 		QS_VPETS_PREFIX="$prefix" QS_VPETS_OPT_DIR="$optDir" "$extracted/install" --no-autostart
+	fi
+	if isUsernsRestricted && ! command -v bwrap >/dev/null 2>&1; then
+		warn "AppArmor restricts unprivileged user namespaces on this host and 'bwrap' is not installed."
+		warn "Install bubblewrap so the portable bundle can launch: sudo apt install bubblewrap"
 	fi
 	return 0
 }
@@ -240,6 +296,9 @@ installNativeFiles() {
 	mkdir -p "$dataDir/qs-vpets.new"
 	cp -a "$checkoutDir/shell.qml" "$checkoutDir/config" "$checkoutDir/services" "$checkoutDir/components" "$checkoutDir/assets" \
 		"$dataDir/qs-vpets.new/"
+	if [ -f "$checkoutDir/VERSION" ]; then
+		cp -a "$checkoutDir/VERSION" "$dataDir/qs-vpets.new/"
+	fi
 	rm -rf "$dataDir/qs-vpets"
 	mv "$dataDir/qs-vpets.new" "$dataDir/qs-vpets"
 
@@ -425,6 +484,8 @@ if [ "$hostKernel" = "Darwin" ]; then
 	exit 0
 fi
 
+warnUnsupportedLinuxSession
+
 if [ "$mode" = "portable" ]; then
 	tryInstallPortable || die "failed to download portable release bundle from https://github.com/${repo}/releases"
 	exit 0
@@ -432,7 +493,9 @@ fi
 
 if [ "$mode" = "native" ]; then
 	if ! hasQuickshell; then
-		installSystemQuickshell || die "Quickshell ('qs') is not installed. Install quickshell for your distro or run with --portable."
+		if ! installSystemQuickshell; then
+			die "Quickshell ('qs') could not be installed automatically. Install quickshell for your distro manually or run with --portable."
+		fi
 	fi
 	installNativeFiles
 	exit 0
@@ -455,5 +518,7 @@ if tryInstallPortable; then
 fi
 
 log "No prebuilt portable release found; falling back to native package installation..."
-installSystemQuickshell || die "could not auto-install Quickshell; install Quickshell manually or build portable bundle with 'nix build .#portable'"
+if ! installSystemQuickshell; then
+	die "could not auto-install Quickshell; install Quickshell manually or build portable bundle with 'nix build .#portable'"
+fi
 installNativeFiles

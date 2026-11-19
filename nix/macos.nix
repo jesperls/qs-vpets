@@ -9,7 +9,7 @@
   nodejs,
   python3,
   shellcheck,
-  version ? "0.5.0",
+  version ? lib.strings.trim (builtins.readFile ../VERSION),
 }:
 
 let

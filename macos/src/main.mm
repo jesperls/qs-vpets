@@ -19,7 +19,7 @@
 #include <unistd.h>
 
 #ifndef QS_VPETS_VERSION_STR
-#define QS_VPETS_VERSION_STR "0.5.0"
+#define QS_VPETS_VERSION_STR "0.8.0"
 #endif
 
 static int s_sigPipe[2] = { -1, -1 };

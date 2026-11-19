@@ -1,6 +1,6 @@
 # Maintainer: Jesper <https://github.com/jesperls>
 pkgname=qs-vpets-git
-pkgver=0.5.0.r0.g0000000
+pkgver=0.8.0.r0.g0000000
 pkgrel=1
 pkgdesc="Interactive pixel-art Pokémon companions for Wayland desktops via Quickshell"
 arch=('x86_64' 'aarch64')
@@ -25,7 +25,11 @@ sha256sums=('SKIP')
 
 pkgver() {
   cd "${srcdir}/qs-vpets"
-  printf "0.5.0.r%s.g%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short=7 HEAD)"
+  local base_ver="0.8.0"
+  if [ -f VERSION ]; then
+    base_ver=$(tr -d '[:space:]' < VERSION)
+  fi
+  printf "%s.r%s.g%s" "$base_ver" "$(git rev-list --count HEAD)" "$(git rev-parse --short=7 HEAD)"
 }
 
 check() {
@@ -42,7 +46,7 @@ package() {
   install -Dm0755 scripts/qs-vpets.sh "${pkgdir}/usr/bin/qs-vpets"
 
   install -dm0755 "${pkgdir}/usr/share/qs-vpets"
-  cp -a shell.qml config services components assets "${pkgdir}/usr/share/qs-vpets/"
+  cp -a shell.qml VERSION config services components assets "${pkgdir}/usr/share/qs-vpets/"
 
   install -Dm0644 packaging/desktop/qs-vpets.desktop \
     "${pkgdir}/usr/share/applications/qs-vpets.desktop"

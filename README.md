@@ -24,6 +24,17 @@ Interactive pixel-art Pokémon companions for **`wlr-layer-shell` Wayland deskto
 
 ## Installation
 
+> **Platform Status:** **NixOS** (flake / Home Manager) and **macOS (Apple Silicon)** are currently the only platforms 100% verified working end-to-end. Other Linux distributions (SteamOS, Arch, Fedora, Ubuntu) and the portable Linux bundle are **experimental / community-tested**.
+
+| Platform / Distro | Status | Notes |
+| :--- | :--- | :--- |
+| **NixOS (Home Manager / flake)** | Verified | First-class package, systemd user service, and CI-checked module |
+| **macOS 13+ (Apple Silicon)** | Verified | Native Qt6 Metal + AppKit `.app` and prebuilt bundle, smoke-tested in CI |
+| **SteamOS / Immutable Linux** | Experimental | Portable bundle runs without `sudo` in Desktop Mode (KDE Plasma Wayland) |
+| **Arch / CachyOS / EndeavourOS** | Experimental | Native `PKGBUILD` using `quickshell` from `[extra]` |
+| **Fedora** | Experimental | Native mode uses COPR `errornointernet/quickshell` (not CI-verified) |
+| **Ubuntu** | Experimental | Portable mode needs `bubblewrap` on 24.04+ (AppArmor); native uses a third-party PPA; default GNOME desktop is unsupported |
+
 ### Quick Install (Wayland Linux / SteamOS)
 
 Installs into `~/.local/` (`~/.local/bin/qs-vpets` + **Pokémon Sanctuary** launcher + login autostart). Selects the zero-root portable bundle on **SteamOS / Bazzite / Atomic** systems, or native Quickshell mode when available:
@@ -103,9 +114,9 @@ qs-vpets open
 
 ---
 
-### Fedora & Ubuntu
+### Fedora & Ubuntu (Experimental)
 
-Using the native installer (enables the Quickshell COPR on Fedora or PPA on Ubuntu, then installs `qs-vpets` into `~/.local/`):
+Using the native installer (enables the Quickshell COPR on Fedora or `ppa:avengemedia/danklinux` on Ubuntu, then installs `qs-vpets` into `~/.local/`):
 
 ```sh
 git clone https://github.com/jesperls/qs-vpets.git
@@ -114,6 +125,10 @@ cd qs-vpets
 ```
 
 Or run `./install.sh --portable` to keep everything self-contained in `~/.local/opt/qs-vpets` without adding system repositories.
+
+> **Ubuntu notes:**
+> - **AppArmor (Ubuntu 24.04+):** Portable mode uses unprivileged user namespaces, which Ubuntu restricts by default. Install `bubblewrap` (`sudo apt install bubblewrap`) so the portable wrapper can use Ubuntu's allowed `bwrap` profile.
+> - **Desktop environment:** Stock Ubuntu uses GNOME (Mutter), which does not support `wlr-layer-shell`. A supported Wayland compositor (such as KDE Plasma Wayland / Kubuntu, Hyprland, Sway, Niri, or COSMIC) is required.
 
 ---
 

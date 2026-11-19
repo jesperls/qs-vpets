@@ -24,7 +24,7 @@
         "x86_64-darwin"
       ];
       forAllSystems = lib.genAttrs systems;
-      version = self.shortRev or self.dirtyShortRev or "0.5.0";
+      version = lib.strings.trim (builtins.readFile ./VERSION);
       packageFor =
         pkgs:
         if pkgs.stdenv.hostPlatform.isDarwin then

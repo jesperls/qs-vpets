@@ -3,12 +3,12 @@ name: CI & Portable Release
 on:
   push:
     branches: [main]
-    tags: ["v*"]
+    tags: ["v*", "V*"]
   pull_request:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: "Optional tag name to publish as a GitHub Release (e.g. v0.5.0)"
+        description: "Optional tag name to publish as a GitHub Release (e.g. v0.8.0)"
         required: false
         type: string
 
@@ -34,6 +34,18 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Sync VERSION from release tag
+        run: |
+          tag="${{ inputs.release_tag }}"
+          if [ -z "$tag" ] && [ "${{ github.ref_type }}" = "tag" ]; then
+            tag="${{ github.ref_name }}"
+          fi
+          if [ -n "$tag" ]; then
+            ver="${tag#[vV]}"
+            printf '%s\n' "$ver" > VERSION
+            echo "Building release version: $ver"
+          fi
 
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@main
@@ -80,6 +92,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Sync VERSION from release tag
+        run: |
+          tag="${{ inputs.release_tag }}"
+          if [ -z "$tag" ] && [ "${{ github.ref_type }}" = "tag" ]; then
+            tag="${{ github.ref_name }}"
+          fi
+          if [ -n "$tag" ]; then
+            ver="${tag#[vV]}"
+            printf '%s\n' "$ver" > VERSION
+            echo "Building release version: $ver"
+          fi
+
       - name: Install Homebrew dependencies
         env:
           HOMEBREW_NO_AUTO_UPDATE: "1"
@@ -112,6 +136,8 @@ jobs:
           mkdir -p "$stage_dir/bin" dist
           cp -R "build-macos/Pokemon Sanctuary.app" "$stage_dir/Pokemon Sanctuary.app"
           install -m 0755 scripts/qs-vpets-macos.sh "$stage_dir/bin/qs-vpets"
+          ver="$(tr -d '[:space:]' < VERSION)"
+          sed -i "" "s|version=\"0\\.8\\.0\"|version=\"$ver\"|" "$stage_dir/bin/qs-vpets"
 
           cat > "$stage_dir/install" <<'EOF'
           #!/usr/bin/env bash
@@ -240,7 +266,7 @@ jobs:
   publish-release:
     name: Publish GitHub Release
     needs: [check-and-bundle, check-and-bundle-macos]
-    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
+    if: startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/tags/V') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
     runs-on: ubuntu-24.04
     permissions:
       contents: write

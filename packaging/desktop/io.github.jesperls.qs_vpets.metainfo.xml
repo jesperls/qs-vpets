@@ -33,6 +33,7 @@
     <control>touch</control>
   </supports>
   <releases>
+    <release version="0.8.0" date="2026-11-19"/>
     <release version="0.5.0" date="2026-11-14"/>
   </releases>
   <content_rating type="oars-1.1"/>
