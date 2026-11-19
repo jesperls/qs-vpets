@@ -17,7 +17,7 @@
 #include <cstdio>
 
 #ifndef QS_VPETS_VERSION_STR
-#define QS_VPETS_VERSION_STR "0.9.0"
+#define QS_VPETS_VERSION_STR "0.10.0"
 #endif
 
 namespace {
