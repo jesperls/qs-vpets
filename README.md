@@ -2,6 +2,11 @@
 
 Interactive pixel-art Pokémon companions for **`wlr-layer-shell` Wayland desktops** and **Apple Silicon macOS**, built on [Quickshell](https://quickshell.outfoxxed.me/) (Linux) and a native **Qt6 Metal + AppKit/Quartz host** (macOS) with persistent personalities, sleep memory consolidation, inter-Pokémon social bonds, modular species abilities, a **Pokémon Sanctuary** camp clearing app, and 56 pixel-verified [PMD Collab](https://sprites.pmdcollab.org/#/) species.
 
+| Desktop Companions | Pokémon Sanctuary |
+| :---: | :---: |
+| [![Desktop companions perched on windows with partner card](docs/media/desktop.png)](docs/media/desktop-showcase.mp4) | [![Pokémon Sanctuary Friend Area clearing with campmates and party belt](docs/media/sanctuary.png)](docs/media/sanctuary-showcase.mp4) |
+| [Watch 60fps desktop demo (MP4)](docs/media/desktop-showcase.mp4) | [Watch 60fps Sanctuary tour (MP4)](docs/media/sanctuary-showcase.mp4) |
+
 ---
 
 ## Highlights
