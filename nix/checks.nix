@@ -89,11 +89,13 @@ in
       ''
         bash -n "${src}/scripts/qs-vpets.sh"
         bash -n "${src}/scripts/qs-vpets-macos.sh"
+        bash -n "${src}/scripts/bump-version.sh"
         bash -n "${src}/macos/build-icns.sh"
         bash -n "${src}/install.sh"
         shellcheck \
           "${src}/scripts/qs-vpets.sh" \
           "${src}/scripts/qs-vpets-macos.sh" \
+          "${src}/scripts/bump-version.sh" \
           "${src}/macos/build-icns.sh" \
           "${src}/install.sh" \
           "${lib.getExe qs-vpets}"

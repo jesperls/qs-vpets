@@ -35,16 +35,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Sync VERSION from release tag
+      - name: Sync version from release tag
         run: |
           tag="${{ inputs.release_tag }}"
           if [ -z "$tag" ] && [ "${{ github.ref_type }}" = "tag" ]; then
             tag="${{ github.ref_name }}"
           fi
           if [ -n "$tag" ]; then
-            ver="${tag#[vV]}"
-            printf '%s\n' "$ver" > VERSION
-            echo "Building release version: $ver"
+            ./scripts/bump-version.sh "$tag"
           fi
 
       - name: Install Nix
@@ -92,16 +90,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Sync VERSION from release tag
+      - name: Sync version from release tag
         run: |
           tag="${{ inputs.release_tag }}"
           if [ -z "$tag" ] && [ "${{ github.ref_type }}" = "tag" ]; then
             tag="${{ github.ref_name }}"
           fi
           if [ -n "$tag" ]; then
-            ver="${tag#[vV]}"
-            printf '%s\n' "$ver" > VERSION
-            echo "Building release version: $ver"
+            ./scripts/bump-version.sh "$tag"
           fi
 
       - name: Install Homebrew dependencies
@@ -114,8 +110,8 @@ jobs:
           node tests/test_sprites.js
           node tests/test_cognition.js
           node tests/test_soak.js
-          bash -n scripts/qs-vpets-macos.sh macos/build-icns.sh install.sh
-          shellcheck scripts/qs-vpets-macos.sh macos/build-icns.sh install.sh
+          bash -n scripts/qs-vpets-macos.sh scripts/bump-version.sh macos/build-icns.sh install.sh
+          shellcheck scripts/qs-vpets-macos.sh scripts/bump-version.sh macos/build-icns.sh install.sh
 
       - name: Build & bundle Apple Silicon .app (CMake + Qt6 + macdeployqt)
         run: |
@@ -136,8 +132,6 @@ jobs:
           mkdir -p "$stage_dir/bin" dist
           cp -R "build-macos/Pokemon Sanctuary.app" "$stage_dir/Pokemon Sanctuary.app"
           install -m 0755 scripts/qs-vpets-macos.sh "$stage_dir/bin/qs-vpets"
-          ver="$(tr -d '[:space:]' < VERSION)"
-          sed -i "" "s|version=\"0\\.8\\.0\"|version=\"$ver\"|" "$stage_dir/bin/qs-vpets"
 
           cat > "$stage_dir/install" <<'EOF'
           #!/usr/bin/env bash
@@ -271,6 +265,24 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Checkout main for version bump
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Bump version files & commit to main
+        run: |
+          tag="${{ inputs.release_tag || github.ref_name }}"
+          ./scripts/bump-version.sh "$tag"
+          if ! git diff --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add VERSION macos/CMakeLists.txt macos/src/main.mm scripts/qs-vpets.sh scripts/qs-vpets-macos.sh packaging/aur/PKGBUILD packaging/desktop/io.github.jesperls.qs_vpets.metainfo.xml
+            git commit -m "chore(release): bump version to ${tag} [skip ci]"
+            git push origin HEAD:main
+          fi
+
       - name: Download portable artifacts
         uses: actions/download-artifact@v4
         with:
@@ -281,6 +293,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.release_tag || github.ref_name }}
+          target_commitish: ${{ github.event_name == 'workflow_dispatch' && 'main' || '' }}
           generate_release_notes: true
           files: |
             release-assets/qs-vpets-portable-*.tar.zst

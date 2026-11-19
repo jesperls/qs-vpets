@@ -12,7 +12,7 @@ if [ -n "${QS_VPETS_VERSION:-}" ]; then
 elif [ -f "$scriptDir/../VERSION" ]; then
 	version=$(tr -d '[:space:]' <"$scriptDir/../VERSION")
 else
-	version="0.8.0"
+	version="0.9.0"
 fi
 plistId="io.github.jesperls.qs-vpets"
 
