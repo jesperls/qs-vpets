@@ -24,9 +24,12 @@
 #include <QtQml>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
+#include <condition_variable>
 #include <cwchar>
 #include <iterator>
+#include <mutex>
 #include <thread>
 
 #ifndef WS_EX_NOREDIRECTIONBITMAP
@@ -258,6 +261,21 @@ bool WinScreenObj::update(
     return true;
 }
 
+struct WinPlatform::MediaWakeState {
+    std::atomic<bool> stop { false };
+    std::mutex mu;
+    std::condition_variable cv;
+    bool dirty = true;
+
+    void notifyDirty() {
+        {
+            std::lock_guard<std::mutex> lk(mu);
+            dirty = true;
+        }
+        cv.notify_one();
+    }
+};
+
 // --- WinPlatform ---
 
 WinPlatform *WinPlatform::instance() {
@@ -292,29 +310,35 @@ WinPlatform::WinPlatform(QObject *parent)
     pollWindows();
     pollTelemetryAndPower();
     pollAudioAndMedia();
+    startMediaWorker();
 
-    auto *fastTimer = new QTimer(this);
-    fastTimer->setInterval(33);
-    connect(fastTimer, &QTimer::timeout, this, &WinPlatform::pollIdleAndCursor);
-    fastTimer->start();
+    m_fastTimer = new QTimer(this);
+    m_fastTimer->setInterval(33);
+    connect(m_fastTimer, &QTimer::timeout, this, &WinPlatform::pollIdleAndCursor);
+    m_fastTimer->start();
 
-    auto *winTimer = new QTimer(this);
-    winTimer->setInterval(650);
-    connect(winTimer, &QTimer::timeout, this, &WinPlatform::pollWindows);
-    winTimer->start();
+    m_winTimer = new QTimer(this);
+    m_winTimer->setInterval(650);
+    connect(m_winTimer, &QTimer::timeout, this, &WinPlatform::pollWindows);
+    m_winTimer->start();
 
-    auto *audioTimer = new QTimer(this);
-    audioTimer->setInterval(2500);
-    connect(audioTimer, &QTimer::timeout, this, &WinPlatform::pollAudioAndMedia);
-    audioTimer->start();
+    m_audioTimer = new QTimer(this);
+    m_audioTimer->setInterval(2500);
+    connect(m_audioTimer, &QTimer::timeout, this, &WinPlatform::pollAudioAndMedia);
+    m_audioTimer->start();
 
-    auto *sysTimer = new QTimer(this);
-    sysTimer->setInterval(5000);
-    connect(sysTimer, &QTimer::timeout, this, &WinPlatform::pollTelemetryAndPower);
-    sysTimer->start();
+    m_sysTimer = new QTimer(this);
+    m_sysTimer->setInterval(5000);
+    connect(m_sysTimer, &QTimer::timeout, this, &WinPlatform::pollTelemetryAndPower);
+    m_sysTimer->start();
 }
 
 WinPlatform::~WinPlatform() {
+    stopMediaWorker();
+    if (m_audioEnumerator) {
+        static_cast<IMMDeviceEnumerator *>(m_audioEnumerator)->Release();
+        m_audioEnumerator = nullptr;
+    }
     cleanupTrayAndHelperWindow();
 }
 
@@ -593,14 +617,26 @@ void WinPlatform::applyOverlayStyle(QWindow *win) {
         0,
         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED
     );
+    if (m_overlays.contains(win)) {
+        auto &entry = m_overlays[win];
+        entry.lastIgnoresMouse = -1;
+        entry.layeredAlphaApplied = false;
+    }
 }
 
 void WinPlatform::configureOverlayWindow(QWindow *win) {
     if (!win) return;
+    QPointer<QWindow> safeWin(win);
     if (!m_overlays.contains(win)) {
         OverlayEntry entry;
         entry.window = win;
         m_overlays.insert(win, entry);
+        connect(win, &QWindow::visibleChanged, this, [this, safeWin](bool vis) {
+            if (vis && safeWin) {
+                applyOverlayStyle(safeWin);
+                updateMousePassthrough();
+            }
+        });
         connect(win, &QObject::destroyed, this, [this, win]() { m_overlays.remove(win); });
     }
     applyOverlayStyle(win);
@@ -660,7 +696,26 @@ void WinPlatform::activateSanctuaryWindow(QWindow *win) {
 }
 
 void WinPlatform::setPetsHiddenState(bool hidden) {
+    const bool changed = (m_petsHidden != hidden);
     m_petsHidden = hidden;
+    if (changed) updatePollingTimers();
+}
+
+void WinPlatform::updatePollingTimers() {
+    if (m_petsHidden) {
+        if (m_fastTimer) m_fastTimer->stop();
+        if (m_winTimer) m_winTimer->stop();
+        if (m_audioTimer) m_audioTimer->stop();
+        if (m_sysTimer) m_sysTimer->stop();
+        return;
+    }
+    m_lastTelemetryWallMs = QDateTime::currentMSecsSinceEpoch();
+    if (m_fastTimer && !m_fastTimer->isActive()) m_fastTimer->start();
+    if (m_winTimer && !m_winTimer->isActive()) m_winTimer->start();
+    if (m_audioTimer && !m_audioTimer->isActive()) m_audioTimer->start();
+    if (m_sysTimer && !m_sysTimer->isActive()) m_sysTimer->start();
+    pollIdleAndCursor();
+    pollWindows();
 }
 
 void WinPlatform::updateMousePassthrough() {
@@ -791,6 +846,7 @@ void WinPlatform::pollWindows() {
     QVariant nextActivePos;
     QString nextActiveCls;
     QString nextActiveTitle;
+    QString nextActiveAddr;
     bool nextFullscreen = shellFullscreen;
     bool foundActive = false;
 
@@ -843,13 +899,18 @@ void WinPlatform::pollWindows() {
         const QPointF pMid(wx + ww * 0.5, wy + 8.0);
         const QPointF pLeft(wx + ww * 0.25, wy + 8.0);
         const QPointF pRight(wx + ww * 0.75, wy + 8.0);
-        int coveredPts = 0;
+        bool midCov = false;
+        bool leftCov = false;
+        bool rightCov = false;
         for (const QRectF &front : frontOpaqueRects) {
-            if (front.contains(pMid)) coveredPts++;
-            if (front.contains(pLeft)) coveredPts++;
-            if (front.contains(pRight)) coveredPts++;
+            if (!midCov && front.contains(pMid)) midCov = true;
+            if (!leftCov && front.contains(pLeft)) leftCov = true;
+            if (!rightCov && front.contains(pRight)) rightCov = true;
+            if (midCov && leftCov && rightCov) {
+                ledgeOccluded = true;
+                break;
+            }
         }
-        if (coveredPts >= 3) ledgeOccluded = true;
 
         frontOpaqueRects.append(qrect);
         nextMap.insert(addr, WinSnapshot { cls, title, qrect });
@@ -866,6 +927,7 @@ void WinPlatform::pollWindows() {
             nextActivePos = posMap;
             nextActiveCls = cls;
             nextActiveTitle = title;
+            nextActiveAddr = addr;
             if (isTrueFullscreen) nextFullscreen = true;
         }
         if (isTrueFullscreen) nextFullscreen = true;
@@ -920,17 +982,22 @@ void WinPlatform::pollWindows() {
     m_windowCount = nextCount;
     emit windowsUpdated();
 
-    const QString focusSig = nextActiveCls + QStringLiteral("|") + nextActiveTitle;
-    const bool activeChanged = (nextActivePos != m_activeWindowPos) || (focusSig != m_prevFocusedSig);
+    const QString focusSig = nextActiveCls.isEmpty()
+        ? QString()
+        : (nextActiveCls + QStringLiteral("|") + nextActiveAddr);
+    const bool focusChanged = (focusSig != m_prevFocusedSig);
+    const bool activeChanged = (nextActivePos != m_activeWindowPos) || focusChanged || (nextActiveTitle != m_activeWindowTitle);
     m_activeWindowPos = nextActivePos;
     m_activeWindowClass = nextActiveCls;
     m_activeWindowTitle = nextActiveTitle;
     if (activeChanged) {
         emit activeWindowUpdated();
     }
-    if (focusSig != m_prevFocusedSig && !nextActiveCls.isEmpty()) {
+    if (focusChanged) {
         m_prevFocusedSig = focusSig;
-        emit windowFocused(nextActiveCls, nextActiveTitle);
+        if (!nextActiveCls.isEmpty()) {
+            emit windowFocused(nextActiveCls, nextActiveTitle);
+        }
     }
 }
 
@@ -1002,15 +1069,23 @@ void WinPlatform::pollAudioAndMedia() {
     bool nextMuted = m_audioMuted;
     bool nextMic = false;
 
-    ComPtr<IMMDeviceEnumerator> enumerator;
-    if (SUCCEEDED(CoCreateInstance(
-            __uuidof(MMDeviceEnumerator),
-            nullptr,
-            CLSCTX_ALL,
-            __uuidof(IMMDeviceEnumerator),
-            reinterpret_cast<void **>(enumerator.put())
-        ))
-        && enumerator) {
+    auto *enumerator = static_cast<IMMDeviceEnumerator *>(m_audioEnumerator);
+    if (!enumerator) {
+        IMMDeviceEnumerator *created = nullptr;
+        if (SUCCEEDED(CoCreateInstance(
+                __uuidof(MMDeviceEnumerator),
+                nullptr,
+                CLSCTX_ALL,
+                __uuidof(IMMDeviceEnumerator),
+                reinterpret_cast<void **>(&created)
+            ))
+            && created) {
+            m_audioEnumerator = created;
+            enumerator = created;
+        }
+    }
+
+    if (enumerator) {
         ComPtr<IMMDevice> renderDev;
         if (SUCCEEDED(enumerator->GetDefaultAudioEndpoint(eRender, eMultimedia, renderDev.put())) && renderDev) {
             ComPtr<IAudioEndpointVolume> epVol;
@@ -1029,30 +1104,34 @@ void WinPlatform::pollAudioAndMedia() {
             }
         }
 
-        ComPtr<IMMDevice> capDev;
-        if (SUCCEEDED(enumerator->GetDefaultAudioEndpoint(eCapture, eCommunications, capDev.put())) && capDev) {
-            ComPtr<IAudioSessionManager2> mgr;
-            if (SUCCEEDED(capDev->Activate(
-                    __uuidof(IAudioSessionManager2), CLSCTX_ALL, nullptr, reinterpret_cast<void **>(mgr.put())
-                ))
-                && mgr) {
-                ComPtr<IAudioSessionEnumerator> sessEnum;
-                if (SUCCEEDED(mgr->GetSessionEnumerator(sessEnum.put())) && sessEnum) {
-                    int count = 0;
-                    if (SUCCEEDED(sessEnum->GetCount(&count))) {
-                        for (int i = 0; i < count; ++i) {
-                            ComPtr<IAudioSessionControl> ctrl;
-                            if (SUCCEEDED(sessEnum->GetSession(i, ctrl.put())) && ctrl) {
-                                AudioSessionState st = AudioSessionStateInactive;
-                                if (SUCCEEDED(ctrl->GetState(&st)) && st == AudioSessionStateActive) {
-                                    nextMic = true;
-                                    break;
+        const ERole capRoles[] = { eCommunications, eConsole };
+        for (ERole role : capRoles) {
+            ComPtr<IMMDevice> capDev;
+            if (SUCCEEDED(enumerator->GetDefaultAudioEndpoint(eCapture, role, capDev.put())) && capDev) {
+                ComPtr<IAudioSessionManager2> mgr;
+                if (SUCCEEDED(capDev->Activate(
+                        __uuidof(IAudioSessionManager2), CLSCTX_ALL, nullptr, reinterpret_cast<void **>(mgr.put())
+                    ))
+                    && mgr) {
+                    ComPtr<IAudioSessionEnumerator> sessEnum;
+                    if (SUCCEEDED(mgr->GetSessionEnumerator(sessEnum.put())) && sessEnum) {
+                        int count = 0;
+                        if (SUCCEEDED(sessEnum->GetCount(&count))) {
+                            for (int i = 0; i < count; ++i) {
+                                ComPtr<IAudioSessionControl> ctrl;
+                                if (SUCCEEDED(sessEnum->GetSession(i, ctrl.put())) && ctrl) {
+                                    AudioSessionState st = AudioSessionStateInactive;
+                                    if (SUCCEEDED(ctrl->GetState(&st)) && st == AudioSessionStateActive) {
+                                        nextMic = true;
+                                        break;
+                                    }
                                 }
                             }
                         }
                     }
                 }
             }
+            if (nextMic) break;
         }
     }
 
@@ -1062,70 +1141,130 @@ void WinPlatform::pollAudioAndMedia() {
         m_micActive = nextMic;
         emit audioUpdated();
     }
-
-    queryNowPlayingAsync();
 }
 
-void WinPlatform::queryNowPlayingAsync() {
+void WinPlatform::applyMediaState(bool playing, const QString &title, const QString &artist) {
+    if (playing != m_isPlaying || title != m_trackTitle || artist != m_trackArtist) {
+        m_isPlaying = playing;
+        m_trackTitle = title;
+        m_trackArtist = artist;
+        emit mediaUpdated();
+    }
+}
+
+void WinPlatform::startMediaWorker() {
 #ifdef QS_VPETS_HAS_WINRT_MEDIA
-    if (m_mediaQueryRunning) return;
-    m_mediaQueryRunning = true;
-    QPointer<WinPlatform> self(this);
-    std::thread([self]() {
-        bool playing = false;
-        QString title;
-        QString artist;
+    if (m_mediaThread.joinable()) return;
+    m_mediaWake = std::make_shared<MediaWakeState>();
+    auto wake = m_mediaWake;
+    m_mediaThread = std::thread([this, wake]() {
         bool inited = false;
         try {
             winrt::init_apartment(winrt::apartment_type::multi_threaded);
             inited = true;
-            auto mgr = winrt::Windows::Media::Control::GlobalSystemMediaTransportControlsSessionManager::RequestAsync().get();
+
+            using namespace winrt::Windows::Media::Control;
+            auto mgr = GlobalSystemMediaTransportControlsSessionManager::RequestAsync().get();
             if (mgr) {
-                auto session = mgr.GetCurrentSession();
-                if (session) {
-                    auto pb = session.GetPlaybackInfo();
-                    if (pb && pb.PlaybackStatus()
-                        == winrt::Windows::Media::Control::GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing) {
-                        playing = true;
+                winrt::event_token curSessToken = mgr.CurrentSessionChanged(
+                    [wake](auto const &, auto const &) { wake->notifyDirty(); }
+                );
+                GlobalSystemMediaTransportControlsSession attachedSession { nullptr };
+                winrt::event_token pbToken {};
+                winrt::event_token propsToken {};
+
+                auto detachSession = [&]() {
+                    if (attachedSession) {
+                        try {
+                            attachedSession.PlaybackInfoChanged(pbToken);
+                            attachedSession.MediaPropertiesChanged(propsToken);
+                        } catch (...) {}
+                        attachedSession = nullptr;
                     }
-                    if (playing) {
-                        auto props = session.TryGetMediaPropertiesAsync().get();
-                        if (props) {
-                            const auto t = props.Title();
-                            const auto a = props.Artist();
-                            title = QString::fromWCharArray(t.c_str(), static_cast<int>(t.size()));
-                            artist = QString::fromWCharArray(a.c_str(), static_cast<int>(a.size()));
+                };
+
+                while (!wake->stop.load(std::memory_order_acquire)) {
+                    {
+                        std::unique_lock<std::mutex> lk(wake->mu);
+                        wake->cv.wait(lk, [&]() {
+                            return wake->dirty || wake->stop.load(std::memory_order_acquire);
+                        });
+                        if (wake->stop.load(std::memory_order_acquire)) break;
+                        wake->dirty = false;
+                    }
+
+                    bool playing = false;
+                    QString title;
+                    QString artist;
+                    try {
+                        auto session = mgr.GetCurrentSession();
+                        if (session != attachedSession) {
+                            detachSession();
+                            attachedSession = session;
+                            if (attachedSession) {
+                                pbToken = attachedSession.PlaybackInfoChanged(
+                                    [wake](auto const &, auto const &) { wake->notifyDirty(); }
+                                );
+                                propsToken = attachedSession.MediaPropertiesChanged(
+                                    [wake](auto const &, auto const &) { wake->notifyDirty(); }
+                                );
+                            }
                         }
+                        if (attachedSession) {
+                            auto pb = attachedSession.GetPlaybackInfo();
+                            if (pb && pb.PlaybackStatus() == GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing) {
+                                playing = true;
+                                auto props = attachedSession.TryGetMediaPropertiesAsync().get();
+                                if (props) {
+                                    const auto t = props.Title();
+                                    const auto a = props.Artist();
+                                    title = QString::fromWCharArray(t.c_str(), static_cast<int>(t.size()));
+                                    artist = QString::fromWCharArray(a.c_str(), static_cast<int>(a.size()));
+                                }
+                            }
+                        }
+                    } catch (...) {
+                        playing = false;
+                    }
+
+                    if (!wake->stop.load(std::memory_order_acquire)) {
+                        QMetaObject::invokeMethod(
+                            this,
+                            [this, playing, title, artist]() { applyMediaState(playing, title, artist); },
+                            Qt::QueuedConnection
+                        );
                     }
                 }
+
+                detachSession();
+                try {
+                    mgr.CurrentSessionChanged(curSessToken);
+                } catch (...) {}
+                mgr = nullptr;
             }
-        } catch (...) {
-            playing = false;
-        }
+        } catch (...) {}
+
         if (inited) {
             try {
                 winrt::uninit_apartment();
             } catch (...) {}
         }
-
-        if (self) {
-            QMetaObject::invokeMethod(
-                self,
-                [self, playing, title, artist]() {
-                    if (!self) return;
-                    self->m_mediaQueryRunning = false;
-                    if (playing != self->m_isPlaying || title != self->m_trackTitle || artist != self->m_trackArtist) {
-                        self->m_isPlaying = playing;
-                        self->m_trackTitle = title;
-                        self->m_trackArtist = artist;
-                        emit self->mediaUpdated();
-                    }
-                },
-                Qt::QueuedConnection
-            );
-        }
-    }).detach();
+    });
 #endif
+}
+
+void WinPlatform::stopMediaWorker() {
+    if (m_mediaWake) {
+        {
+            std::lock_guard<std::mutex> lk(m_mediaWake->mu);
+            m_mediaWake->stop.store(true, std::memory_order_release);
+        }
+        m_mediaWake->cv.notify_all();
+    }
+    if (m_mediaThread.joinable()) {
+        m_mediaThread.join();
+    }
+    m_mediaWake.reset();
 }
 
 void WinPlatform::triggerMenuOpenSanctuary() {

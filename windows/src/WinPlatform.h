@@ -10,6 +10,9 @@
 #include <QVariantMap>
 #include <QWindow>
 
+#include <memory>
+#include <thread>
+
 class WinScreenObj : public QObject {
     Q_OBJECT
     Q_PROPERTY(QString name READ name NOTIFY changed)
@@ -203,9 +206,14 @@ private:
     void pollIdleAndCursor();
     void pollTelemetryAndPower();
     void pollAudioAndMedia();
-    void queryNowPlayingAsync();
+    void updatePollingTimers();
+    void startMediaWorker();
+    void stopMediaWorker();
+    void applyMediaState(bool playing, const QString &title, const QString &artist);
     void setupTrayAndHelperWindow();
     void cleanupTrayAndHelperWindow();
+
+    struct MediaWakeState;
 
     struct OverlayEntry {
         QPointer<QWindow> window;
@@ -261,10 +269,17 @@ private:
     bool m_isPlaying = false;
     QString m_trackTitle;
     QString m_trackArtist;
-    bool m_mediaQueryRunning = false;
     double m_audioVolume = 0.5;
     bool m_audioMuted = false;
     bool m_micActive = false;
+
+    QTimer *m_fastTimer = nullptr;
+    QTimer *m_winTimer = nullptr;
+    QTimer *m_audioTimer = nullptr;
+    QTimer *m_sysTimer = nullptr;
+    void *m_audioEnumerator = nullptr;
+    std::shared_ptr<MediaWakeState> m_mediaWake;
+    std::thread m_mediaThread;
 
     bool m_petsHidden = false;
     void *m_helperHwnd = nullptr;

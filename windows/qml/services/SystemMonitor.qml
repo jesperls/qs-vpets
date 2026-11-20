@@ -36,6 +36,7 @@ Singleton {
     signal systemResumed(sleptSec: real)
     signal toastArrived(appName: string, urgency: string, silent: bool)
 
+    property double _bootMs: Date.now()
     property double _heavyLoadSinceMs: 0
     property double _lastBuildSignalMs: 0
     property string _sunrise: ""
@@ -89,20 +90,47 @@ Singleton {
         if (next !== prev) root.solarTransitioned(prev, next);
     }
 
+    function _classifyWeatherCode(code: int): string {
+        if (code <= 1) return "clear";
+        if (code <= 48) return "clouds";
+        if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) return "rain";
+        if ((code >= 71 && code <= 77) || (code >= 85 && code <= 86)) return "snow";
+        if (code >= 95) return "storm";
+        return "clear";
+    }
+
+    function _normalizeWeatherKind(rawKind: string): string {
+        const kind = String(rawKind || "clear").toLowerCase();
+        if (/storm|thunder/.test(kind)) return "storm";
+        if (/rain|drizzle|shower/.test(kind)) return "rain";
+        if (/snow|sleet|blizzard/.test(kind)) return "snow";
+        if (/fog|mist|haze/.test(kind)) return "fog";
+        if (/cloud|overcast/.test(kind)) return "clouds";
+        return "clear";
+    }
+
     function _ingestWeatherJson(raw: string): void {
         if (!raw || !raw.trim()) return;
         try {
             const w = JSON.parse(raw);
             if (!w || typeof w !== "object") return;
-            const kind = String(w.kind || w.condition || "clear").toLowerCase();
-            let norm = "clear";
-            if (/storm|thunder/.test(kind)) norm = "storm";
-            else if (/rain|drizzle|shower/.test(kind)) norm = "rain";
-            else if (/snow|sleet|blizzard/.test(kind)) norm = "snow";
-            else if (/fog|mist|haze/.test(kind)) norm = "fog";
-            else if (/cloud|overcast/.test(kind)) norm = "cloudy";
+            if (w.updatedAt !== undefined) {
+                const rawTs = Number(w.updatedAt);
+                if (Number.isFinite(rawTs) && rawTs > 0) {
+                    const tsMs = rawTs < 1e11 ? (rawTs * 1000) : rawTs;
+                    if ((Date.now() - tsMs) > 3 * 3600 * 1000) return;
+                }
+            }
+            let norm = root.weatherKind;
+            if (typeof w.weatherKind === "string" && w.weatherKind.length > 0) {
+                norm = _normalizeWeatherKind(w.weatherKind);
+            } else if (w.weatherCode !== undefined) {
+                norm = _classifyWeatherCode(parseInt(w.weatherCode, 10) || 0);
+            } else {
+                norm = _normalizeWeatherKind(w.kind || w.condition || "clear");
+            }
 
-            if (Number.isFinite(Number(w.tempC))) root.outdoorTempC = Number(w.tempC);
+            if (w.tempC !== undefined && Number.isFinite(Number(w.tempC))) root.outdoorTempC = Number(w.tempC);
             if (typeof w.sunrise === "string") root._sunrise = w.sunrise;
             if (typeof w.sunset === "string") root._sunset = w.sunset;
             root.weatherAvailable = true;
@@ -115,11 +143,23 @@ Singleton {
         } catch (e) {}
     }
 
+    function _normalizeUrgency(u: var): string {
+        if (typeof u === "number") {
+            if (u >= 2) return "critical";
+            if (u <= 0) return "low";
+            return "normal";
+        }
+        const s = String(u || "normal").trim().toLowerCase();
+        if (s === "critical" || s === "high" || s === "2") return "critical";
+        if (s === "low" || s === "0") return "low";
+        return "normal";
+    }
+
     function emitExternalToast(appName: string, urgency: string, silent: bool): void {
         const now = Date.now();
         if (now - root._lastToastEmitMs < 2500) return;
         root._lastToastEmitMs = now;
-        root.toastArrived(appName || "Desktop", urgency || "normal", !!silent);
+        root.toastArrived(String(appName || "Desktop"), _normalizeUrgency(urgency), !!silent);
     }
 
     onCpuUsageChanged: {
@@ -178,11 +218,17 @@ Singleton {
         printErrors: false
         onLoaded: {
             const raw = text().trim();
-            if (!raw || raw === root._lastToastSig) return;
-            root._lastToastSig = raw;
+            if (!raw) return;
             try {
                 const t = JSON.parse(raw);
-                root.emitExternalToast(String(t.appName || t.app || "Desktop"), String(t.urgency || "normal"), !!t.silent);
+                if (!t || typeof t !== "object") return;
+                const rawTs = Number(t.updatedAt ?? t.time ?? 0);
+                const tsMs = rawTs > 0 && rawTs < 1e11 ? (rawTs * 1000) : rawTs;
+                if (!(tsMs > root._bootMs) || (Date.now() - tsMs) > 15000) return;
+                const sig = String(t.id ?? "") + ":" + String(t.appName ?? t.app ?? "") + ":" + String(Math.floor(tsMs / 1000));
+                if (sig === root._lastToastSig) return;
+                root._lastToastSig = sig;
+                root.emitExternalToast(String(t.appName || t.app || "Desktop"), _normalizeUrgency(t.urgency), !!t.silent);
             } catch (e) {}
         }
         onFileChanged: reload()

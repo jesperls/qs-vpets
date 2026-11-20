@@ -15,6 +15,30 @@ Scope {
     ListModel { id: residentIdsModel }
     ListModel { id: roamingIdsModel }
 
+    property var screenWindows: ({})
+    property int screenWindowsRevision: 0
+    property var sanctuaryGeom: null
+
+    function registerScreenWindow(name: string, win: var): void {
+        const next = Object.assign({}, screenWindows);
+        next[name] = win;
+        screenWindows = next;
+        screenWindowsRevision++;
+    }
+
+    function unregisterScreenWindow(name: string, win: var): void {
+        if (screenWindows[name] !== win) return;
+        const next = Object.assign({}, screenWindows);
+        delete next[name];
+        screenWindows = next;
+        screenWindowsRevision++;
+    }
+
+    function screenWindowFor(scr: var): var {
+        if (!scr || !scr.name) return null;
+        return screenWindows[scr.name] ?? null;
+    }
+
     function _syncIdModel(model: ListModel, nextIds: var): void {
         const want = Array.isArray(nextIds) ? nextIds : [];
         const wantSet = {};
@@ -49,8 +73,99 @@ Scope {
     }
 
     Instantiator {
+        model: WinPlatform.screens
+        delegate: Window {
+            id: screenOverlay
+            required property var modelData
+            property string registeredName: ""
+            property var attachedHosts: []
+            property bool _hitSyncQueued: false
+
+            flags: Qt.Window | Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.WindowDoesNotAcceptFocus
+            color: "transparent"
+            x: modelData ? modelData.x : 0
+            y: modelData ? modelData.y : 0
+            width: modelData ? modelData.width : 1920
+            height: modelData ? modelData.height : 1080
+            visible: !PetManager.hidden && !PetManager.penVisible && attachedHosts.length > 0
+
+            readonly property alias stageItem: petStage
+
+            function syncHitRegions(): void {
+                const rects = [];
+                let captureAll = false;
+                for (let i = 0; i < attachedHosts.length; i++) {
+                    const h = attachedHosts[i];
+                    if (!h || !h.viewport) continue;
+                    if (h.pointerPressed) captureAll = true;
+                    const list = h.viewport.hitRects();
+                    for (let j = 0; j < list.length; j++) rects.push(list[j]);
+                }
+                WinPlatform.setOverlayInteractiveRects(screenOverlay, rects, captureAll);
+            }
+
+            function scheduleSyncHitRegions(): void {
+                if (_hitSyncQueued || !visible) return;
+                _hitSyncQueued = true;
+                Qt.callLater(() => {
+                    screenOverlay._hitSyncQueued = false;
+                    screenOverlay.syncHitRegions();
+                });
+            }
+
+            function attachHost(host: var): void {
+                if (!host || attachedHosts.indexOf(host) !== -1) return;
+                attachedHosts = attachedHosts.concat([host]);
+                syncHitRegions();
+            }
+
+            function detachHost(host: var): void {
+                const idx = attachedHosts.indexOf(host);
+                if (idx === -1) return;
+                attachedHosts = attachedHosts.filter(h => h !== host);
+                syncHitRegions();
+            }
+
+            onVisibleChanged: {
+                if (visible) {
+                    WinPlatform.configureOverlayWindow(screenOverlay);
+                    syncHitRegions();
+                }
+            }
+
+            Item {
+                id: petStage
+                anchors.fill: parent
+            }
+
+            Component.onCompleted: {
+                WinPlatform.configureOverlayWindow(screenOverlay);
+                if (modelData && modelData.name) {
+                    registeredName = modelData.name;
+                    root.registerScreenWindow(registeredName, screenOverlay);
+                }
+                syncHitRegions();
+            }
+
+            Component.onDestruction: {
+                for (let i = 0; i < attachedHosts.length; i++) {
+                    const h = attachedHosts[i];
+                    if (!h) continue;
+                    if (h.viewport && h.viewport.parent === petStage) h.viewport.parent = null;
+                    if (h.currentWindow === screenOverlay) h.currentWindow = null;
+                }
+                attachedHosts = [];
+                WinPlatform.unregisterOverlayWindow(screenOverlay);
+                if (registeredName) root.unregisterScreenWindow(registeredName, screenOverlay);
+            }
+        }
+    }
+
+    Instantiator {
         model: roamingIdsModel
-        delegate: PetWindow {}
+        delegate: PetWindow {
+            overlayHost: root
+        }
     }
 
     Instantiator {
@@ -78,6 +193,7 @@ Scope {
                 currentState: "drag"
                 altitude: 18
                 mirror: PetManager.dragGhostMirror
+                forcedDirRow: PetManager.dragGhostMirror ? 6 : 2
                 spriteDir: PetManager.dragGhostSprite
                     ? Qt.resolvedUrl("assets/sprites/" + PetManager.dragGhostSprite)
                     : ""
@@ -88,7 +204,10 @@ Scope {
     Instantiator {
         active: PetManager.penVisible
         model: 1
-        delegate: SanctuaryWindow {}
+        delegate: SanctuaryWindow {
+            savedGeom: root.sanctuaryGeom
+            onGeometrySaved: geom => { root.sanctuaryGeom = geom; }
+        }
     }
 
     VpetsIpc {

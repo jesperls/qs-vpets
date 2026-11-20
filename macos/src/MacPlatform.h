@@ -137,7 +137,9 @@ public:
     void notifyAppActivated();
     void notifySystemWillSleep();
     void notifySystemDidWake();
-    void handleCursorEvent();
+    void handleCursorEvent(bool forceEmit = false);
+    void handleMediaNotification(const QString &playerState, const QString &title, const QString &artist);
+    void handleMediaAppTerminated();
 
     void triggerMenuOpenSanctuary();
     void triggerMenuToggleHidden();
@@ -185,6 +187,7 @@ private:
     void pollTelemetryAndPower();
     void pollAudioAndMedia();
     void queryNowPlayingAsync();
+    void updatePollingTimers();
     void setupNotificationsAndMonitors();
     void setupStatusBar();
 
@@ -225,6 +228,13 @@ private:
     double m_cursorX = 0;
     double m_cursorY = 0;
     double m_idleSeconds = 0;
+    qint64 m_lastCursorEmitMs = 0;
+
+    QTimer *m_fastTimer = nullptr;
+    QTimer *m_winTimer = nullptr;
+    QTimer *m_audioTimer = nullptr;
+    QTimer *m_sysTimer = nullptr;
+    bool m_petsHidden = false;
 
     double m_cpuUsage = 0;
     double m_memUsage = 0;

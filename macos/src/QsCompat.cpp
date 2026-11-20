@@ -305,6 +305,7 @@ QString QsIpcServer::defaultSocketPath() {
 bool QsIpcServer::listen(const QString &socketPath) {
     if (m_server) return m_server->isListening();
     m_server = new QLocalServer(this);
+    m_server->setSocketOptions(QLocalServer::UserAccessOption);
     QLocalServer::removeServer(socketPath);
     if (!m_server->listen(socketPath)) {
         qWarning() << "qs-vpets: failed to listen on IPC socket" << socketPath << m_server->errorString();

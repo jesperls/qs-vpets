@@ -27,6 +27,8 @@
 - (void)screensDidChange:(NSNotification *)note;
 - (void)spaceDidChange:(NSNotification *)note;
 - (void)appDidActivate:(NSNotification *)note;
+- (void)appDidTerminate:(NSNotification *)note;
+- (void)mediaPlayerDidChange:(NSNotification *)note;
 - (void)systemWillSleep:(NSNotification *)note;
 - (void)systemDidWake:(NSNotification *)note;
 @end
@@ -59,6 +61,26 @@
 - (void)appDidActivate:(NSNotification *)note {
     (void)note;
     if (self.platform) self.platform->notifyAppActivated();
+}
+- (void)appDidTerminate:(NSNotification *)note {
+    if (!self.platform) return;
+    NSRunningApplication *app = [[note userInfo] objectForKey:NSWorkspaceApplicationKey];
+    NSString *bid = app ? [app bundleIdentifier] : nil;
+    if (bid && ([bid isEqualToString:@"com.spotify.client"] || [bid isEqualToString:@"com.apple.Music"])) {
+        self.platform->handleMediaAppTerminated();
+    }
+}
+- (void)mediaPlayerDidChange:(NSNotification *)note {
+    if (!self.platform) return;
+    NSDictionary *info = [note userInfo];
+    if (!info) return;
+    id stateVal = [info objectForKey:@"Player State"];
+    id nameVal = [info objectForKey:@"Name"];
+    id artistVal = [info objectForKey:@"Artist"];
+    const QString state = [stateVal isKindOfClass:[NSString class]] ? QString::fromNSString((NSString *)stateVal) : QString();
+    const QString title = [nameVal isKindOfClass:[NSString class]] ? QString::fromNSString((NSString *)nameVal) : QString();
+    const QString artist = [artistVal isKindOfClass:[NSString class]] ? QString::fromNSString((NSString *)artistVal) : QString();
+    self.platform->handleMediaNotification(state, title, artist);
 }
 - (void)systemWillSleep:(NSNotification *)note {
     (void)note;
@@ -122,26 +144,27 @@ MacPlatform::MacPlatform(QObject *parent)
     pollWindows();
     pollTelemetryAndPower();
     pollAudioAndMedia();
+    queryNowPlayingAsync();
 
-    auto *fastTimer = new QTimer(this);
-    fastTimer->setInterval(65);
-    connect(fastTimer, &QTimer::timeout, this, &MacPlatform::pollIdleAndCursor);
-    fastTimer->start();
+    m_fastTimer = new QTimer(this);
+    m_fastTimer->setInterval(65);
+    connect(m_fastTimer, &QTimer::timeout, this, &MacPlatform::pollIdleAndCursor);
+    m_fastTimer->start();
 
-    auto *winTimer = new QTimer(this);
-    winTimer->setInterval(650);
-    connect(winTimer, &QTimer::timeout, this, &MacPlatform::pollWindows);
-    winTimer->start();
+    m_winTimer = new QTimer(this);
+    m_winTimer->setInterval(650);
+    connect(m_winTimer, &QTimer::timeout, this, &MacPlatform::pollWindows);
+    m_winTimer->start();
 
-    auto *audioTimer = new QTimer(this);
-    audioTimer->setInterval(2500);
-    connect(audioTimer, &QTimer::timeout, this, &MacPlatform::pollAudioAndMedia);
-    audioTimer->start();
+    m_audioTimer = new QTimer(this);
+    m_audioTimer->setInterval(2500);
+    connect(m_audioTimer, &QTimer::timeout, this, &MacPlatform::pollAudioAndMedia);
+    m_audioTimer->start();
 
-    auto *sysTimer = new QTimer(this);
-    sysTimer->setInterval(5000);
-    connect(sysTimer, &QTimer::timeout, this, &MacPlatform::pollTelemetryAndPower);
-    sysTimer->start();
+    m_sysTimer = new QTimer(this);
+    m_sysTimer->setInterval(5000);
+    connect(m_sysTimer, &QTimer::timeout, this, &MacPlatform::pollTelemetryAndPower);
+    m_sysTimer->start();
 }
 
 MacPlatform::~MacPlatform() {
@@ -156,9 +179,11 @@ MacPlatform::~MacPlatform() {
         m_localMouseMonitor = nullptr;
     }
     if (m_observerTarget) {
-        id target = CFBridgingRelease(m_observerTarget);
+        VpetsMenuTarget *target = (VpetsMenuTarget *)CFBridgingRelease(m_observerTarget);
+        target.platform = nullptr;
         [[NSNotificationCenter defaultCenter] removeObserver:target];
         [[[NSWorkspace sharedWorkspace] notificationCenter] removeObserver:target];
+        [[NSDistributedNotificationCenter defaultCenter] removeObserver:target];
         m_observerTarget = nullptr;
     }
     if (m_statusItem) {
@@ -302,21 +327,26 @@ void MacPlatform::applyOverlayStyle(QWindow *win) {
 
 void MacPlatform::configureOverlayWindow(QWindow *win) {
     if (!win) return;
+    QPointer<QWindow> safeWin(win);
     if (!m_overlays.contains(win)) {
         OverlayEntry entry;
         entry.window = win;
         m_overlays.insert(win, entry);
 
-        connect(win, &QWindow::visibleChanged, this, [this, win](bool vis) {
-            if (vis) {
-                applyOverlayStyle(win);
-                QTimer::singleShot(0, this, [this, win]() { applyOverlayStyle(win); });
+        connect(win, &QWindow::visibleChanged, this, [this, safeWin](bool vis) {
+            if (vis && safeWin) {
+                applyOverlayStyle(safeWin);
+                QTimer::singleShot(0, this, [this, safeWin]() {
+                    if (safeWin) applyOverlayStyle(safeWin);
+                });
             }
         });
         connect(win, &QObject::destroyed, this, [this, win]() { m_overlays.remove(win); });
     }
     applyOverlayStyle(win);
-    QTimer::singleShot(0, this, [this, win]() { applyOverlayStyle(win); });
+    QTimer::singleShot(0, this, [this, safeWin]() {
+        if (safeWin) applyOverlayStyle(safeWin);
+    });
 }
 
 void MacPlatform::setOverlayInteractiveRects(QWindow *win, const QVariantList &rects, bool captureAll) {
@@ -380,12 +410,31 @@ void MacPlatform::activateSanctuaryWindow(QWindow *win) {
 }
 
 void MacPlatform::setPetsHiddenState(bool hidden) {
+    const bool changed = (m_petsHidden != hidden);
+    m_petsHidden = hidden;
     @autoreleasepool {
         if (m_toggleHideMenuItem) {
             NSMenuItem *item = (__bridge NSMenuItem *)m_toggleHideMenuItem;
             [item setTitle:(hidden ? @"Show Desktop Pets" : @"Hide Desktop Pets")];
         }
     }
+    if (changed) updatePollingTimers();
+}
+
+void MacPlatform::updatePollingTimers() {
+    if (m_petsHidden) {
+        if (m_fastTimer) m_fastTimer->stop();
+        if (m_winTimer) m_winTimer->stop();
+        if (m_audioTimer) m_audioTimer->stop();
+        if (m_sysTimer) m_sysTimer->stop();
+        return;
+    }
+    if (m_fastTimer && !m_fastTimer->isActive()) m_fastTimer->start();
+    if (m_winTimer && !m_winTimer->isActive()) m_winTimer->start();
+    if (m_audioTimer && !m_audioTimer->isActive()) m_audioTimer->start();
+    if (m_sysTimer && !m_sysTimer->isActive()) m_sysTimer->start();
+    pollIdleAndCursor();
+    pollWindows();
 }
 
 void MacPlatform::updateMousePassthrough() {
@@ -433,7 +482,8 @@ void MacPlatform::updateMousePassthrough() {
     }
 }
 
-void MacPlatform::handleCursorEvent() {
+void MacPlatform::handleCursorEvent(bool forceEmit) {
+    if (m_petsHidden) return;
     @autoreleasepool {
         const NSPoint mousePt = [NSEvent mouseLocation];
         const double gx = mousePt.x;
@@ -444,14 +494,18 @@ void MacPlatform::handleCursorEvent() {
         m_cursorKnown = true;
         updateMousePassthrough();
         if (moved) {
-            emit cursorChanged();
-            emit cursorMoved(gx, gy);
+            const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+            if (forceEmit || (nowMs - m_lastCursorEmitMs) >= 33) {
+                m_lastCursorEmitMs = nowMs;
+                emit cursorChanged();
+                emit cursorMoved(gx, gy);
+            }
         }
     }
 }
 
 void MacPlatform::pollIdleAndCursor() {
-    handleCursorEvent();
+    handleCursorEvent(true);
     const double idle = CGEventSourceSecondsSinceLastEventType(
         kCGEventSourceStateCombinedSessionState, kCGAnyInputEventType
     );
@@ -569,13 +623,18 @@ void MacPlatform::pollWindows() {
             const QPointF pMid(wx + ww * 0.5, wy + 8.0);
             const QPointF pLeft(wx + ww * 0.25, wy + 8.0);
             const QPointF pRight(wx + ww * 0.75, wy + 8.0);
-            int coveredPts = 0;
+            bool midCov = false;
+            bool leftCov = false;
+            bool rightCov = false;
             for (const QRectF &front : frontOpaqueRects) {
-                if (front.contains(pMid)) coveredPts++;
-                if (front.contains(pLeft)) coveredPts++;
-                if (front.contains(pRight)) coveredPts++;
+                if (!midCov && front.contains(pMid)) midCov = true;
+                if (!leftCov && front.contains(pLeft)) leftCov = true;
+                if (!rightCov && front.contains(pRight)) rightCov = true;
+                if (midCov && leftCov && rightCov) {
+                    ledgeOccluded = true;
+                    break;
+                }
             }
-            if (coveredPts >= 3) ledgeOccluded = true;
 
             const QRectF qrect(wx, wy, ww, wh);
             frontOpaqueRects.append(qrect);
@@ -823,9 +882,28 @@ void MacPlatform::pollAudioAndMedia() {
         m_micActive = micRun;
         emit audioUpdated();
     }
+}
 
-    // 3. Lightweight Now Playing check (only spawns osascript when Music or Spotify is actually running)
-    queryNowPlayingAsync();
+void MacPlatform::handleMediaNotification(const QString &playerState, const QString &title, const QString &artist) {
+    const bool playing = (playerState.compare(QStringLiteral("Playing"), Qt::CaseInsensitive) == 0);
+    const QString nextTitle = playing ? title : QString();
+    const QString nextArtist = playing ? artist : QString();
+    QMetaObject::invokeMethod(
+        this,
+        [this, playing, nextTitle, nextArtist]() {
+            if (playing != m_isPlaying || nextTitle != m_trackTitle || nextArtist != m_trackArtist) {
+                m_isPlaying = playing;
+                m_trackTitle = nextTitle;
+                m_trackArtist = nextArtist;
+                emit mediaUpdated();
+            }
+        },
+        Qt::AutoConnection
+    );
+}
+
+void MacPlatform::handleMediaAppTerminated() {
+    QMetaObject::invokeMethod(this, [this]() { queryNowPlayingAsync(); }, Qt::QueuedConnection);
 }
 
 void MacPlatform::queryNowPlayingAsync() {
@@ -919,6 +997,10 @@ void MacPlatform::setupNotificationsAndMonitors() {
                          name:NSWorkspaceDidActivateApplicationNotification
                        object:nil];
         [wsCenter addObserver:target
+                     selector:@selector(appDidTerminate:)
+                         name:NSWorkspaceDidTerminateApplicationNotification
+                       object:nil];
+        [wsCenter addObserver:target
                      selector:@selector(systemWillSleep:)
                          name:NSWorkspaceWillSleepNotification
                        object:nil];
@@ -926,6 +1008,16 @@ void MacPlatform::setupNotificationsAndMonitors() {
                      selector:@selector(systemDidWake:)
                          name:NSWorkspaceDidWakeNotification
                        object:nil];
+
+        NSDistributedNotificationCenter *distCenter = [NSDistributedNotificationCenter defaultCenter];
+        [distCenter addObserver:target
+                       selector:@selector(mediaPlayerDidChange:)
+                           name:@"com.spotify.client.PlaybackStateChanged"
+                         object:nil];
+        [distCenter addObserver:target
+                       selector:@selector(mediaPlayerDidChange:)
+                           name:@"com.apple.Music.playerInfo"
+                         object:nil];
 
         const NSEventMask mask = NSEventMaskMouseMoved | NSEventMaskLeftMouseDragged | NSEventMaskRightMouseDragged
                                | NSEventMaskLeftMouseUp | NSEventMaskRightMouseUp;

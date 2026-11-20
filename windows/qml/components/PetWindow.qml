@@ -1,7 +1,6 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
-import QtQuick.Window
 import Quickshell
 import WinPlatform
 import "../services"
@@ -10,58 +9,58 @@ Scope {
     id: root
 
     required property string petId
-    property var screen: null
+    property var overlayHost: null
+    property var currentWindow: null
 
-    onScreenChanged: {
-        if (viewport.activeScreen !== root.screen) {
-            viewport.activeScreen = root.screen;
+    readonly property alias viewport: petViewport
+    readonly property bool pointerPressed: petViewport.pointerPressed
+
+    function syncWindow(): void {
+        const targetWin = overlayHost ? overlayHost.screenWindowFor(petViewport.activeScreen) : null;
+        if (targetWin === currentWindow) return;
+        if (currentWindow) currentWindow.detachHost(root);
+        currentWindow = targetWin;
+        if (targetWin) {
+            petViewport.parent = targetWin.stageItem;
+            targetWin.attachHost(root);
+        } else {
+            petViewport.parent = null;
         }
-        _syncHitRegions();
     }
 
-    function _syncHitRegions(): void {
-        WinPlatform.setOverlayInteractiveRects(overlayWin, viewport.hitRects(), viewport.pointerPressed);
-    }
-
-    Window {
-        id: overlayWin
-        flags: Qt.Window | Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.WindowDoesNotAcceptFocus
-        color: "transparent"
-        x: root.screen ? root.screen.x : 0
-        y: root.screen ? root.screen.y : 0
-        width: root.screen ? root.screen.width : 1920
-        height: root.screen ? root.screen.height : 1080
-        visible: !PetManager.hidden && !PetManager.penVisible && root.screen !== null
-
-        onVisibleChanged: {
-            if (visible) {
-                WinPlatform.configureOverlayWindow(overlayWin);
-                root._syncHitRegions();
-            }
+    PetOverlayContent {
+        id: petViewport
+        petId: root.petId
+        sharedOverlay: true
+        windowActive: !PetManager.hidden && !PetManager.penVisible && root.currentWindow !== null
+        onScreenSelected: () => root.syncWindow()
+        onHitRegionsUpdated: {
+            if (root.currentWindow) root.currentWindow.scheduleSyncHitRegions();
         }
-
-        PetOverlayContent {
-            id: viewport
-            petId: root.petId
-            windowActive: overlayWin.visible
-            onScreenSelected: nextScreen => {
-                if (root.screen !== nextScreen) root.screen = nextScreen;
-            }
-            onHitRegionsUpdated: root._syncHitRegions()
+        onPointerPressedChanged: {
+            if (root.currentWindow) root.currentWindow.syncHitRegions();
         }
     }
 
     Connections {
+        target: root.overlayHost
+        function onScreenWindowsRevisionChanged(): void { root.syncWindow(); }
+    }
+
+    Connections {
         target: WinPlatform
-        function onScreensChanged(): void { viewport.ensureValidScreen(); }
+        function onScreensChanged(): void {
+            petViewport.ensureValidScreen();
+            root.syncWindow();
+        }
     }
 
-    Component.onCompleted: {
-        WinPlatform.configureOverlayWindow(overlayWin);
-        root._syncHitRegions();
-    }
-
+    Component.onCompleted: syncWindow()
     Component.onDestruction: {
-        WinPlatform.unregisterOverlayWindow(overlayWin);
+        if (currentWindow) {
+            currentWindow.detachHost(root);
+            currentWindow = null;
+        }
+        petViewport.parent = null;
     }
 }
