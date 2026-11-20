@@ -177,6 +177,7 @@ ShellRoot {
             PetOverlayContent {
                 id: petViewport
                 petId: petHost.modelData
+                sharedOverlay: true
                 windowActive: !PetManager.hidden && !PetManager.penVisible && petHost.currentWindow !== null
                 onScreenSelected: () => petHost.syncWindow()
                 onPointerPressedChanged: {

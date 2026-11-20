@@ -391,11 +391,14 @@ void MacPlatform::setPetsHiddenState(bool hidden) {
 void MacPlatform::updateMousePassthrough() {
     if (m_overlays.isEmpty() || !m_cursorKnown) return;
     @autoreleasepool {
+        const NSUInteger buttonsDown = [NSEvent pressedMouseButtons];
         QWindow *capturingWin = nullptr;
-        for (auto it = m_overlays.constBegin(); it != m_overlays.constEnd(); ++it) {
-            if (it.value().window && it.value().window->isVisible() && it.value().captureAll) {
+        for (auto it = m_overlays.begin(); it != m_overlays.end(); ++it) {
+            if (it.value().captureAll && buttonsDown == 0) {
+                it.value().captureAll = false;
+            }
+            if (!capturingWin && it.value().window && it.value().window->isVisible() && it.value().captureAll) {
                 capturingWin = it.value().window;
-                break;
             }
         }
 
@@ -927,14 +930,24 @@ void MacPlatform::setupNotificationsAndMonitors() {
         const NSEventMask mask = NSEventMaskMouseMoved | NSEventMaskLeftMouseDragged | NSEventMaskRightMouseDragged
                                | NSEventMaskLeftMouseUp | NSEventMaskRightMouseUp;
         id globalMon = [NSEvent addGlobalMonitorForEventsMatchingMask:mask
-                                                              handler:^(NSEvent *) {
-                                                                  this->handleCursorEvent();
+                                                              handler:^(NSEvent *ev) {
+                                                                  const NSEventType t = ev.type;
+                                                                  if (t == NSEventTypeLeftMouseUp || t == NSEventTypeRightMouseUp) {
+                                                                      QTimer::singleShot(0, this, [this]() { this->handleCursorEvent(); });
+                                                                  } else {
+                                                                      this->handleCursorEvent();
+                                                                  }
                                                               }];
         if (globalMon) m_globalMouseMonitor = CFBridgingRetain(globalMon);
 
         id localMon = [NSEvent addLocalMonitorForEventsMatchingMask:mask
                                                             handler:^NSEvent *(NSEvent *ev) {
-                                                                this->handleCursorEvent();
+                                                                const NSEventType t = ev.type;
+                                                                if (t == NSEventTypeLeftMouseUp || t == NSEventTypeRightMouseUp) {
+                                                                    QTimer::singleShot(0, this, [this]() { this->handleCursorEvent(); });
+                                                                } else {
+                                                                    this->handleCursorEvent();
+                                                                }
                                                                 return ev;
                                                             }];
         if (localMon) m_localMouseMonitor = CFBridgingRetain(localMon);

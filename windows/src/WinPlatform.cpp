@@ -666,11 +666,15 @@ void WinPlatform::setPetsHiddenState(bool hidden) {
 void WinPlatform::updateMousePassthrough() {
     if (m_overlays.isEmpty() || !m_cursorKnown) return;
 
+    const bool anyButtonDown = ((GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0)
+                            || ((GetAsyncKeyState(VK_RBUTTON) & 0x8000) != 0);
     QWindow *capturingWin = nullptr;
-    for (auto it = m_overlays.constBegin(); it != m_overlays.constEnd(); ++it) {
-        if (it.value().window && it.value().window->isVisible() && it.value().captureAll) {
+    for (auto it = m_overlays.begin(); it != m_overlays.end(); ++it) {
+        if (it.value().captureAll && !anyButtonDown) {
+            it.value().captureAll = false;
+        }
+        if (!capturingWin && it.value().window && it.value().window->isVisible() && it.value().captureAll) {
             capturingWin = it.value().window;
-            break;
         }
     }
 

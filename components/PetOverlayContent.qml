@@ -10,18 +10,19 @@ import "behavior/Topology.js" as Topology
 Item {
     id: root
     anchors.fill: parent
-    z: dragArea.dragging || inspectorLoader.active ? 20 : 1
+    z: dragArea.pressed || dragArea.dragging || inspectorLoader.active ? 20 : 1
 
     required property string petId
     property var activeScreen: null
     property bool windowActive: true
+    property bool sharedOverlay: false
 
     signal screenSelected(nextScreen: var)
     signal hitRegionsUpdated
 
     readonly property alias petHitboxItem: petHitbox
     readonly property alias inspectorItem: inspectorLoader
-    readonly property bool pointerPressed: dragArea.pressed
+    readonly property bool pointerPressed: dragArea.captureActive
     readonly property bool pointerDragging: dragArea.dragging
     readonly property bool inspectorRegionActive: inspectorLoader.active && !dragArea.dragging
 
@@ -324,11 +325,12 @@ Item {
 
     MouseArea {
         id: dragArea
-        anchors.fill: petHitbox
+        anchors.fill: root.sharedOverlay ? petHitbox : root
         hoverEnabled: true
         acceptedButtons: Qt.LeftButton | Qt.RightButton
         cursorShape: dragging ? Qt.ClosedHandCursor : Qt.OpenHandCursor
 
+        property bool captureActive: false
         property bool dragging: false
         property bool offScreenDragging: false
         property bool didDrag: false
@@ -352,7 +354,11 @@ Item {
 
         readonly property bool allowCtrlContext: Qt.platform.os === "osx"
 
-        onPressedChanged: root.hitRegionsUpdated()
+        onCaptureActiveChanged: root.hitRegionsUpdated()
+        onPressedChanged: {
+            if (!pressed) captureActive = false;
+            root.hitRegionsUpdated();
+        }
         onDraggingChanged: root.hitRegionsUpdated()
 
         onPressed: mouse => {
@@ -361,9 +367,11 @@ Item {
             const isContextClick = mouse.button === Qt.RightButton
                 || (allowCtrlContext && mouse.button === Qt.LeftButton && (mouse.modifiers & Qt.ControlModifier));
             if (isContextClick) {
+                captureActive = false;
                 PetManager.toggleInspector(petItem);
                 return;
             }
+            captureActive = true;
             didDrag = false;
             dragging = false;
             offScreenDragging = false;
@@ -381,6 +389,7 @@ Item {
         }
 
         function finishInteraction(): void {
+            captureActive = false;
             if (!dragging) return;
             dragging = false;
             offScreenDragging = false;
@@ -413,6 +422,7 @@ Item {
         }
 
         onReleased: mouse => {
+            captureActive = false;
             if (mouse.button === Qt.RightButton || (allowCtrlContext && (mouse.modifiers & Qt.ControlModifier))) return;
             if (dragging) {
                 finishInteraction();
