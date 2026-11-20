@@ -12,7 +12,10 @@
 #include <QJsonObject>
 #include <QLocalSocket>
 #include <QMetaMethod>
+#include <QQuickItem>
+#include <QQuickWindow>
 #include <QSaveFile>
+#include <QSet>
 #include <QTimer>
 #include <QUrl>
 #include <QWindow>
@@ -427,18 +430,33 @@ QString QsIpcServer::invokeLocal(const QString &target, const QString &method, c
         int visCount = 0;
         int totalSprites = 0;
         int loadedSprites = 0;
+        QSet<QObject *> seen;
+        auto visitObj = [&](QObject *obj) {
+            if (!obj || seen.contains(obj)) return;
+            seen.insert(obj);
+            const QVariant useProp = obj->property("useSpriteSheet");
+            if (useProp.isValid()) {
+                ++totalSprites;
+                if (useProp.toBool()) ++loadedSprites;
+            }
+        };
+        auto walkItem = [&](auto &self, QQuickItem *item) -> void {
+            if (!item) return;
+            visitObj(item);
+            for (QQuickItem *c : item->childItems()) {
+                self(self, c);
+            }
+        };
         for (QWindow *w : QGuiApplication::topLevelWindows()) {
             if (!w) continue;
             const bool vis = w->isVisible() && w->visibility() != QWindow::Hidden;
             if (vis) ++visCount;
+            if (auto *qw = qobject_cast<QQuickWindow *>(w)) {
+                walkItem(walkItem, qw->contentItem());
+            }
             const QList<QObject *> children = w->findChildren<QObject *>();
             for (QObject *child : children) {
-                if (!child) continue;
-                const QVariant useProp = child->property("useSpriteSheet");
-                if (useProp.isValid()) {
-                    ++totalSprites;
-                    if (useProp.toBool()) ++loadedSprites;
-                }
+                visitObj(child);
             }
             QJsonObject wo;
             wo.insert(QStringLiteral("title"), w->title());
