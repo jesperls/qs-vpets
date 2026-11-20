@@ -95,7 +95,30 @@ function Invoke-Ipc {
     }
 }
 
+function Get-PipeName {
+    if ($env:QS_VPETS_SOCKET) {
+        return ($env:QS_VPETS_SOCKET -replace '^\\\\\.\\pipe\\', '')
+    }
+    $user = if ($env:USERNAME) { $env:USERNAME } else { "default" }
+    $clean = ($user -replace '[^A-Za-z0-9_-]', '')
+    if (-not $clean) { $clean = "user" }
+    if ($clean.Length -gt 40) { $clean = $clean.Substring(0, 40) }
+    return "qs-vpets-$clean"
+}
+
+function Test-PipeExists {
+    $pipeFull = "\\.\pipe\" + (Get-PipeName)
+    try {
+        return ([System.IO.Directory]::GetFiles('\\.\pipe\') -contains $pipeFull)
+    } catch {
+        return $true
+    }
+}
+
 function Test-IsRunning {
+    if (-not (Test-PipeExists)) {
+        return $false
+    }
     return (Invoke-Ipc -Method "status" -Quiet)
 }
 
@@ -113,7 +136,6 @@ function Start-Background {
     for ($i = 0; $i -lt 60; $i++) {
         if (Test-IsRunning) {
             if ($Mode -eq "open") {
-                $null = Invoke-Ipc -Method "open" -Quiet
                 Write-Output "opened"
             }
             return
@@ -124,8 +146,15 @@ function Start-Background {
 }
 
 function Stop-Overlay {
-    $null = Invoke-Ipc -Method "flush" -Quiet
-    Start-Sleep -Milliseconds 150
+    if (Test-PipeExists) {
+        $null = Invoke-Ipc -Method "quit" -Quiet
+        for ($i = 0; $i -lt 12; $i++) {
+            if (-not (Get-Process -Name "Pokemon Sanctuary" -ErrorAction SilentlyContinue)) {
+                return
+            }
+            Start-Sleep -Milliseconds 100
+        }
+    }
     $procs = Get-Process -Name "Pokemon Sanctuary" -ErrorAction SilentlyContinue
     if ($procs) {
         foreach ($p in $procs) {
@@ -253,13 +282,39 @@ switch ($Command.ToLowerInvariant()) {
         $act = if ($Rest.Count -gt 0) { $Rest[0] } else { "status" }
         Manage-Autostart -Action $act
     }
+    { $_ -in @("logs", "log") } {
+        $stateDir = if ($env:QS_VPETS_STATE_DIR) { $env:QS_VPETS_STATE_DIR } else { Join-Path $env:LOCALAPPDATA "qs-vpets" }
+        $logFile = Join-Path $stateDir "qs-vpets.log"
+        if (-not (Test-Path -LiteralPath $logFile)) {
+            Write-Output "No log file yet at $logFile"
+            exit 0
+        }
+        $follow = ($Rest.Count -gt 0) -and ($Rest[0] -in @("-f", "--follow"))
+        if ($follow) {
+            Get-Content -LiteralPath $logFile -Tail 80 -Wait
+        } else {
+            Get-Content -LiteralPath $logFile
+        }
+    }
+    "debug" {
+        Manage-Autostart -Action "status"
+        if (Test-IsRunning) {
+            try { Invoke-Ipc -Method "status" } catch {}
+        }
+        $stateDir = if ($env:QS_VPETS_STATE_DIR) { $env:QS_VPETS_STATE_DIR } else { Join-Path $env:LOCALAPPDATA "qs-vpets" }
+        $logFile = Join-Path $stateDir "qs-vpets.log"
+        if (Test-Path -LiteralPath $logFile) {
+            Write-Output "--- recent log ($logFile) ---"
+            Get-Content -LiteralPath $logFile -Tail 30
+        }
+    }
     "status" { Invoke-Ipc -Method "status" }
-    "toggle" { Invoke-Ipc -Method "toggle" }
-    "pet" { Invoke-Ipc -Method "pet" -CallArgs @(if ($Rest.Count -gt 0) { $Rest[0] }) }
-    "feed" { Invoke-Ipc -Method "feed" -CallArgs @(if ($Rest.Count -gt 0) { $Rest[0] }) }
+    { $_ -in @("toggle", "hide") } { Invoke-Ipc -Method "toggle" }
+    { $_ -in @("pet", "pat", "stroke") } { Invoke-Ipc -Method "pet" -CallArgs @(if ($Rest.Count -gt 0) { $Rest[0] }) }
+    { $_ -in @("feed", "berry", "snack") } { Invoke-Ipc -Method "feed" -CallArgs @(if ($Rest.Count -gt 0) { $Rest[0] }) }
     "play" { Invoke-Ipc -Method "play" -CallArgs @(if ($Rest.Count -gt 0) { $Rest[0] }) }
-    "summon" { Invoke-Ipc -Method "summon" -CallArgs @(if ($Rest.Count -gt 0) { $Rest[0] }) }
-    "roam" {
+    { $_ -in @("summon", "call", "come") } { Invoke-Ipc -Method "summon" -CallArgs @(if ($Rest.Count -gt 0) { $Rest[0] }) }
+    { $_ -in @("roam", "policy") } {
         if ($Rest.Count -lt 2) { Fail "usage: qs-vpets roam <name> <auto|always|penned|out|in>" }
         Invoke-Ipc -Method "roam" -CallArgs @($Rest[0], $Rest[1])
     }
@@ -272,24 +327,24 @@ switch ($Command.ToLowerInvariant()) {
         $callArgs = if ($Rest.Count -gt 1) { @($Rest[0], $Rest[1]) } else { @($Rest[0]) }
         Invoke-Ipc -Method "evolve" -CallArgs $callArgs
     }
-    "inspect" { Invoke-Ipc -Method "inspect" -CallArgs @(if ($Rest.Count -gt 0) { $Rest[0] }) }
-    "notify" {
+    { $_ -in @("inspect", "card") } { Invoke-Ipc -Method "inspect" -CallArgs @(if ($Rest.Count -gt 0) { $Rest[0] }) }
+    { $_ -in @("notify", "toast") } {
         if (Test-IsRunning) {
             $appName = if ($Rest.Count -gt 0) { $Rest[0] } else { "Desktop" }
             $urg = if ($Rest.Count -gt 1) { $Rest[1] } else { "normal" }
             Invoke-Ipc -Method "notify" -CallArgs @($appName, $urg)
         }
     }
-    "spawn" {
+    { $_ -in @("spawn", "add", "adopt") } {
         if ($Rest.Count -lt 1) { Fail "usage: qs-vpets spawn <species> [name]" }
         $callArgs = if ($Rest.Count -gt 1) { @($Rest[0], $Rest[1]) } else { @($Rest[0]) }
         Invoke-Ipc -Method "spawn" -CallArgs $callArgs
     }
-    "release" {
+    { $_ -in @("release", "remove") } {
         if ($Rest.Count -lt 1) { Fail "usage: qs-vpets release <name>" }
         Invoke-Ipc -Method "release" -CallArgs @($Rest[0])
     }
-    { $_ -in @("version", "--version", "-v") } {
+    { $_ -in @("version", "--version", "-v", "-V") } {
         Write-Output "qs-vpets $Version"
     }
     { $_ -in @("help", "--help", "-h") } {

@@ -215,4 +215,10 @@ IpcHandler {
         SystemMonitor.emitExternalToast(appName || "Desktop", urgency || "normal", false);
         return "notified";
     }
+
+    function quit(): string {
+        PetManager.flushAll();
+        Qt.callLater(() => Qt.quit());
+        return "quitting";
+    }
 }

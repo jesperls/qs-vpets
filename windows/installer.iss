@@ -65,8 +65,8 @@ var
 begin
   if (ExePath <> '') and FileExists(ExePath) then
   begin
-    Exec(ExePath, '--ipc flush', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-    Sleep(150);
+    Exec(ExePath, '--ipc quit', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    Sleep(600);
   end;
   Exec('taskkill.exe', '/F /IM "Pokemon Sanctuary.exe"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Sleep(250);

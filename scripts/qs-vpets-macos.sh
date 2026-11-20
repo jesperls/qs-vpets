@@ -364,7 +364,7 @@ release | remove)
 	[ $# -ge 1 ] || die "usage: qs-vpets release <name>"
 	ipc release "$1"
 	;;
-version | --version | -v)
+version | --version | -v | -V)
 	echo "qs-vpets $version"
 	;;
 help | --help | -h)

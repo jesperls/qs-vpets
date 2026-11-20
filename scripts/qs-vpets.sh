@@ -190,19 +190,21 @@ manageAutostart() {
 			EOF
 			systemctl --user daemon-reload
 			systemctl --user enable qs-vpets.service >/dev/null
+			rm -f "$xdgFile"
+		else
+			mkdir -p "$(dirname "$xdgFile")"
+			cat >"$xdgFile" <<-EOF
+				[Desktop Entry]
+				Type=Application
+				Name=Pokémon Sanctuary (Autostart)
+				Comment=Start Pokémon Sanctuary desktop companions on Wayland login
+				Exec=$launcherBin start
+				Icon=qs-vpets
+				Terminal=false
+				NoDisplay=true
+				X-GNOME-Autostart-enabled=true
+			EOF
 		fi
-		mkdir -p "$(dirname "$xdgFile")"
-		cat >"$xdgFile" <<-EOF
-			[Desktop Entry]
-			Type=Application
-			Name=Pokémon Sanctuary (Autostart)
-			Comment=Start Pokémon Sanctuary desktop companions on Wayland login
-			Exec=$launcherBin start
-			Icon=qs-vpets
-			Terminal=false
-			NoDisplay=true
-			X-GNOME-Autostart-enabled=true
-		EOF
 		if [ -n "${WAYLAND_DISPLAY:-}" ] && [ -z "$(shellPid)" ]; then
 			startBackground ""
 		fi
@@ -344,6 +346,39 @@ reload | restart)
 autostart)
 	manageAutostart "${1:-status}"
 	;;
+logs | log)
+	stateDir="${QS_VPETS_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/qs-vpets}"
+	logFile="$stateDir/qs-vpets.log"
+	if serviceUnitExists && command -v journalctl >/dev/null 2>&1; then
+		if [ "${1:-}" = "-f" ] || [ "${1:-}" = "--follow" ]; then
+			exec journalctl --user -u qs-vpets.service -n 80 -f
+		else
+			exec journalctl --user -u qs-vpets.service -n 80 --no-pager
+		fi
+	elif [ -f "$logFile" ]; then
+		if [ "${1:-}" = "-f" ] || [ "${1:-}" = "--follow" ]; then
+			exec tail -n 80 -f "$logFile"
+		else
+			cat "$logFile"
+		fi
+	else
+		echo "No log file yet at $logFile"
+	fi
+	;;
+debug)
+	manageAutostart status
+	if [ -n "$(shellPid)" ]; then
+		ipc status || true
+	fi
+	stateDir="${QS_VPETS_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/qs-vpets}"
+	if serviceUnitExists && command -v journalctl >/dev/null 2>&1; then
+		echo "--- recent systemd journal (qs-vpets.service) ---"
+		journalctl --user -u qs-vpets.service -n 30 --no-pager || true
+	elif [ -f "$stateDir/qs-vpets.log" ]; then
+		echo "--- recent log ($stateDir/qs-vpets.log) ---"
+		tail -n 30 "$stateDir/qs-vpets.log"
+	fi
+	;;
 dev)
 	targetDir="${1:-$PWD}"
 	[ -f "$targetDir/shell.qml" ] || die "run from a qs-vpets checkout or pass its directory"
@@ -355,22 +390,22 @@ dev)
 status)
 	ipc status
 	;;
-toggle)
+toggle | hide)
 	ipc toggle
 	;;
-pet)
+pet | pat | stroke)
 	ipc pet "${1:-}"
 	;;
-feed)
+feed | berry | snack)
 	ipc feed "${1:-}"
 	;;
 play)
 	ipc play "${1:-}"
 	;;
-summon)
+summon | call | come)
 	ipc summon "${1:-}"
 	;;
-roam)
+roam | policy)
 	[ $# -ge 2 ] || die "usage: qs-vpets roam <name> <auto|always|penned|out|in>"
 	ipc roam "$1" "$2"
 	;;
@@ -382,24 +417,24 @@ evolve)
 	[ $# -ge 1 ] || die "usage: qs-vpets evolve <name> [species]"
 	ipc evolve "$1" "${2:-}"
 	;;
-inspect)
+inspect | card)
 	ipc inspect "${1:-}"
 	;;
-notify)
+notify | toast)
 	existingPid=$(shellPid)
 	if [ -n "$existingPid" ]; then
 		ipc notify "${1:-Desktop}" "${2:-normal}"
 	fi
 	;;
-spawn)
+spawn | add | adopt)
 	[ $# -ge 1 ] || die "usage: qs-vpets spawn <species> [name]"
 	ipc spawn "$1" "${2:-}"
 	;;
-release)
+release | remove)
 	[ $# -ge 1 ] || die "usage: qs-vpets release <name>"
 	ipc release "$1"
 	;;
-version | --version | -V)
+version | --version | -v | -V)
 	echo "qs-vpets $version"
 	;;
 help | --help | -h)

@@ -104,6 +104,11 @@ function Do-Uninstall {
         if (Test-Path -LiteralPath $RunRegPath) {
             Remove-ItemProperty -Path $RunRegPath -Name $RunRegName -ErrorAction SilentlyContinue
         }
+        $existingExe = Join-Path $InstallDir "Pokemon Sanctuary.exe"
+        if (Test-Path -LiteralPath $existingExe) {
+            try { & $existingExe --ipc quit | Out-Null } catch {}
+            Start-Sleep -Milliseconds 600
+        }
         Get-Process -Name "Pokemon Sanctuary" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
     }
     if (Test-Path -LiteralPath $StartMenuShortcut) {
@@ -126,6 +131,12 @@ function Install-FromStagedDir([string]$SourceDir) {
     $existingCli = Join-Path $BinDir "qs-vpets.ps1"
     if (Test-Path -LiteralPath $existingCli) {
         try { & $existingCli stop | Out-Null } catch {}
+    } else {
+        $existingExe = Join-Path $InstallDir "Pokemon Sanctuary.exe"
+        if (Test-Path -LiteralPath $existingExe) {
+            try { & $existingExe --ipc quit | Out-Null } catch {}
+            Start-Sleep -Milliseconds 600
+        }
     }
     Get-Process -Name "Pokemon Sanctuary" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
     Start-Sleep -Milliseconds 250
