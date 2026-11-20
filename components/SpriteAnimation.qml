@@ -19,16 +19,19 @@ Item {
     property var actionMap: ({})
     property bool showShadow: false
     property int shadowSize: 1
+    property int forcedDirRow: -1
+    property bool paused: false
 
     property var _animData: null
     property var _clip: null
     property string _animName: "Idle"
     property int _frame: 0
-    property int _dirRow: 0
-    property int _targetDirRow: 0
+    property int _dirRow: forcedDirRow >= 0 ? ((forcedDirRow % 8) + 8) % 8 : 0
+    property int _targetDirRow: _dirRow
     property int _repCount: 0
     property real _tickAccum: 0
     property double _lastFrameTickMs: 0
+    property real _scheduledSpeedMult: 1.0
     property real squashX: 1.0
     property real squashY: 1.0
     property bool _inSetState: false
@@ -43,6 +46,12 @@ Item {
         && _clip.loop
         && _clip.holdAtFrame >= 0
         && _frame >= _clip.holdAtFrame
+    readonly property bool _animActive: useSpriteSheet
+        && _currentAnim !== null
+        && visible
+        && Window.visibility !== Window.Hidden
+        && !paused
+        && !_holdingStaticFrame
 
     function triggerSquash(sx: real, sy: real): void {
         squashAnim.stop();
@@ -86,7 +95,75 @@ Item {
         if (nextClip.fixedDirRow >= 0) {
             _dirRow = nextClip.fixedDirRow;
             _targetDirRow = nextClip.fixedDirRow;
+        } else if (forcedDirRow >= 0) {
+            const clamped = ((forcedDirRow % 8) + 8) % 8;
+            _dirRow = clamped;
+            _targetDirRow = clamped;
         }
+        _scheduleNextFrame();
+    }
+
+    function _scheduleNextFrame(): void {
+        if (!_animActive) {
+            frameTimer.stop();
+            return;
+        }
+        const anim = _currentAnim;
+        if (!anim || !anim.durations || anim.durations.length === 0) {
+            frameTimer.stop();
+            return;
+        }
+        const clip = _clip || SpriteSheet.resolveClip(currentState, _animData, actionMap, root.speciesName);
+        const startF = Math.max(0, Math.min(anim.frameCount - 1, clip.startFrame));
+        const endF = Math.max(startF, Math.min(anim.frameCount - 1, clip.endFrame));
+        if (_frame < startF || _frame > endF) {
+            _frame = startF;
+            _tickAccum = 0;
+        }
+        if (clip.loop && clip.holdAtFrame >= 0 && _frame >= clip.holdAtFrame) {
+            _frame = clip.holdAtFrame;
+            _tickAccum = 0;
+            frameTimer.stop();
+            return;
+        }
+        const speedMult = Math.max(0.05, _effectiveSpeedMult(clip));
+        const isLastFrame = _frame >= endF;
+        const needed = (anim.durations[_frame] || 4) + (isLastFrame ? clip.endHoldTicks : 0);
+        const remTicks = Math.max(0, needed - _tickAccum);
+        const delayMs = Math.max(16, Math.round((remTicks * SpriteSheet.PMD_TICK_MS) / speedMult));
+        _scheduledSpeedMult = speedMult;
+        _lastFrameTickMs = Date.now();
+        frameTimer.interval = delayMs;
+        frameTimer.restart();
+    }
+
+    onForcedDirRowChanged: {
+        if (forcedDirRow >= 0 && (!_clip || _clip.fixedDirRow < 0)) {
+            const clamped = ((forcedDirRow % 8) + 8) % 8;
+            _dirRow = clamped;
+            _targetDirRow = clamped;
+        }
+    }
+
+    on_AnimActiveChanged: {
+        if (_animActive) _scheduleNextFrame();
+        else frameTimer.stop();
+    }
+
+    onMoveSpeedChanged: {
+        if (!_animActive || !_clip || !_clip.dynamicWalkSpeed) return;
+        const nextMult = Math.max(0.05, _effectiveSpeedMult(_clip));
+        if (Math.abs(nextMult - _scheduledSpeedMult) < 0.18) return;
+        const now = Date.now();
+        if (_lastFrameTickMs > 0) {
+            const elapsed = Math.min(500, Math.max(0, now - _lastFrameTickMs));
+            _tickAccum += (elapsed / SpriteSheet.PMD_TICK_MS) * _scheduledSpeedMult;
+        }
+        _scheduleNextFrame();
+    }
+
+    Component.onCompleted: {
+        if (_animActive) _scheduleNextFrame();
     }
 
     function setState(name: string): void {
@@ -169,17 +246,15 @@ Item {
     }
 
     Timer {
-        interval: 32
-        running: root.useSpriteSheet
-            && root._currentAnim !== null
-            && root.visible
-            && root.Window.visibility !== Window.Hidden
-            && !root._holdingStaticFrame
-        repeat: true
-        onRunningChanged: root._lastFrameTickMs = Date.now()
+        id: frameTimer
+        interval: 100
+        repeat: false
         onTriggered: {
+            if (!root._animActive) return;
             const now = Date.now();
-            const dtMs = root._lastFrameTickMs > 0 ? Math.min(100, now - root._lastFrameTickMs) : 32;
+            const dtMs = root._lastFrameTickMs > 0
+                ? Math.min(2000, Math.max(1, now - root._lastFrameTickMs))
+                : interval;
             root._lastFrameTickMs = now;
 
             const anim = root._currentAnim;
@@ -199,13 +274,13 @@ Item {
                 return;
             }
 
-            const speedMult = root._effectiveSpeedMult(clip);
+            const speedMult = Math.max(0.05, root._effectiveSpeedMult(clip));
             const isLastFrame = root._frame >= endF;
             const needed = (anim.durations[root._frame] || 4) + (isLastFrame ? clip.endHoldTicks : 0);
 
             root._tickAccum += (dtMs / SpriteSheet.PMD_TICK_MS) * speedMult;
             if (root._tickAccum >= needed) {
-                root._tickAccum = Math.min(root._tickAccum - needed, needed);
+                root._tickAccum = Math.min(root._tickAccum - needed, needed * 0.5);
                 if (isLastFrame) {
                     root._frame = startF;
                     if (!clip.loop && ++root._repCount >= clip.reps) {
@@ -214,12 +289,14 @@ Item {
                         root.oneShotFinished(finishedState);
                         if (root.currentState === finishedState && root._clip === clip) {
                             root._applyState("idle");
+                            return;
                         }
                     }
                 } else {
                     root._frame += 1;
                 }
             }
+            root._scheduleNextFrame();
         }
     }
 
@@ -231,6 +308,7 @@ Item {
             && root._dirRow !== root._targetDirRow
             && root.visible
             && root.Window.visibility !== Window.Hidden
+            && !root.paused
         onTriggered: {
             if (root._clip && root._clip.lockDirection) {
                 root._targetDirRow = root._dirRow;

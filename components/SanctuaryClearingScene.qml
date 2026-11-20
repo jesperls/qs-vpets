@@ -11,6 +11,7 @@ Item {
 
     required property string selectedPetId
     required property bool cardOpen
+    property bool paused: false
     property int cornerRadius: 12
 
     signal companionClicked(petId: string)
@@ -80,7 +81,7 @@ Item {
 
     Timer {
         interval: 150
-        running: root.visible
+        running: root.visible && !root.paused
         repeat: true
         onTriggered: root.animTick = (root.animTick + 1) % 1200
     }
@@ -532,7 +533,7 @@ Item {
 
         Timer {
             interval: 5000 + (actor.slotIndex % 5) * 1400
-            running: actor.visible && !actor.isResting && actor.overrideAnim.length === 0
+            running: actor.visible && !root.paused && !actor.isResting && actor.overrideAnim.length === 0
             repeat: true
             onTriggered: {
                 if (actor.walking || Math.random() < 0.34) return;
@@ -553,14 +554,23 @@ Item {
         }
 
         Timer {
+            property double lastWalkMs: 0
             interval: 16
-            running: actor.visible && actor.walking
+            running: actor.visible && !root.paused && actor.walking
             repeat: true
+            onRunningChanged: {
+                if (running) lastWalkMs = Date.now();
+            }
             onTriggered: {
                 if (actor.isResting) {
                     actor.walking = false;
                     return;
                 }
+                const now = Date.now();
+                const dt = lastWalkMs > 0
+                    ? Math.max(0.004, Math.min(0.05, (now - lastWalkMs) / 1000))
+                    : 0.016;
+                lastWalkMs = now;
                 const dx = actor.targetWorldX - actor.worldX;
                 const dy = actor.targetWorldY - actor.worldY;
                 const dist = Math.hypot(dx, dy);
@@ -576,7 +586,7 @@ Item {
                     root._rememberSpot(actor.campKey, actor.petId, actor.worldX, actor.worldY, settleRow);
                     return;
                 }
-                const step = 24 * actor.ambleMult * 0.016;
+                const step = 24 * actor.ambleMult * dt;
                 let baseAng = Math.atan2(dy, dx);
                 let nextX = actor.worldX + Math.cos(baseAng) * step;
                 let nextY = actor.worldY + Math.sin(baseAng) * step;
@@ -597,7 +607,7 @@ Item {
                     nextX = actor.worldX + Math.cos(baseAng) * step;
                     nextY = actor.worldY + Math.sin(baseAng) * step;
                 }
-                actor._stridePhase = (actor._stridePhase + 0.09) % (Math.PI * 4);
+                actor._stridePhase = (actor._stridePhase + dt * 5.6) % (Math.PI * 4);
                 actorSprite.setDirection(baseAng);
                 actor.worldX = Math.max(actor.bounds.minX, Math.min(actor.effMaxX, nextX));
                 actor.worldY = Math.max(actor.bounds.minY, Math.min(actor.bounds.maxY, nextY));
@@ -623,6 +633,7 @@ Item {
             anchors.fill: parent
             speciesName: actor.petConfig.sprite
             showShadow: true
+            paused: root.paused
             moveSpeed: actor.walking ? (54 * actor.ambleMult) : 0
             gaitOffsetY: {
                 if (actor.isResting) return 0;

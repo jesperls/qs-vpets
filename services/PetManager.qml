@@ -774,7 +774,7 @@ Singleton {
     }
 
     function _syncCursorTracking(): void {
-        const active = !root.hidden && pets.length > 0;
+        const active = !root.hidden && !root.penVisible && pets.length > 0;
         let fast = false;
         if (active) {
             for (let i = 0; i < pets.length; i++) {
@@ -799,13 +799,6 @@ Singleton {
         id: initBootTimer
         interval: 380
         onTriggered: root._ensureInitialParty()
-    }
-
-    Timer {
-        interval: 1500
-        running: !root.hidden && root.pets.length > 0
-        repeat: true
-        onTriggered: root._syncCursorTracking()
     }
 
     Timer {

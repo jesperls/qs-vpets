@@ -1,6 +1,7 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
+import QtQuick.Window
 import "../config"
 
 Item {
@@ -42,14 +43,16 @@ Item {
         if (!kind) return;
         emotePopAnim.stop();
         root.emoteKind = kind;
-        dropletCanvas.requestPaint();
         emoteBadge.opacity = 1;
         emoteBadge.scale = 0.62;
         emoteBadge.popOffsetY = root.flipped ? 0 : 10;
+        if (dropletCanvasLoader.item) dropletCanvasLoader.item.requestPaint();
         emotePopAnim.start();
     }
 
-    onFlippedChanged: dropletCanvas.requestPaint()
+    onFlippedChanged: {
+        if (dropletCanvasLoader.item) dropletCanvasLoader.item.requestPaint();
+    }
 
     Item {
         id: sleepDrift
@@ -63,42 +66,46 @@ Item {
 
         property real sleepY: root.flipped ? 6 : 10
 
-        Canvas {
-            id: sleepCanvas
+        Loader {
+            id: sleepCanvasLoader
             anchors.fill: parent
-            smooth: false
-            antialiasing: false
+            active: sleepDrift.visible && root.Window.visibility !== Window.Hidden
+            sourceComponent: Canvas {
+                anchors.fill: parent
+                smooth: false
+                antialiasing: false
 
-            onPaint: {
-                const ctx = getContext("2d");
-                ctx.reset();
-                const rows = [
-                    "....ZZZZZ",
-                    ".......Z.",
-                    "......Z..",
-                    ".....Z...",
-                    "....ZZZZZ",
-                    ".zzz.....",
-                    "..z......",
-                    ".z.......",
-                    ".zzz....."
-                ];
-                for (let r = 0; r < rows.length; r++) {
-                    const line = rows[r];
-                    for (let c = 0; c < line.length; c++) {
-                        const ch = line[c];
-                        if (ch === ".") continue;
-                        ctx.fillStyle = "#2b211b";
-                        ctx.fillRect(c * 2 + 1, r * 2 + 1, 2, 2);
-                        ctx.fillStyle = ch === "Z" ? "#f7efe2" : "#cbb8ef";
-                        ctx.fillRect(c * 2, r * 2, 2, 2);
+                onPaint: {
+                    const ctx = getContext("2d");
+                    ctx.reset();
+                    const rows = [
+                        "....ZZZZZ",
+                        ".......Z.",
+                        "......Z..",
+                        ".....Z...",
+                        "....ZZZZZ",
+                        ".zzz.....",
+                        "..z......",
+                        ".z.......",
+                        ".zzz....."
+                    ];
+                    for (let r = 0; r < rows.length; r++) {
+                        const line = rows[r];
+                        for (let c = 0; c < line.length; c++) {
+                            const ch = line[c];
+                            if (ch === ".") continue;
+                            ctx.fillStyle = "#2b211b";
+                            ctx.fillRect(c * 2 + 1, r * 2 + 1, 2, 2);
+                            ctx.fillStyle = ch === "Z" ? "#f7efe2" : "#cbb8ef";
+                            ctx.fillRect(c * 2, r * 2, 2, 2);
+                        }
                     }
                 }
             }
         }
 
         SequentialAnimation {
-            running: sleepDrift.visible
+            running: sleepDrift.visible && root.Window.visibility !== Window.Hidden
             loops: Animation.Infinite
             PauseAnimation { duration: 14500 }
             ParallelAnimation {
@@ -130,13 +137,20 @@ Item {
         x: Math.round((root.width - width) * 0.5)
         y: (root.flipped ? 2 : (2 - root.altitude)) + popOffsetY
 
-        Canvas {
-            id: dropletCanvas
+        Loader {
+            id: dropletCanvasLoader
             anchors.fill: parent
-            smooth: false
-            antialiasing: false
+            active: emoteBadge.visible
+            onLoaded: {
+                if (item) item.requestPaint();
+            }
+            sourceComponent: Canvas {
+                id: dropletCanvas
+                anchors.fill: parent
+                smooth: false
+                antialiasing: false
 
-            onPaint: {
+                onPaint: {
                 const ctx = getContext("2d");
                 ctx.reset();
                 if (!root.emoteKind) return;
@@ -337,6 +351,7 @@ Item {
                     }
                 }
             }
+        }
         }
 
         ParallelAnimation {
