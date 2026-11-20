@@ -10,6 +10,7 @@ import "behavior/Topology.js" as Topology
 Item {
     id: root
     anchors.fill: parent
+    z: dragArea.dragging || inspectorLoader.active ? 20 : 1
 
     required property string petId
     property var activeScreen: null
@@ -323,7 +324,7 @@ Item {
 
     MouseArea {
         id: dragArea
-        anchors.fill: parent
+        anchors.fill: petHitbox
         hoverEnabled: true
         acceptedButtons: Qt.LeftButton | Qt.RightButton
         cursorShape: dragging ? Qt.ClosedHandCursor : Qt.OpenHandCursor
@@ -355,7 +356,8 @@ Item {
         onDraggingChanged: root.hitRegionsUpdated()
 
         onPressed: mouse => {
-            if (root.activeScreen) InputTracker.updateFromPointer(root.activeScreen.x + mouse.x, root.activeScreen.y + mouse.y);
+            const pt = dragArea.mapToItem(root, mouse.x, mouse.y);
+            if (root.activeScreen) InputTracker.updateFromPointer(root.activeScreen.x + pt.x, root.activeScreen.y + pt.y);
             const isContextClick = mouse.button === Qt.RightButton
                 || (allowCtrlContext && mouse.button === Qt.LeftButton && (mouse.modifiers & Qt.ControlModifier));
             if (isContextClick) {
@@ -365,14 +367,14 @@ Item {
             didDrag = false;
             dragging = false;
             offScreenDragging = false;
-            grabX = mouse.x;
-            grabY = mouse.y;
+            grabX = pt.x;
+            grabY = pt.y;
             grabPetX = petItem.worldX;
             grabPetY = petItem.worldY;
             rawPetX = petItem.worldX;
             rawPetY = petItem.worldY;
-            prevMouseX = mouse.x;
-            prevMouseY = mouse.y;
+            prevMouseX = pt.x;
+            prevMouseY = pt.y;
             prevMoveMs = Date.now();
             velX = 0;
             velY = 0;
@@ -422,10 +424,11 @@ Item {
         onCanceled: finishInteraction()
 
         onPositionChanged: mouse => {
-            if (root.activeScreen) InputTracker.updateFromPointer(root.activeScreen.x + mouse.x, root.activeScreen.y + mouse.y);
+            const pt = dragArea.mapToItem(root, mouse.x, mouse.y);
+            if (root.activeScreen) InputTracker.updateFromPointer(root.activeScreen.x + pt.x, root.activeScreen.y + pt.y);
             else InputTracker.registerMouseMove();
             if (pressed && (pressedButtons & Qt.LeftButton) && !(allowCtrlContext && (mouse.modifiers & Qt.ControlModifier))) {
-                const moveFromGrab = Math.hypot(mouse.x - grabX, mouse.y - grabY);
+                const moveFromGrab = Math.hypot(pt.x - grabX, pt.y - grabY);
                 if (!dragging && moveFromGrab > 5) {
                     dragging = true;
                     didDrag = true;
@@ -438,16 +441,16 @@ Item {
                 if (dragging) {
                     const now = Date.now();
                     const dt = Math.max(0.008, (now - prevMoveMs) / 1000);
-                    const instVX = (mouse.x - prevMouseX) / dt;
-                    const instVY = (mouse.y - prevMouseY) / dt;
+                    const instVX = (pt.x - prevMouseX) / dt;
+                    const instVY = (pt.y - prevMouseY) / dt;
                     velX = velX * 0.55 + instVX * 0.45;
                     velY = velY * 0.55 + instVY * 0.45;
-                    prevMouseX = mouse.x;
-                    prevMouseY = mouse.y;
+                    prevMouseX = pt.x;
+                    prevMouseY = pt.y;
                     prevMoveMs = now;
 
-                    rawPetX = grabPetX + (mouse.x - grabX);
-                    rawPetY = grabPetY + (mouse.y - grabY);
+                    rawPetX = grabPetX + (pt.x - grabX);
+                    rawPetY = grabPetY + (pt.y - grabY);
                     if (Math.abs(velX) > 25) petItem.facingRight = velX >= 0;
 
                     const cgx = root.activeScreen.x + rawPetX + root.petSize / 2;
@@ -473,10 +476,10 @@ Item {
                 return;
             }
 
-            const insidePet = mouse.x >= petHitbox.x
-                && mouse.x <= petHitbox.x + petHitbox.width
-                && mouse.y >= petHitbox.y
-                && mouse.y <= petHitbox.y + petHitbox.height;
+            const insidePet = pt.x >= petHitbox.x
+                && pt.x <= petHitbox.x + petHitbox.width
+                && pt.y >= petHitbox.y
+                && pt.y <= petHitbox.y + petHitbox.height;
             if (insidePet && !hovering) {
                 hovering = true;
                 hoverTime = 0;
@@ -491,7 +494,7 @@ Item {
             }
 
             if (hovering && lastHoverX >= 0) {
-                const d = Math.hypot(mouse.x - lastHoverX, mouse.y - lastHoverY);
+                const d = Math.hypot(pt.x - lastHoverX, pt.y - lastHoverY);
                 if (d > 1 && d < 60) {
                     strokeDist += d;
                     if (strokeDist >= 105) {
@@ -504,8 +507,8 @@ Item {
                     }
                 }
             }
-            lastHoverX = mouse.x;
-            lastHoverY = mouse.y;
+            lastHoverX = pt.x;
+            lastHoverY = pt.y;
         }
 
         onEntered: {
