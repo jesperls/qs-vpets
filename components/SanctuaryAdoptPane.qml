@@ -27,6 +27,7 @@ Rectangle {
     readonly property bool searchActiveFocus: catalogSearchInput.activeFocus
     readonly property bool nameActiveFocus: adoptNameField.activeFocus
     readonly property bool hasSearchText: catalogSearchInput.text.length > 0
+    readonly property int gridColumns: guideGrid.cols
 
     signal companionAdopted(petId: string)
     signal closeGuideRequested()
@@ -73,6 +74,20 @@ Rectangle {
     function blurInputs(): void {
         catalogSearchInput.focus = false;
         adoptNameField.focus = false;
+    }
+
+    function moveSelection(delta: int): void {
+        const list = root.filteredCatalog;
+        if (!list || list.length === 0) return;
+        const curIdx = list.indexOf(root.selectedSpecies);
+        const base = curIdx >= 0 ? curIdx : 0;
+        const nextIdx = Math.max(0, Math.min(list.length - 1, base + delta));
+        root.selectedSpecies = list[nextIdx];
+        guideGrid.positionViewAtIndex(nextIdx, GridView.Contain);
+    }
+
+    function adoptSelected(): void {
+        _welcomeSelected(root.selectedSpecies);
     }
 
     function _welcomeSelected(sp: string): void {
@@ -185,6 +200,10 @@ Rectangle {
                         font.pixelSize: 12
                         clip: true
                         onTextChanged: root.catalogSearch = text
+                        Keys.onReturnPressed: root.adoptSelected()
+                        Keys.onEnterPressed: root.adoptSelected()
+                        Keys.onDownPressed: root.moveSelection(root.gridColumns)
+                        Keys.onUpPressed: root.moveSelection(-root.gridColumns)
 
                         HoverHandler {
                             cursorShape: Qt.IBeamCursor

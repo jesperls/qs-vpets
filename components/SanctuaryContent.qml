@@ -67,6 +67,23 @@ Item {
     }
 
     readonly property var adoptPaneItem: adoptLoader.item as SanctuaryAdoptPane
+    readonly property bool _textInputFocused: detailPane.renameActiveFocus
+        || (root.adoptPaneItem !== null && (root.adoptPaneItem.searchActiveFocus || root.adoptPaneItem.nameActiveFocus))
+
+    function _stepCompanion(delta: int): void {
+        const list = Config.pets;
+        if (!list || list.length === 0) return;
+        const curIdx = list.findIndex(p => p.id === root.selectedPetId);
+        const base = curIdx >= 0 ? curIdx : 0;
+        const nextIdx = (base + delta + list.length) % list.length;
+        root.selectCompanion(list[nextIdx].id, false);
+    }
+
+    function _selectPartySlot(idx: int): void {
+        const list = Config.pets;
+        if (!list || idx < 0 || idx >= list.length) return;
+        root.selectCompanion(list[idx].id, false);
+    }
 
     Shortcut {
         sequence: "Escape"
@@ -95,13 +112,75 @@ Item {
     Shortcut {
         sequence: "/"
         context: Qt.WindowShortcut
-        enabled: root.adoptMode
-            && !detailPane.renameActiveFocus
-            && !(root.adoptPaneItem && (root.adoptPaneItem.searchActiveFocus || root.adoptPaneItem.nameActiveFocus))
+        enabled: root.adoptMode && !root._textInputFocused
         onActivated: {
             if (root.adoptPaneItem) root.adoptPaneItem.focusSearch();
         }
     }
+
+    Shortcut {
+        sequence: "Left"
+        context: Qt.WindowShortcut
+        enabled: !root._textInputFocused
+        onActivated: {
+            if (root.adoptMode && root.adoptPaneItem) root.adoptPaneItem.moveSelection(-1);
+            else if (!root.adoptMode) root._stepCompanion(-1);
+        }
+    }
+
+    Shortcut {
+        sequence: "Right"
+        context: Qt.WindowShortcut
+        enabled: !root._textInputFocused
+        onActivated: {
+            if (root.adoptMode && root.adoptPaneItem) root.adoptPaneItem.moveSelection(1);
+            else if (!root.adoptMode) root._stepCompanion(1);
+        }
+    }
+
+    Shortcut {
+        sequence: "Up"
+        context: Qt.WindowShortcut
+        enabled: root.adoptMode && !root._textInputFocused
+        onActivated: {
+            if (root.adoptPaneItem) root.adoptPaneItem.moveSelection(-root.adoptPaneItem.gridColumns);
+        }
+    }
+
+    Shortcut {
+        sequence: "Down"
+        context: Qt.WindowShortcut
+        enabled: root.adoptMode && !root._textInputFocused
+        onActivated: {
+            if (root.adoptPaneItem) root.adoptPaneItem.moveSelection(root.adoptPaneItem.gridColumns);
+        }
+    }
+
+    Shortcut {
+        sequences: ["Return", "Enter"]
+        context: Qt.WindowShortcut
+        enabled: root.adoptMode && !root._textInputFocused
+        onActivated: {
+            if (root.adoptPaneItem) root.adoptPaneItem.adoptSelected();
+        }
+    }
+
+    Shortcut {
+        sequence: "Tab"
+        context: Qt.WindowShortcut
+        enabled: !root.adoptMode && !root._textInputFocused && root.cardOpen
+        onActivated: detailPane.activePage = detailPane.activePage === 0 ? 1 : 0
+    }
+
+    Shortcut { sequence: "1"; context: Qt.WindowShortcut; enabled: !root.adoptMode && !root._textInputFocused; onActivated: root._selectPartySlot(0) }
+    Shortcut { sequence: "2"; context: Qt.WindowShortcut; enabled: !root.adoptMode && !root._textInputFocused; onActivated: root._selectPartySlot(1) }
+    Shortcut { sequence: "3"; context: Qt.WindowShortcut; enabled: !root.adoptMode && !root._textInputFocused; onActivated: root._selectPartySlot(2) }
+    Shortcut { sequence: "4"; context: Qt.WindowShortcut; enabled: !root.adoptMode && !root._textInputFocused; onActivated: root._selectPartySlot(3) }
+    Shortcut { sequence: "5"; context: Qt.WindowShortcut; enabled: !root.adoptMode && !root._textInputFocused; onActivated: root._selectPartySlot(4) }
+    Shortcut { sequence: "6"; context: Qt.WindowShortcut; enabled: !root.adoptMode && !root._textInputFocused; onActivated: root._selectPartySlot(5) }
+    Shortcut { sequence: "7"; context: Qt.WindowShortcut; enabled: !root.adoptMode && !root._textInputFocused; onActivated: root._selectPartySlot(6) }
+    Shortcut { sequence: "8"; context: Qt.WindowShortcut; enabled: !root.adoptMode && !root._textInputFocused; onActivated: root._selectPartySlot(7) }
+    Shortcut { sequence: "9"; context: Qt.WindowShortcut; enabled: !root.adoptMode && !root._textInputFocused; onActivated: root._selectPartySlot(8) }
 
     // Warm wooden window frame around the full-bleed clearing
     Rectangle {
@@ -120,6 +199,7 @@ Item {
             cornerRadius: Math.max(4, windowShell.radius - 6)
             selectedPetId: root.selectedPetId
             cardOpen: !root.adoptMode && root.cardOpen && root.selectedConfig !== null
+            paused: root.adoptMode
             onCompanionClicked: petId => root.selectCompanion(petId, false)
             onBackgroundClicked: {
                 root.prefsExpanded = false;
