@@ -150,8 +150,17 @@ Item {
     property bool _retiringToPen: false
     property bool _pendingPenArrival: false
     readonly property bool activeOnDesktop: !PetManager.hidden && !PetManager.penVisible
+    readonly property bool isInspected: PetManager.inspectedPet === root
     property bool _loadedState: false
     property bool _stateReady: false
+
+    onState_Changed: PetManager._syncCursorTracking()
+    onActivePlanChanged: PetManager._syncCursorTracking()
+    onIsInspectedChanged: {
+        if (isInspected && state_ !== "deepsleep" && state_ !== "drag" && state_ !== "airborne") {
+            spriteAnim.setDirectionRow(0, false);
+        }
+    }
 
     readonly property bool enablePerching: Config.enablePerching
     readonly property bool enableMusicReact: Config.enableMusicReact
@@ -703,7 +712,7 @@ Item {
             if (!root.activeOnDesktop) return;
             if (root.state_ === "idle" && !idleTimer.running && !planBeatTimer.running) {
                 root.restartIdle(0.6);
-            } else if (root.state_ === "walk" && root.onJourney && root._journeyBeganMs > 0
+            } else if (!root.isInspected && root.state_ === "walk" && root.onJourney && root._journeyBeganMs > 0
                     && (now - root._journeyBeganMs) > 28000) {
                 root.onJourney = false;
                 Brain.onBlocked(root);
@@ -713,6 +722,7 @@ Item {
     }
 
     readonly property real targetSpeed: {
+        if (isInspected) return 0;
         const inertiaScale = 1 - Math.min(0.30, root.sleepInertia * 0.35);
         if (state_ === "walk") {
             let spd = Config.walkSpeed * SpeciesProfile.gaitMultiplier(root, gait) * inertiaScale;

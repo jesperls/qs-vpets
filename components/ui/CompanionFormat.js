@@ -1,6 +1,7 @@
 .pragma library
 
 .import "../SpeciesProfile.js" as SpeciesProfile
+.import "../behavior/Drives.js" as Drives
 .import "FriendAreas.js" as FriendAreas
 
 function capitalize(word) {
@@ -93,9 +94,16 @@ function moodWord(src) {
     return { label: "Wistful", icon: "heart", tone: "warm" };
 }
 
-function bellyWord(src) {
+function isStuffed(src, species) {
     var s = (src && src.satiety !== undefined) ? Number(src.satiety) : 0.58;
-    if (s >= 0.84) return { label: "Stuffed", itemSprite: "oran_berry.png", icon: "", tone: "warm", notable: false };
+    var fullAt = Drives.fullThresholdFor(species || src);
+    return s >= fullAt;
+}
+
+function bellyWord(src, species) {
+    var s = (src && src.satiety !== undefined) ? Number(src.satiety) : 0.58;
+    var fullAt = Drives.fullThresholdFor(species || src);
+    if (s >= fullAt) return { label: "Stuffed", itemSprite: "oran_berry.png", icon: "", tone: "warm", notable: true };
     if (s >= 0.64) return { label: "Well-fed", itemSprite: "oran_berry.png", icon: "", tone: "positive", notable: false };
     if (s >= 0.44) return { label: "Content", itemSprite: "oran_berry.png", icon: "", tone: "accent", notable: false };
     return { label: "Light appetite", itemSprite: "oran_berry.png", icon: "", tone: "accent", notable: false };

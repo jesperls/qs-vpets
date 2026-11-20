@@ -18,12 +18,11 @@ ColumnLayout {
     signal careRequested(act: string)
     signal evolvedCeremony()
 
+    readonly property string speciesId: root.selectedConfig ? (root.selectedConfig.sprite ?? "") : ""
     readonly property var moodBadge: Fmt.moodWord(root.stateSource)
-    readonly property var bellyBadge: Fmt.bellyWord(root.stateSource)
+    readonly property var bellyBadge: Fmt.bellyWord(root.stateSource, root.speciesId)
     readonly property var energyBadge: Fmt.energyWord(root.stateSource, root.currentAnimState)
-    readonly property bool isStuffed: ((root.stateSource && root.stateSource.satiety !== undefined)
-        ? Number(root.stateSource.satiety)
-        : 0.58) >= 0.82
+    readonly property bool isStuffed: Fmt.isStuffed(root.stateSource, root.speciesId)
 
     function _toneColor(tone: string): color {
         switch (tone) {

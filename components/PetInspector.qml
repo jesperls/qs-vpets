@@ -21,8 +21,9 @@ Rectangle {
         return id ? PetManager.residentFor(id) : null;
     }
 
-    readonly property var bellyInfo: Fmt.bellyWord(root.pet)
+    readonly property var bellyInfo: Fmt.bellyWord(root.pet, root.pet && root.pet.petData ? root.pet.petData.sprite : "")
     readonly property var energyInfo: Fmt.energyWord(root.pet, root.pet ? root.pet.state_ : "idle")
+    Keys.onEscapePressed: PetManager.closeInspector()
 
     implicitWidth: cardWidth
     implicitHeight: Math.min(maxHeight, mainCol.implicitHeight + 26)
@@ -245,7 +246,7 @@ Rectangle {
                         || root.pet.state_ === "laying"
                         || root.pet.state_ === "sit"
                         || root.pet.state_ === "deepsleep";
-                    const stuffed = (root.pet.satiety ?? 0.58) >= 0.82;
+                    const stuffed = Fmt.isStuffed(root.pet, root.pet.petData ? root.pet.petData.sprite : "");
                     return [
                         { label: "Pet", icon: "paw", act: "pat", tint: Theme.love, muted: false },
                         { label: stuffed ? "Full" : "Berry", icon: "", act: "feed", tint: Theme.accent, muted: stuffed },

@@ -20,6 +20,22 @@ Item {
     signal screenSelected(nextScreen: var)
     signal hitRegionsUpdated
 
+    property bool _hitRegionsDirty: false
+    property double _lastMotionMs: 0
+
+    function _scheduleHitRegionsUpdate(): void {
+        if (!root.windowActive || _hitRegionsDirty) return;
+        _hitRegionsDirty = true;
+        Qt.callLater(() => {
+            root._hitRegionsDirty = false;
+            if (root.windowActive) root.hitRegionsUpdated();
+        });
+    }
+
+    onWindowActiveChanged: {
+        if (windowActive) root.hitRegionsUpdated();
+    }
+
     readonly property alias petHitboxItem: petHitbox
     readonly property alias inspectorItem: inspectorLoader
     readonly property bool pointerPressed: dragArea.captureActive
@@ -96,10 +112,10 @@ Item {
         y: petItem.worldY - petItem.altitude - 6
         width: root.petSize + 8
         height: root.petSize + 10
-        onXChanged: root.hitRegionsUpdated()
-        onYChanged: root.hitRegionsUpdated()
-        onWidthChanged: root.hitRegionsUpdated()
-        onHeightChanged: root.hitRegionsUpdated()
+        onXChanged: root._scheduleHitRegionsUpdate()
+        onYChanged: root._scheduleHitRegionsUpdate()
+        onWidthChanged: root._scheduleHitRegionsUpdate()
+        onHeightChanged: root._scheduleHitRegionsUpdate()
     }
 
     Item {
@@ -169,8 +185,16 @@ Item {
         }
         running: root.windowActive && petItem.state_ !== "drag" && root._needsMotionTick
         repeat: true
+        onRunningChanged: {
+            if (running) root._lastMotionMs = Date.now();
+        }
         onTriggered: {
-            petItem.updateMovement(interval / 1000);
+            const now = Date.now();
+            const dt = root._lastMotionMs > 0
+                ? Math.max(0.004, Math.min(0.05, (now - root._lastMotionMs) / 1000))
+                : (interval / 1000);
+            root._lastMotionMs = now;
+            petItem.updateMovement(dt);
             if (petItem.currentSpeed > 0 || petItem.state_ === "airborne") root._resolveBounds();
         }
     }
@@ -334,6 +358,7 @@ Item {
         property bool dragging: false
         property bool offScreenDragging: false
         property bool didDrag: false
+        property bool contextPress: false
         property real grabX: 0
         property real grabY: 0
         property real grabPetX: 0
@@ -367,10 +392,12 @@ Item {
             const isContextClick = mouse.button === Qt.RightButton
                 || (allowCtrlContext && mouse.button === Qt.LeftButton && (mouse.modifiers & Qt.ControlModifier));
             if (isContextClick) {
+                contextPress = true;
                 captureActive = false;
                 PetManager.toggleInspector(petItem);
                 return;
             }
+            contextPress = false;
             captureActive = true;
             didDrag = false;
             dragging = false;
@@ -389,6 +416,7 @@ Item {
         }
 
         function finishInteraction(): void {
+            contextPress = false;
             captureActive = false;
             if (!dragging) return;
             dragging = false;
@@ -403,7 +431,12 @@ Item {
             const cgx = curScr.x + rawPetX + root.petSize / 2;
             const cgy = curScr.y + rawPetY + root.petSize / 2;
             const t = root._screenAt(cgx, cgy);
-            if (t && t !== root.activeScreen) root._setScreen(t);
+            if (t && t !== root.activeScreen) {
+                root._setScreen(t);
+                if (root.preferredMonitor && t.name && t.name !== root.preferredMonitor) {
+                    Config.updatePetMonitor(root.petId, t.name);
+                }
+            }
 
             petItem.worldX = Math.max(0, Math.min(root.activeScreen.width - root.petSize, cgx - root.petSize / 2 - root.activeScreen.x));
             petItem.worldY = Math.max(0, Math.min(root.activeScreen.height - root.petSize, cgy - root.petSize / 2 - root.activeScreen.y));
@@ -423,7 +456,9 @@ Item {
 
         onReleased: mouse => {
             captureActive = false;
-            if (mouse.button === Qt.RightButton || (allowCtrlContext && (mouse.modifiers & Qt.ControlModifier))) return;
+            const wasContext = contextPress;
+            contextPress = false;
+            if (wasContext || mouse.button === Qt.RightButton || (allowCtrlContext && (mouse.modifiers & Qt.ControlModifier))) return;
             if (dragging) {
                 finishInteraction();
             } else if (!didDrag) {
@@ -437,6 +472,7 @@ Item {
             const pt = dragArea.mapToItem(root, mouse.x, mouse.y);
             if (root.activeScreen) InputTracker.updateFromPointer(root.activeScreen.x + pt.x, root.activeScreen.y + pt.y);
             else InputTracker.registerMouseMove();
+            if (contextPress) return;
             if (pressed && (pressedButtons & Qt.LeftButton) && !(allowCtrlContext && (mouse.modifiers & Qt.ControlModifier))) {
                 const moveFromGrab = Math.hypot(pt.x - grabX, pt.y - grabY);
                 if (!dragging && moveFromGrab > 5) {
@@ -579,11 +615,11 @@ Item {
             const ideal = petItem.worldY + root.petSize / 2 - h / 2;
             return Math.max(minY, Math.min(maxY, ideal));
         }
-        onActiveChanged: root.hitRegionsUpdated()
-        onXChanged: root.hitRegionsUpdated()
-        onYChanged: root.hitRegionsUpdated()
-        onWidthChanged: root.hitRegionsUpdated()
-        onHeightChanged: root.hitRegionsUpdated()
+        onActiveChanged: root._scheduleHitRegionsUpdate()
+        onXChanged: root._scheduleHitRegionsUpdate()
+        onYChanged: root._scheduleHitRegionsUpdate()
+        onWidthChanged: root._scheduleHitRegionsUpdate()
+        onHeightChanged: root._scheduleHitRegionsUpdate()
 
         sourceComponent: PetInspector {
             pet: petItem

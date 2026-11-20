@@ -250,6 +250,7 @@ ShellRoot {
                 currentState: "drag"
                 altitude: 18
                 mirror: PetManager.dragGhostMirror
+                forcedDirRow: PetManager.dragGhostMirror ? 6 : 2
                 spriteDir: PetManager.dragGhostSprite
                     ? Qt.resolvedUrl("assets/sprites/" + PetManager.dragGhostSprite)
                     : ""
