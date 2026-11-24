@@ -19,7 +19,7 @@ if [ -n "${QS_VPETS_VERSION:-}" ]; then
 elif [ -f "$shellRoot/VERSION" ]; then
 	version=$(tr -d '[:space:]' <"$shellRoot/VERSION")
 else
-	version="0.10.0"
+	version="0.11.0"
 fi
 
 die() {

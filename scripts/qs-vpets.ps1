@@ -8,7 +8,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$Version = "0.10.0"
+$Version = "0.11.0"
 if ($env:QS_VPETS_VERSION) {
     $Version = $env:QS_VPETS_VERSION
 } else {
